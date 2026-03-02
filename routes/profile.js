@@ -8,24 +8,24 @@ const router = express.Router();
 router.post('/save', async (req, res) => {
   try {
     const { userId, email, ...profileData } = req.body;
-    console.log('Profile save request:', { 
+    console.log('📝 Profile save request:', { 
       userId, 
       email, 
-      hasProfilePhoto: !!profileData.profilePhoto,
-      hasInternships: !!profileData.internships,
-      hasLanguages: !!profileData.languages,
-      allFields: Object.keys(profileData)
+      dataKeys: Object.keys(profileData)
     });
+    console.log('📋 Full profile data:', JSON.stringify(profileData, null, 2));
     
     if (!userId && !email) {
+      console.log('❌ Missing userId and email');
       return res.status(400).json({ error: 'userId or email required' });
     }
     
     // Check if userId is valid UUID
     const isValidUUID = userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
+    console.log('🔍 UUID validation:', { userId, isValidUUID });
     
     // Save to Profile collection
-    const [profile] = await Profile.upsert({
+    const [profile, created] = await Profile.upsert({
       userId: isValidUUID ? userId : null,
       email, 
       name: profileData.name,
@@ -61,6 +61,8 @@ router.post('/save', async (req, res) => {
       degree: profileData.degree || null
     });
     
+    console.log('✅ Profile saved:', { id: profile.id, created, email });
+    
     // Also update User collection with key fields (only if valid UUID)
     if (isValidUUID) {
       await User.update({
@@ -74,17 +76,12 @@ router.post('/save', async (req, res) => {
       }, {
         where: { id: userId }
       });
+      console.log('✅ User table also updated');
     }
     
-    console.log('Profile saved successfully:', profile.id);
-    console.log('Saved profile data:', {
-      internships: profile.internships,
-      languages: profile.languages,
-      employment: profile.employment
-    });
     res.json({ success: true, profile });
   } catch (error) {
-    console.error('Profile save error:', error);
+    console.error('❌ Profile save error:', error);
     res.status(500).json({ error: error.message });
   }
 });
