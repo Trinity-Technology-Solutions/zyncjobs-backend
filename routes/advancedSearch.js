@@ -9,10 +9,12 @@ const router = express.Router();
 router.post('/advanced', async (req, res) => {
   try {
     const searchParams = req.body;
+    console.log('Search params:', searchParams);
     const result = await advancedJobSearch(searchParams);
     res.json(result);
   } catch (error) {
-    console.error('Advanced search error:', error);
+    console.error('Advanced search error:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: error.message });
   }
 });
@@ -76,29 +78,13 @@ router.get('/trending', async (req, res) => {
 // GET /api/search/filters - Get available filter options
 router.get('/filters', async (req, res) => {
   try {
-    const [
-      jobTypes,
-      locationTypes,
-      industries,
-      companySizes,
-      skills,
-      locations
-    ] = await Promise.all([
-      Job.distinct('jobType', { isActive: true, status: 'approved' }),
-      Job.distinct('locationType', { isActive: true, status: 'approved' }),
-      Job.distinct('industry', { isActive: true, status: 'approved' }),
-      Job.distinct('companySize', { isActive: true, status: 'approved' }),
-      Job.distinct('skills', { isActive: true, status: 'approved' }),
-      Job.distinct('location', { isActive: true, status: 'approved' })
-    ]);
-
+    // Return default filter options
     res.json({
-      jobTypes: jobTypes.filter(Boolean),
-      locationTypes: locationTypes.filter(Boolean),
-      industries: industries.filter(Boolean),
-      companySizes: companySizes.filter(Boolean),
-      skills: skills.filter(Boolean).slice(0, 50), // Limit skills for performance
-      locations: locations.filter(Boolean).slice(0, 100) // Limit locations
+      jobTypes: ['Full-time', 'Part-time', 'Contract', 'Internship', 'Freelance'],
+      locationTypes: ['On-site', 'Remote', 'Hybrid'],
+      industries: ['Technology', 'Healthcare', 'Finance', 'Education', 'Retail', 'Manufacturing'],
+      companySizes: ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'],
+      locations: []
     });
   } catch (error) {
     console.error('Filters error:', error);
@@ -134,13 +120,17 @@ router.put('/track-view/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
     
-    await Job.findByIdAndUpdate(jobId, { $inc: { views: 1 } });
+    const job = await Job.findByPk(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    // Increment views
+    await job.increment('views', { by: 1 });
     
     // Update trending status if views exceed threshold
-    const job = await Job.findById(jobId);
-    if (job && job.views >= 100 && !job.trending) {
-      job.trending = true;
-      await job.save();
+    if (job.views >= 100 && !job.trending) {
+      await job.update({ trending: true });
     }
     
     res.json({ success: true });

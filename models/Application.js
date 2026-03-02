@@ -13,7 +13,7 @@ const Application = sequelize.define('Application', {
   },
   candidateId: {
     type: DataTypes.UUID,
-    allowNull: false
+    allowNull: true  // Allow null for quick apply without login
   },
   employerId: DataTypes.UUID,
   candidateEmail: {
@@ -23,7 +23,7 @@ const Application = sequelize.define('Application', {
   candidateName: DataTypes.STRING,
   employerEmail: DataTypes.STRING,
   status: {
-    type: DataTypes.ENUM('pending', 'reviewed', 'shortlisted', 'rejected', 'hired'),
+    type: DataTypes.ENUM('pending', 'reviewed', 'shortlisted', 'interviewed', 'rejected', 'hired'),
     defaultValue: 'pending'
   },
   coverLetter: DataTypes.TEXT,
