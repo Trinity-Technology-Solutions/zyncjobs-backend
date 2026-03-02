@@ -1,0 +1,1208 @@
+[
+  {
+    "id": 1,
+    "name": "Zoho",
+    "domain": "zoho.com",
+    "logoUrl": "https://img.logo.dev/zoho.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 2,
+    "name": "TCS",
+    "domain": "tcs.com",
+    "logoUrl": "https://img.logo.dev/tcs.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 3,
+    "name": "Infosys",
+    "domain": "infosys.com",
+    "logoUrl": "https://img.logo.dev/infosys.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 4,
+    "name": "Wipro",
+    "domain": "wipro.com",
+    "logoUrl": "https://img.logo.dev/wipro.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 5,
+    "name": "HCL Technologies",
+    "domain": "hcltech.com",
+    "logoUrl": "https://img.logo.dev/hcltech.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 6,
+    "name": "Tech Mahindra",
+    "domain": "techmahindra.com",
+    "logoUrl": "https://img.logo.dev/techmahindra.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 7,
+    "name": "Accenture",
+    "domain": "accenture.com",
+    "logoUrl": "https://img.logo.dev/accenture.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 8,
+    "name": "IBM",
+    "domain": "ibm.com",
+    "logoUrl": "https://img.logo.dev/ibm.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 9,
+    "name": "Microsoft",
+    "domain": "microsoft.com",
+    "logoUrl": "https://img.logo.dev/microsoft.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 10,
+    "name": "Google",
+    "domain": "google.com",
+    "logoUrl": "https://img.logo.dev/google.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 11,
+    "name": "Amazon",
+    "domain": "amazon.com",
+    "logoUrl": "https://img.logo.dev/amazon.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 12,
+    "name": "Apple",
+    "domain": "apple.com",
+    "logoUrl": "https://img.logo.dev/apple.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 13,
+    "name": "Meta",
+    "domain": "meta.com",
+    "logoUrl": "https://img.logo.dev/meta.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 14,
+    "name": "Netflix",
+    "domain": "netflix.com",
+    "logoUrl": "https://img.logo.dev/netflix.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 15,
+    "name": "Adobe",
+    "domain": "adobe.com",
+    "logoUrl": "https://img.logo.dev/adobe.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 16,
+    "name": "Salesforce",
+    "domain": "salesforce.com",
+    "logoUrl": "https://img.logo.dev/salesforce.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 17,
+    "name": "Oracle",
+    "domain": "oracle.com",
+    "logoUrl": "https://img.logo.dev/oracle.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 18,
+    "name": "SAP",
+    "domain": "sap.com",
+    "logoUrl": "https://img.logo.dev/sap.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 19,
+    "name": "Intel",
+    "domain": "intel.com",
+    "logoUrl": "https://img.logo.dev/intel.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 20,
+    "name": "NVIDIA",
+    "domain": "nvidia.com",
+    "logoUrl": "https://img.logo.dev/nvidia.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 21,
+    "name": "Dell Technologies",
+    "domain": "dell.com",
+    "logoUrl": "https://img.logo.dev/dell.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 22,
+    "name": "HP",
+    "domain": "hp.com",
+    "logoUrl": "https://img.logo.dev/hp.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 23,
+    "name": "Cisco",
+    "domain": "cisco.com",
+    "logoUrl": "https://img.logo.dev/cisco.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 24,
+    "name": "VMware",
+    "domain": "vmware.com",
+    "logoUrl": "https://img.logo.dev/vmware.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 25,
+    "name": "Atlassian",
+    "domain": "atlassian.com",
+    "logoUrl": "https://img.logo.dev/atlassian.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 26,
+    "name": "Capgemini",
+    "domain": "capgemini.com",
+    "logoUrl": "https://img.logo.dev/capgemini.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 27,
+    "name": "Cognizant",
+    "domain": "cognizant.com",
+    "logoUrl": "https://img.logo.dev/cognizant.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 28,
+    "name": "DXC Technology",
+    "domain": "dxc.com",
+    "logoUrl": "https://img.logo.dev/dxc.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 29,
+    "name": "EPAM Systems",
+    "domain": "epam.com",
+    "logoUrl": "https://img.logo.dev/epam.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 30,
+    "name": "NTT Data",
+    "domain": "nttdata.com",
+    "logoUrl": "https://img.logo.dev/nttdata.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 31,
+    "name": "PayPal",
+    "domain": "paypal.com",
+    "logoUrl": "https://img.logo.dev/paypal.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 32,
+    "name": "Stripe",
+    "domain": "stripe.com",
+    "logoUrl": "https://img.logo.dev/stripe.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 33,
+    "name": "Visa",
+    "domain": "visa.com",
+    "logoUrl": "https://img.logo.dev/visa.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 34,
+    "name": "Mastercard",
+    "domain": "mastercard.com",
+    "logoUrl": "https://img.logo.dev/mastercard.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 35,
+    "name": "American Express",
+    "domain": "americanexpress.com",
+    "logoUrl": "https://img.logo.dev/americanexpress.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 36,
+    "name": "JPMorgan Chase",
+    "domain": "jpmorganchase.com",
+    "logoUrl": "https://img.logo.dev/jpmorganchase.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 37,
+    "name": "Goldman Sachs",
+    "domain": "goldmansachs.com",
+    "logoUrl": "https://img.logo.dev/goldmansachs.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 38,
+    "name": "Morgan Stanley",
+    "domain": "morganstanley.com",
+    "logoUrl": "https://img.logo.dev/morganstanley.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 39,
+    "name": "HSBC",
+    "domain": "hsbc.com",
+    "logoUrl": "https://img.logo.dev/hsbc.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 40,
+    "name": "ICICI Bank",
+    "domain": "icicibank.com",
+    "logoUrl": "https://img.logo.dev/icicibank.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 41,
+    "name": "HDFC Bank",
+    "domain": "hdfcbank.com",
+    "logoUrl": "https://img.logo.dev/hdfcbank.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 42,
+    "name": "Axis Bank",
+    "domain": "axisbank.com",
+    "logoUrl": "https://img.logo.dev/axisbank.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 43,
+    "name": "State Bank of India",
+    "domain": "sbi.co.in",
+    "logoUrl": "https://img.logo.dev/sbi.co.in?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 44,
+    "name": "Kotak Mahindra Bank",
+    "domain": "kotak.com",
+    "logoUrl": "https://img.logo.dev/kotak.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 45,
+    "name": "Paytm",
+    "domain": "paytm.com",
+    "logoUrl": "https://img.logo.dev/paytm.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 46,
+    "name": "Flipkart",
+    "domain": "flipkart.com",
+    "logoUrl": "https://img.logo.dev/flipkart.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 47,
+    "name": "Swiggy",
+    "domain": "swiggy.com",
+    "logoUrl": "https://img.logo.dev/swiggy.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 48,
+    "name": "Zomato",
+    "domain": "zomato.com",
+    "logoUrl": "https://img.logo.dev/zomato.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 49,
+    "name": "Ola",
+    "domain": "olacabs.com",
+    "logoUrl": "https://img.logo.dev/olacabs.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 50,
+    "name": "Uber",
+    "domain": "uber.com",
+    "logoUrl": "https://img.logo.dev/uber.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 51,
+    "name": "Red Hat",
+    "domain": "redhat.com",
+    "logoUrl": "https://img.logo.dev/redhat.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 52,
+    "name": "Canonical",
+    "domain": "canonical.com",
+    "logoUrl": "https://img.logo.dev/canonical.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 53,
+    "name": "SUSE",
+    "domain": "suse.com",
+    "logoUrl": "https://img.logo.dev/suse.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 54,
+    "name": "DigitalOcean",
+    "domain": "digitalocean.com",
+    "logoUrl": "https://img.logo.dev/digitalocean.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 55,
+    "name": "Cloudflare",
+    "domain": "cloudflare.com",
+    "logoUrl": "https://img.logo.dev/cloudflare.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 56,
+    "name": "Akamai",
+    "domain": "akamai.com",
+    "logoUrl": "https://img.logo.dev/akamai.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 57,
+    "name": "Fastly",
+    "domain": "fastly.com",
+    "logoUrl": "https://img.logo.dev/fastly.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 58,
+    "name": "Snowflake",
+    "domain": "snowflake.com",
+    "logoUrl": "https://img.logo.dev/snowflake.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 59,
+    "name": "Databricks",
+    "domain": "databricks.com",
+    "logoUrl": "https://img.logo.dev/databricks.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 60,
+    "name": "MongoDB",
+    "domain": "mongodb.com",
+    "logoUrl": "https://img.logo.dev/mongodb.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 61,
+    "name": "Redis",
+    "domain": "redis.io",
+    "logoUrl": "https://img.logo.dev/redis.io?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 62,
+    "name": "Elastic",
+    "domain": "elastic.co",
+    "logoUrl": "https://img.logo.dev/elastic.co?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 63,
+    "name": "PostgreSQL",
+    "domain": "postgresql.org",
+    "logoUrl": "https://img.logo.dev/postgresql.org?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 64,
+    "name": "MySQL",
+    "domain": "mysql.com",
+    "logoUrl": "https://img.logo.dev/mysql.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 65,
+    "name": "MariaDB",
+    "domain": "mariadb.org",
+    "logoUrl": "https://img.logo.dev/mariadb.org?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 66,
+    "name": "GitHub",
+    "domain": "github.com",
+    "logoUrl": "https://img.logo.dev/github.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 67,
+    "name": "GitLab",
+    "domain": "gitlab.com",
+    "logoUrl": "https://img.logo.dev/gitlab.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 68,
+    "name": "Bitbucket",
+    "domain": "bitbucket.org",
+    "logoUrl": "https://img.logo.dev/bitbucket.org?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 69,
+    "name": "Docker",
+    "domain": "docker.com",
+    "logoUrl": "https://img.logo.dev/docker.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 70,
+    "name": "Kubernetes",
+    "domain": "kubernetes.io",
+    "logoUrl": "https://img.logo.dev/kubernetes.io?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 71,
+    "name": "Slack",
+    "domain": "slack.com",
+    "logoUrl": "https://img.logo.dev/slack.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 72,
+    "name": "Zoom",
+    "domain": "zoom.us",
+    "logoUrl": "https://img.logo.dev/zoom.us?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 73,
+    "name": "Dropbox",
+    "domain": "dropbox.com",
+    "logoUrl": "https://img.logo.dev/dropbox.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 74,
+    "name": "Box",
+    "domain": "box.com",
+    "logoUrl": "https://img.logo.dev/box.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 75,
+    "name": "Asana",
+    "domain": "asana.com",
+    "logoUrl": "https://img.logo.dev/asana.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 76,
+    "name": "Trello",
+    "domain": "trello.com",
+    "logoUrl": "https://img.logo.dev/trello.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 77,
+    "name": "Notion",
+    "domain": "notion.so",
+    "logoUrl": "https://img.logo.dev/notion.so?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 78,
+    "name": "ClickUp",
+    "domain": "clickup.com",
+    "logoUrl": "https://img.logo.dev/clickup.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 79,
+    "name": "Airtable",
+    "domain": "airtable.com",
+    "logoUrl": "https://img.logo.dev/airtable.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 80,
+    "name": "Monday.com",
+    "domain": "monday.com",
+    "logoUrl": "https://img.logo.dev/monday.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 81,
+    "name": "Paytm",
+    "domain": "paytm.com",
+    "logoUrl": "https://img.logo.dev/paytm.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 82,
+    "name": "PhonePe",
+    "domain": "phonepe.com",
+    "logoUrl": "https://img.logo.dev/phonepe.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 83,
+    "name": "Razorpay",
+    "domain": "razorpay.com",
+    "logoUrl": "https://img.logo.dev/razorpay.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 84,
+    "name": "Stripe",
+    "domain": "stripe.com",
+    "logoUrl": "https://img.logo.dev/stripe.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 85,
+    "name": "PayPal",
+    "domain": "paypal.com",
+    "logoUrl": "https://img.logo.dev/paypal.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 86,
+    "name": "Plaid",
+    "domain": "plaid.com",
+    "logoUrl": "https://img.logo.dev/plaid.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 87,
+    "name": "Square",
+    "domain": "squareup.com",
+    "logoUrl": "https://img.logo.dev/squareup.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 88,
+    "name": "Wise",
+    "domain": "wise.com",
+    "logoUrl": "https://img.logo.dev/wise.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 89,
+    "name": "Coinbase",
+    "domain": "coinbase.com",
+    "logoUrl": "https://img.logo.dev/coinbase.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 90,
+    "name": "Binance",
+    "domain": "binance.com",
+    "logoUrl": "https://img.logo.dev/binance.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 91,
+    "name": "Flipkart Wholesale",
+    "domain": "flipkartwholesale.com",
+    "logoUrl": "https://img.logo.dev/flipkartwholesale.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 92,
+    "name": "Meesho",
+    "domain": "meesho.com",
+    "logoUrl": "https://img.logo.dev/meesho.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 93,
+    "name": "Myntra",
+    "domain": "myntra.com",
+    "logoUrl": "https://img.logo.dev/myntra.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 94,
+    "name": "BigBasket",
+    "domain": "bigbasket.com",
+    "logoUrl": "https://img.logo.dev/bigbasket.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 95,
+    "name": "Nykaa",
+    "domain": "nykaa.com",
+    "logoUrl": "https://img.logo.dev/nykaa.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 96,
+    "name": "Byju's",
+    "domain": "byjus.com",
+    "logoUrl": "https://img.logo.dev/byjus.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 97,
+    "name": "Unacademy",
+    "domain": "unacademy.com",
+    "logoUrl": "https://img.logo.dev/unacademy.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 98,
+    "name": "UpGrad",
+    "domain": "upgrad.com",
+    "logoUrl": "https://img.logo.dev/upgrad.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 99,
+    "name": "Coursera",
+    "domain": "coursera.org",
+    "logoUrl": "https://img.logo.dev/coursera.org?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 100,
+    "name": "Udemy",
+    "domain": "udemy.com",
+    "logoUrl": "https://img.logo.dev/udemy.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 101,
+    "name": "Trinity Technology Solutions",
+    "domain": "trinitetech.com",
+    "logoUrl": "/images/zync-logo.svg"
+  },
+  {
+    "id": 102,
+    "name": "Tesla",
+    "domain": "tesla.com",
+    "logoUrl": "https://img.logo.dev/tesla.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 103,
+    "name": "SpaceX",
+    "domain": "spacex.com",
+    "logoUrl": "https://img.logo.dev/spacex.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 104,
+    "name": "Twitter (X)",
+    "domain": "x.com",
+    "logoUrl": "https://img.logo.dev/x.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 105,
+    "name": "LinkedIn",
+    "domain": "linkedin.com",
+    "logoUrl": "https://img.logo.dev/linkedin.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 106,
+    "name": "Snap Inc",
+    "domain": "snap.com",
+    "logoUrl": "https://img.logo.dev/snap.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 107,
+    "name": "Spotify",
+    "domain": "spotify.com",
+    "logoUrl": "https://img.logo.dev/spotify.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 108,
+    "name": "Shopify",
+    "domain": "shopify.com",
+    "logoUrl": "https://img.logo.dev/shopify.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 109,
+    "name": "ZoomInfo",
+    "domain": "zoominfo.com",
+    "logoUrl": "https://img.logo.dev/zoominfo.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 110,
+    "name": "ServiceNow",
+    "domain": "servicenow.com",
+    "logoUrl": "https://img.logo.dev/servicenow.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 111,
+    "name": "Workday",
+    "domain": "workday.com",
+    "logoUrl": "https://img.logo.dev/workday.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 112,
+    "name": "Okta",
+    "domain": "okta.com",
+    "logoUrl": "https://img.logo.dev/okta.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 113,
+    "name": "Twilio",
+    "domain": "twilio.com",
+    "logoUrl": "https://img.logo.dev/twilio.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 114,
+    "name": "Zendesk",
+    "domain": "zendesk.com",
+    "logoUrl": "https://img.logo.dev/zendesk.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 115,
+    "name": "Freshworks",
+    "domain": "freshworks.com",
+    "logoUrl": "https://img.logo.dev/freshworks.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 116,
+    "name": "Zoho Desk",
+    "domain": "zoho.com",
+    "logoUrl": "https://img.logo.dev/zoho.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 117,
+    "name": "Cleartrip",
+    "domain": "cleartrip.com",
+    "logoUrl": "https://img.logo.dev/cleartrip.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 118,
+    "name": "MakeMyTrip",
+    "domain": "makemytrip.com",
+    "logoUrl": "https://img.logo.dev/makemytrip.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 119,
+    "name": "OYO",
+    "domain": "oyorooms.com",
+    "logoUrl": "https://img.logo.dev/oyorooms.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 120,
+    "name": "Expedia",
+    "domain": "expedia.com",
+    "logoUrl": "https://img.logo.dev/expedia.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 121,
+    "name": "Airbnb",
+    "domain": "airbnb.com",
+    "logoUrl": "https://img.logo.dev/airbnb.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 122,
+    "name": "Booking.com",
+    "domain": "booking.com",
+    "logoUrl": "https://img.logo.dev/booking.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 123,
+    "name": "Stripe Atlas",
+    "domain": "stripe.com",
+    "logoUrl": "https://img.logo.dev/stripe.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 124,
+    "name": "Coinbase Cloud",
+    "domain": "coinbase.com",
+    "logoUrl": "https://img.logo.dev/coinbase.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 125,
+    "name": "OpenAI",
+    "domain": "openai.com",
+    "logoUrl": "https://img.logo.dev/openai.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 126,
+    "name": "Anthropic",
+    "domain": "anthropic.com",
+    "logoUrl": "https://img.logo.dev/anthropic.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 127,
+    "name": "Hugging Face",
+    "domain": "huggingface.co",
+    "logoUrl": "https://img.logo.dev/huggingface.co?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 128,
+    "name": "DataRobot",
+    "domain": "datarobot.com",
+    "logoUrl": "https://img.logo.dev/datarobot.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 129,
+    "name": "UiPath",
+    "domain": "uipath.com",
+    "logoUrl": "https://img.logo.dev/uipath.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 130,
+    "name": "Automation Anywhere",
+    "domain": "automationanywhere.com",
+    "logoUrl": "https://img.logo.dev/automationanywhere.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 131,
+    "name": "Blue Prism",
+    "domain": "blueprism.com",
+    "logoUrl": "https://img.logo.dev/blueprism.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 132,
+    "name": "ThoughtWorks",
+    "domain": "thoughtworks.com",
+    "logoUrl": "https://img.logo.dev/thoughtworks.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 133,
+    "name": "Mindtree",
+    "domain": "mindtree.com",
+    "logoUrl": "https://img.logo.dev/mindtree.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 134,
+    "name": "L&T Infotech",
+    "domain": "lntinfotech.com",
+    "logoUrl": "https://img.logo.dev/lntinfotech.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 135,
+    "name": "Mphasis",
+    "domain": "mphasis.com",
+    "logoUrl": "https://img.logo.dev/mphasis.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 136,
+    "name": "Hexaware",
+    "domain": "hexaware.com",
+    "logoUrl": "https://img.logo.dev/hexaware.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 137,
+    "name": "Birlasoft",
+    "domain": "birlasoft.com",
+    "logoUrl": "https://img.logo.dev/birlasoft.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 138,
+    "name": "Zensar",
+    "domain": "zensar.com",
+    "logoUrl": "https://img.logo.dev/zensar.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 139,
+    "name": "Informatica",
+    "domain": "informatica.com",
+    "logoUrl": "https://img.logo.dev/informatica.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 140,
+    "name": "Talend",
+    "domain": "talend.com",
+    "logoUrl": "https://img.logo.dev/talend.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 141,
+    "name": "Cloudera",
+    "domain": "cloudera.com",
+    "logoUrl": "https://img.logo.dev/cloudera.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 142,
+    "name": "Confluent",
+    "domain": "confluent.io",
+    "logoUrl": "https://img.logo.dev/confluent.io?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 143,
+    "name": "Tableau",
+    "domain": "tableau.com",
+    "logoUrl": "https://img.logo.dev/tableau.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 144,
+    "name": "Qlik",
+    "domain": "qlik.com",
+    "logoUrl": "https://img.logo.dev/qlik.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 145,
+    "name": "Looker",
+    "domain": "looker.com",
+    "logoUrl": "https://img.logo.dev/looker.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 146,
+    "name": "Power BI",
+    "domain": "powerbi.microsoft.com",
+    "logoUrl": "https://img.logo.dev/powerbi.microsoft.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 147,
+    "name": "Figma",
+    "domain": "figma.com",
+    "logoUrl": "https://img.logo.dev/figma.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 148,
+    "name": "Canva",
+    "domain": "canva.com",
+    "logoUrl": "https://img.logo.dev/canva.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 149,
+    "name": "InVision",
+    "domain": "invisionapp.com",
+    "logoUrl": "https://img.logo.dev/invisionapp.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 150,
+    "name": "Dribbble",
+    "domain": "dribbble.com",
+    "logoUrl": "https://img.logo.dev/dribbble.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 151,
+    "name": "Behance",
+    "domain": "behance.net",
+    "logoUrl": "https://img.logo.dev/behance.net?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 152,
+    "name": "Envato",
+    "domain": "envato.com",
+    "logoUrl": "https://img.logo.dev/envato.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 153,
+    "name": "Unity",
+    "domain": "unity.com",
+    "logoUrl": "https://img.logo.dev/unity.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 154,
+    "name": "Unreal Engine",
+    "domain": "unrealengine.com",
+    "logoUrl": "https://img.logo.dev/unrealengine.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 155,
+    "name": "Epic Games",
+    "domain": "epicgames.com",
+    "logoUrl": "https://img.logo.dev/epicgames.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 156,
+    "name": "Steam",
+    "domain": "steampowered.com",
+    "logoUrl": "https://img.logo.dev/steampowered.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 157,
+    "name": "EA",
+    "domain": "ea.com",
+    "logoUrl": "https://img.logo.dev/ea.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 158,
+    "name": "Ubisoft",
+    "domain": "ubisoft.com",
+    "logoUrl": "https://img.logo.dev/ubisoft.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 159,
+    "name": "Riot Games",
+    "domain": "riotgames.com",
+    "logoUrl": "https://img.logo.dev/riotgames.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 160,
+    "name": "Rockstar Games",
+    "domain": "rockstargames.com",
+    "logoUrl": "https://img.logo.dev/rockstargames.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 161,
+    "name": "Sony Interactive",
+    "domain": "sony.com",
+    "logoUrl": "https://img.logo.dev/sony.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 162,
+    "name": "Samsung",
+    "domain": "samsung.com",
+    "logoUrl": "https://img.logo.dev/samsung.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 163,
+    "name": "LG",
+    "domain": "lg.com",
+    "logoUrl": "https://img.logo.dev/lg.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 164,
+    "name": "Panasonic",
+    "domain": "panasonic.com",
+    "logoUrl": "https://img.logo.dev/panasonic.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 165,
+    "name": "Philips",
+    "domain": "philips.com",
+    "logoUrl": "https://img.logo.dev/philips.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 166,
+    "name": "Siemens",
+    "domain": "siemens.com",
+    "logoUrl": "https://img.logo.dev/siemens.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 167,
+    "name": "Bosch",
+    "domain": "bosch.com",
+    "logoUrl": "https://img.logo.dev/bosch.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 168,
+    "name": "GE",
+    "domain": "ge.com",
+    "logoUrl": "https://img.logo.dev/ge.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 169,
+    "name": "3M",
+    "domain": "3m.com",
+    "logoUrl": "https://img.logo.dev/3m.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 170,
+    "name": "Shell",
+    "domain": "shell.com",
+    "logoUrl": "https://img.logo.dev/shell.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 171,
+    "name": "BP",
+    "domain": "bp.com",
+    "logoUrl": "https://img.logo.dev/bp.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 172,
+    "name": "ExxonMobil",
+    "domain": "exxonmobil.com",
+    "logoUrl": "https://img.logo.dev/exxonmobil.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 173,
+    "name": "Chevron",
+    "domain": "chevron.com",
+    "logoUrl": "https://img.logo.dev/chevron.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 174,
+    "name": "TotalEnergies",
+    "domain": "totalenergies.com",
+    "logoUrl": "https://img.logo.dev/totalenergies.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 175,
+    "name": "Tesla Energy",
+    "domain": "tesla.com",
+    "logoUrl": "https://img.logo.dev/tesla.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 176,
+    "name": "BYD",
+    "domain": "byd.com",
+    "logoUrl": "https://img.logo.dev/byd.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 177,
+    "name": "Toyota",
+    "domain": "toyota.com",
+    "logoUrl": "https://img.logo.dev/toyota.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 178,
+    "name": "Honda",
+    "domain": "honda.com",
+    "logoUrl": "https://img.logo.dev/honda.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 179,
+    "name": "Ford",
+    "domain": "ford.com",
+    "logoUrl": "https://img.logo.dev/ford.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 180,
+    "name": "BMW",
+    "domain": "bmw.com",
+    "logoUrl": "https://img.logo.dev/bmw.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 181,
+    "name": "Mercedes-Benz",
+    "domain": "mercedes-benz.com",
+    "logoUrl": "https://img.logo.dev/mercedes-benz.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 182,
+    "name": "Volkswagen",
+    "domain": "volkswagen.com",
+    "logoUrl": "https://img.logo.dev/volkswagen.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 183,
+    "name": "Hyundai",
+    "domain": "hyundai.com",
+    "logoUrl": "https://img.logo.dev/hyundai.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 184,
+    "name": "Kia",
+    "domain": "kia.com",
+    "logoUrl": "https://img.logo.dev/kia.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 185,
+    "name": "PepsiCo",
+    "domain": "pepsico.com",
+    "logoUrl": "https://img.logo.dev/pepsico.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 186,
+    "name": "Coca-Cola",
+    "domain": "coca-cola.com",
+    "logoUrl": "https://img.logo.dev/coca-cola.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 187,
+    "name": "Nestlé",
+    "domain": "nestle.com",
+    "logoUrl": "https://img.logo.dev/nestle.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 188,
+    "name": "Unilever",
+    "domain": "unilever.com",
+    "logoUrl": "https://img.logo.dev/unilever.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 189,
+    "name": "P&G",
+    "domain": "pg.com",
+    "logoUrl": "https://img.logo.dev/pg.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 190,
+    "name": "ITC",
+    "domain": "itcportal.com",
+    "logoUrl": "https://img.logo.dev/itcportal.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 191,
+    "name": "Reliance Industries",
+    "domain": "ril.com",
+    "logoUrl": "https://img.logo.dev/ril.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 192,
+    "name": "Adani Group",
+    "domain": "adani.com",
+    "logoUrl": "https://img.logo.dev/adani.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 193,
+    "name": "Tata Group",
+    "domain": "tata.com",
+    "logoUrl": "https://img.logo.dev/tata.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 194,
+    "name": "Mahindra Group",
+    "domain": "mahindra.com",
+    "logoUrl": "https://img.logo.dev/mahindra.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 195,
+    "name": "Bajaj Finserv",
+    "domain": "bajajfinserv.in",
+    "logoUrl": "https://img.logo.dev/bajajfinserv.in?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 196,
+    "name": "Havells",
+    "domain": "havells.com",
+    "logoUrl": "https://img.logo.dev/havells.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 197,
+    "name": "Godrej",
+    "domain": "godrej.com",
+    "logoUrl": "https://img.logo.dev/godrej.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 198,
+    "name": "Walmart",
+    "domain": "walmart.com",
+    "logoUrl": "https://img.logo.dev/walmart.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 199,
+    "name": "Target",
+    "domain": "target.com",
+    "logoUrl": "https://img.logo.dev/target.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 200,
+    "name": "Costco",
+    "domain": "costco.com",
+    "logoUrl": "https://img.logo.dev/costco.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 201,
+    "name": "IKEA",
+    "domain": "ikea.com",
+    "logoUrl": "https://img.logo.dev/ikea.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  }
+]
