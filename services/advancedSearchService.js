@@ -1,12 +1,11 @@
 import Job from '../models/Job.js';
+import { Op } from 'sequelize';
 
 // Advanced search with all filters
-export const advancedJobSearch = async (searchParams) => {
+export const advancedJobSearch = async (searchParams = {}) => {
   const {
     query = '',
     location = '',
-    radius = 50, // km
-    coordinates = null, // [longitude, latitude]
     jobType = [],
     locationType = [],
     industry = [],
@@ -14,94 +13,64 @@ export const advancedJobSearch = async (searchParams) => {
     salaryMin = 0,
     salaryMax = 999999,
     experienceLevel = [],
-    freshness = '', // '24h', '7d', '30d'
+    freshness = '',
     skills = [],
-    benefits = [],
     page = 1,
     limit = 20,
-    sortBy = 'relevance' // 'relevance', 'date', 'salary'
+    sortBy = 'relevance'
   } = searchParams;
 
   try {
-    // Build base query
-    const baseQuery = {
+    const where = {
       isActive: true,
       status: 'approved'
     };
 
     // Text search
-    if (query) {
-      baseQuery.$or = [
-        { jobTitle: { $regex: query, $options: 'i' } },
-        { company: { $regex: query, $options: 'i' } },
-        { description: { $regex: query, $options: 'i' } },
-        { skills: { $in: [new RegExp(query, 'i')] } }
+    if (query && query.trim()) {
+      where[Op.or] = [
+        { jobTitle: { [Op.iLike]: `%${query}%` } },
+        { company: { [Op.iLike]: `%${query}%` } },
+        { description: { [Op.iLike]: `%${query}%` } }
       ];
     }
 
-    // Location-based search
-    if (location && !coordinates) {
-      baseQuery.location = { $regex: location, $options: 'i' };
-    }
-
-    // Radius search (if coordinates provided)
-    if (coordinates && coordinates.length === 2) {
-      baseQuery.coordinates = {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: coordinates
-          },
-          $maxDistance: radius * 1000 // Convert km to meters
-        }
-      };
+    // Location search
+    if (location && location.trim()) {
+      where.location = { [Op.iLike]: `%${location}%` };
     }
 
     // Job type filter
-    if (jobType.length > 0) {
-      baseQuery.jobType = { $in: jobType };
+    if (Array.isArray(jobType) && jobType.length > 0) {
+      where.jobType = { [Op.in]: jobType };
     }
 
     // Location type filter
-    if (locationType.length > 0) {
-      baseQuery.locationType = { $in: locationType };
+    if (Array.isArray(locationType) && locationType.length > 0) {
+      where.locationType = { [Op.in]: locationType };
     }
 
     // Industry filter
-    if (industry.length > 0) {
-      baseQuery.industry = { $in: industry };
+    if (Array.isArray(industry) && industry.length > 0) {
+      where.industry = { [Op.in]: industry };
     }
 
     // Company size filter
-    if (companySize.length > 0) {
-      baseQuery.companySize = { $in: companySize };
+    if (Array.isArray(companySize) && companySize.length > 0) {
+      where.companySize = { [Op.in]: companySize };
     }
 
     // Salary range filter
     if (salaryMin > 0 || salaryMax < 999999) {
-      baseQuery.$and = baseQuery.$and || [];
-      baseQuery.$and.push({
-        $or: [
-          { 'salary.min': { $gte: salaryMin, $lte: salaryMax } },
-          { 'salary.max': { $gte: salaryMin, $lte: salaryMax } },
-          { 'salary.min': { $lte: salaryMin }, 'salary.max': { $gte: salaryMax } }
-        ]
-      });
+      where[Op.or] = [
+        { salaryMin: { [Op.between]: [salaryMin, salaryMax] } },
+        { salaryMax: { [Op.between]: [salaryMin, salaryMax] } }
+      ];
     }
 
     // Experience level filter
-    if (experienceLevel.length > 0) {
-      baseQuery.experienceLevel = { $in: experienceLevel };
-    }
-
-    // Skills filter
-    if (skills.length > 0) {
-      baseQuery.skills = { $in: skills.map(skill => new RegExp(skill, 'i')) };
-    }
-
-    // Benefits filter
-    if (benefits.length > 0) {
-      baseQuery.benefits = { $in: benefits };
+    if (Array.isArray(experienceLevel) && experienceLevel.length > 0) {
+      where.experienceLevel = { [Op.in]: experienceLevel };
     }
 
     // Freshness filter
@@ -122,44 +91,39 @@ export const advancedJobSearch = async (searchParams) => {
       }
       
       if (dateThreshold) {
-        baseQuery.createdAt = { $gte: dateThreshold };
+        where.createdAt = { [Op.gte]: dateThreshold };
       }
     }
 
     // Build sort criteria
-    let sortCriteria = {};
+    let order = [];
     switch (sortBy) {
       case 'date':
-        sortCriteria = { createdAt: -1 };
+        order = [['createdAt', 'DESC']];
         break;
       case 'salary':
-        sortCriteria = { 'salary.max': -1, createdAt: -1 };
+        order = [['salaryMax', 'DESC'], ['createdAt', 'DESC']];
         break;
       case 'relevance':
       default:
-        // For relevance, we'll use aggregation pipeline
-        if (query || skills.length > 0) {
-          return await searchWithRelevanceScore(baseQuery, query, skills, page, limit);
-        }
-        sortCriteria = { featured: -1, trending: -1, createdAt: -1 };
+        order = [['createdAt', 'DESC']];
         break;
     }
 
     // Execute query
-    const jobs = await Job.find(baseQuery)
-      .sort(sortCriteria)
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean();
-
-    const total = await Job.countDocuments(baseQuery);
+    const { count, rows: jobs } = await Job.findAndCountAll({
+      where,
+      order,
+      limit: parseInt(limit) || 20,
+      offset: ((parseInt(page) || 1) - 1) * (parseInt(limit) || 20)
+    });
 
     return {
       jobs,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-      hasMore: page * limit < total
+      total: count,
+      page: parseInt(page) || 1,
+      totalPages: Math.ceil(count / (parseInt(limit) || 20)),
+      hasMore: (parseInt(page) || 1) * (parseInt(limit) || 20) < count
     };
 
   } catch (error) {
@@ -168,99 +132,37 @@ export const advancedJobSearch = async (searchParams) => {
   }
 };
 
-// Search with relevance scoring
-const searchWithRelevanceScore = async (baseQuery, query, skills, page, limit) => {
-  const pipeline = [
-    { $match: baseQuery },
-    {
-      $addFields: {
-        relevanceScore: {
-          $add: [
-            // Title match score (highest priority)
-            {
-              $cond: [
-                { $regexMatch: { input: '$jobTitle', regex: query, options: 'i' } },
-                50,
-                0
-              ]
-            },
-            // Company match score
-            {
-              $cond: [
-                { $regexMatch: { input: '$company', regex: query, options: 'i' } },
-                30,
-                0
-              ]
-            },
-            // Skills match score
-            {
-              $multiply: [
-                { $size: { $setIntersection: ['$skills', skills] } },
-                10
-              ]
-            },
-            // Description match score (lower priority)
-            {
-              $cond: [
-                { $regexMatch: { input: '$description', regex: query, options: 'i' } },
-                10,
-                0
-              ]
-            },
-            // Featured/trending bonus
-            { $cond: ['$featured', 5, 0] },
-            { $cond: ['$trending', 3, 0] }
-          ]
-        }
-      }
-    },
-    { $sort: { relevanceScore: -1, createdAt: -1 } },
-    { $skip: (page - 1) * limit },
-    { $limit: limit }
-  ];
-
-  const jobs = await Job.aggregate(pipeline);
-  const total = await Job.countDocuments(baseQuery);
-
-  return {
-    jobs,
-    total,
-    page,
-    totalPages: Math.ceil(total / limit),
-    hasMore: page * limit < total
-  };
-};
-
 // Get search suggestions/autocomplete
 export const getSearchSuggestions = async (query, type = 'all') => {
   try {
     const suggestions = [];
 
     if (type === 'all' || type === 'titles') {
-      const titleSuggestions = await Job.distinct('jobTitle', {
-        jobTitle: { $regex: query, $options: 'i' },
-        isActive: true,
-        status: 'approved'
+      const titles = await Job.findAll({
+        attributes: [[Job.sequelize.fn('DISTINCT', Job.sequelize.col('jobTitle')), 'jobTitle']],
+        where: {
+          jobTitle: { [Op.iLike]: `%${query}%` },
+          isActive: true,
+          status: 'approved'
+        },
+        limit: 5,
+        raw: true
       });
-      suggestions.push(...titleSuggestions.slice(0, 5).map(title => ({ type: 'title', value: title })));
+      suggestions.push(...titles.map(t => ({ type: 'title', value: t.jobTitle })));
     }
 
     if (type === 'all' || type === 'companies') {
-      const companySuggestions = await Job.distinct('company', {
-        company: { $regex: query, $options: 'i' },
-        isActive: true,
-        status: 'approved'
+      const companies = await Job.findAll({
+        attributes: [[Job.sequelize.fn('DISTINCT', Job.sequelize.col('company')), 'company']],
+        where: {
+          company: { [Op.iLike]: `%${query}%` },
+          isActive: true,
+          status: 'approved'
+        },
+        limit: 5,
+        raw: true
       });
-      suggestions.push(...companySuggestions.slice(0, 5).map(company => ({ type: 'company', value: company })));
-    }
-
-    if (type === 'all' || type === 'skills') {
-      const skillSuggestions = await Job.distinct('skills', {
-        skills: { $regex: query, $options: 'i' },
-        isActive: true,
-        status: 'approved'
-      });
-      suggestions.push(...skillSuggestions.slice(0, 5).map(skill => ({ type: 'skill', value: skill })));
+      suggestions.push(...companies.map(c => ({ type: 'company', value: c.company })));
     }
 
     return suggestions.slice(0, 10);

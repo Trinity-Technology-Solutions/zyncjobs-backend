@@ -16,43 +16,51 @@ router.get('/', async (req, res) => {
     
     console.log('📅 Fetching interviews for:', { employerId, employerEmail });
     
-    const query = {};
-    if (employerId) query.employerId = employerId;
-    if (employerEmail) query.employerEmail = employerEmail;
+    const where = {};
+    if (employerId && employerId !== '') where.employerId = employerId;
+    if (employerEmail && employerEmail !== '') where.employerEmail = employerEmail;
+    
+    // If no valid filters, return empty array
+    if (Object.keys(where).length === 0) {
+      return res.json([]);
+    }
     
     const interviews = await Interview.findAll({
-      where: query,
-      include: [
-        { model: Job, attributes: ['jobTitle', 'title', 'company'] },
-        { model: User, as: 'candidate', attributes: ['name', 'email'] }
-      ],
+      where,
       order: [['scheduledDate', 'DESC']]
     });
     
     console.log('✅ Found interviews:', interviews.length);
     
     // Format interviews for frontend
-    const formattedInterviews = interviews.map(interview => ({
-      _id: interview._id,
-      candidateName: interview.candidateName || interview.candidateId?.name,
-      candidateEmail: interview.candidateEmail,
-      jobTitle: interview.jobId?.jobTitle || interview.jobId?.title,
-      company: interview.jobId?.company,
-      date: interview.scheduledDate,
-      time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-      duration: interview.duration,
-      type: interview.type,
-      status: interview.status,
-      meetingLink: interview.meetingLink,
-      location: interview.location,
-      notes: interview.notes,
-      createdAt: interview.createdAt
+    const formattedInterviews = await Promise.all(interviews.map(async (interview) => {
+      let job = null;
+      if (interview.jobId) {
+        job = await Job.findByPk(interview.jobId);
+      }
+      
+      return {
+        _id: interview.id,
+        candidateName: interview.candidateName,
+        candidateEmail: interview.candidateEmail,
+        jobTitle: job?.jobTitle || job?.title || 'N/A',
+        company: job?.company || 'N/A',
+        date: interview.scheduledDate,
+        time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        duration: interview.duration,
+        type: interview.type,
+        status: interview.status,
+        meetingLink: interview.meetingLink,
+        location: interview.location,
+        notes: interview.notes,
+        createdAt: interview.createdAt
+      };
     }));
     
     res.json(formattedInterviews);
   } catch (error) {
     console.error('Interviews API error:', error);
-    res.status(500).json([]);
+    res.status(500).json({ error: error.message });
   }
 });
 

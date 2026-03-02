@@ -15,8 +15,11 @@ router.post('/', [
   body('candidateEmail').isEmail().withMessage('Valid email is required')
 ], async (req, res) => {
   try {
+    console.log('📝 Application submission received:', req.body);
+    
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log('❌ Validation errors:', errors.array());
       return res.status(400).json({ errors: errors.array() });
     }
 
@@ -31,14 +34,18 @@ router.post('/', [
     });
     
     if (existingApplication) {
+      console.log('⚠️ Duplicate application found');
       return res.status(400).json({ error: 'You have already applied for this job' });
     }
 
     // Get job details
     const job = await Job.findByPk(jobId);
     if (!job) {
+      console.log('❌ Job not found:', jobId);
       return res.status(404).json({ error: 'Job not found' });
     }
+
+    console.log('✅ Job found:', { id: job.id, title: job.jobTitle, company: job.company });
 
     // Create application
     const application = await Application.create({
@@ -53,6 +60,8 @@ router.post('/', [
       status: 'pending'
     });
 
+    console.log('✅ Application created:', { id: application.id, jobId, candidateEmail });
+
     // Send confirmation email (don't fail if email fails)
     try {
       await sendJobApplicationEmail(
@@ -61,8 +70,9 @@ router.post('/', [
         job.jobTitle || job.title, 
         job.company
       );
+      console.log('📧 Email sent to:', candidateEmail);
     } catch (emailError) {
-      console.error('Email sending failed:', emailError.message);
+      console.error('⚠️ Email sending failed:', emailError.message);
     }
 
     res.status(201).json({ 
@@ -70,7 +80,7 @@ router.post('/', [
       application 
     });
   } catch (error) {
-    console.error('Application error:', error);
+    console.error('❌ Application error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -115,19 +125,56 @@ router.get('/candidate/:email', async (req, res) => {
 // GET /api/applications/job/:jobId - Get applications for a job
 router.get('/job/:jobId', async (req, res) => {
   try {
+    const { jobId } = req.params;
+    
+    console.log('📋 Fetching applications for jobId:', jobId);
+    
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      console.log('❌ Invalid jobId');
+      return res.status(400).json({ error: 'Valid job ID is required' });
+    }
+
     const applications = await Application.findAll({ 
-      where: { jobId: req.params.jobId },
+      where: { jobId },
       order: [['createdAt', 'DESC']]
     });
+    
+    console.log('✅ Found applications:', applications.length);
+    
     res.json(applications);
   } catch (error) {
+    console.error('Get job applications error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/applications/job/:jobId/count - Get application count for a job
+router.get('/job/:jobId/count', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    console.log('🔢 Counting applications for jobId:', jobId);
+    
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      return res.json({ count: 0 });
+    }
+
+    const count = await Application.count({ 
+      where: { jobId }
+    });
+    
+    console.log('✅ Application count:', count);
+    
+    res.json({ count });
+  } catch (error) {
+    console.error('Count applications error:', error);
+    res.json({ count: 0 });
   }
 });
 
 // PUT /api/applications/:id/status - Update application status
 router.put('/:id/status', [
-  body('status').isIn(['pending', 'reviewed', 'shortlisted', 'rejected', 'hired']).withMessage('Invalid status')
+  body('status').isIn(['pending', 'reviewed', 'shortlisted', 'interviewed', 'rejected', 'hired']).withMessage('Invalid status')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);

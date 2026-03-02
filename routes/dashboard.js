@@ -58,9 +58,9 @@ router.get('/stats', async (req, res) => {
     
     // Build query conditions, filtering out empty values
     const queryConditions = [];
-    if (employerEmail) queryConditions.push({ employerEmail: employerEmail });
-    if (userName) queryConditions.push({ postedBy: userName });
-    if (employerId) queryConditions.push({ employerId: employerId });
+    if (employerEmail && employerEmail !== '') queryConditions.push({ employerEmail });
+    if (userName && userName !== '') queryConditions.push({ postedBy: userName });
+    if (employerId && employerId !== '') queryConditions.push({ employerId });
     
     // If no valid conditions, return zeros
     if (queryConditions.length === 0) {
@@ -74,25 +74,28 @@ router.get('/stats', async (req, res) => {
       }
     });
     
-    const applications = await Application.count({
-      where: {
-        [Op.or]: queryConditions.filter(c => c.employerEmail || c.employerId)
-      }
-    });
+    // For applications, only use employerEmail or employerId
+    const appConditions = [];
+    if (employerEmail && employerEmail !== '') appConditions.push({ employerEmail });
+    if (employerId && employerId !== '') appConditions.push({ employerId });
     
-    const interviews = await Application.count({
+    const applications = appConditions.length > 0 ? await Application.count({
+      where: { [Op.or]: appConditions }
+    }) : 0;
+    
+    const interviews = appConditions.length > 0 ? await Application.count({
       where: {
-        [Op.or]: queryConditions.filter(c => c.employerEmail || c.employerId),
+        [Op.or]: appConditions,
         status: { [Op.in]: ['shortlisted', 'interviewed'] }
       }
-    });
+    }) : 0;
     
-    const hired = await Application.count({
+    const hired = appConditions.length > 0 ? await Application.count({
       where: {
-        [Op.or]: queryConditions.filter(c => c.employerEmail || c.employerId),
+        [Op.or]: appConditions,
         status: 'hired'
       }
-    });
+    }) : 0;
 
     res.json({ activeJobs, applications, interviews, hired });
   } catch (error) {

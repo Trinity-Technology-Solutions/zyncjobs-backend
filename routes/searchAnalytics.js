@@ -28,22 +28,90 @@ router.post('/track', async (req, res) => {
 // GET /api/search-analytics/popular - Get popular searches
 router.get('/popular', async (req, res) => {
   try {
+    const limit = parseInt(req.query.limit) || 6;
+    
+    // Get most searched queries from last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const popularSearches = await SearchAnalytics.findAll({
+      attributes: [
+        'searchQuery',
+        [SearchAnalytics.sequelize.fn('COUNT', SearchAnalytics.sequelize.col('searchQuery')), 'count']
+      ],
+      where: {
+        createdAt: { [Op.gte]: thirtyDaysAgo },
+        searchQuery: { [Op.ne]: null }
+      },
+      group: ['searchQuery'],
+      order: [[SearchAnalytics.sequelize.literal('count'), 'DESC']],
+      limit: limit,
+      raw: true
+    });
+
+    // If no data, return default popular searches
+    if (!popularSearches || popularSearches.length === 0) {
+      return res.json({
+        searches: ['React', 'Python', 'JavaScript', 'Node.js', 'Java', 'Angular']
+      });
+    }
+
+    const searches = popularSearches.map(item => 
+      item.searchQuery.charAt(0).toUpperCase() + item.searchQuery.slice(1)
+    );
+
+    res.json({ searches });
+  } catch (error) {
+    console.error('Popular searches error:', error);
+    // Fallback to default if error
     res.json({
       searches: ['React', 'Python', 'JavaScript', 'Node.js', 'Java', 'Angular']
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 
 // GET /api/search-analytics/trending - Get trending searches
 router.get('/trending', async (req, res) => {
   try {
+    const limit = parseInt(req.query.limit) || 6;
+    
+    // Get trending searches from last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const trendingSearches = await SearchAnalytics.findAll({
+      attributes: [
+        'searchQuery',
+        [SearchAnalytics.sequelize.fn('COUNT', SearchAnalytics.sequelize.col('searchQuery')), 'count']
+      ],
+      where: {
+        createdAt: { [Op.gte]: sevenDaysAgo },
+        searchQuery: { [Op.ne]: null }
+      },
+      group: ['searchQuery'],
+      order: [[SearchAnalytics.sequelize.literal('count'), 'DESC']],
+      limit: limit,
+      raw: true
+    });
+
+    // If no data, return default trending searches
+    if (!trendingSearches || trendingSearches.length === 0) {
+      return res.json({
+        searches: ['Full Stack', 'Remote', 'Senior', 'Frontend', 'Backend', 'DevOps']
+      });
+    }
+
+    const searches = trendingSearches.map(item => 
+      item.searchQuery.charAt(0).toUpperCase() + item.searchQuery.slice(1)
+    );
+
+    res.json({ searches });
+  } catch (error) {
+    console.error('Trending searches error:', error);
+    // Fallback to default if error
     res.json({
       searches: ['Full Stack', 'Remote', 'Senior', 'Frontend', 'Backend', 'DevOps']
     });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
 });
 
