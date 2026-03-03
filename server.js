@@ -16,6 +16,7 @@ import { fileURLToPath } from 'url';
 import connectDB from './config/database.js';
 import passport from './config/passport.js';
 import authRoutes from './routes/auth.js';
+import tokenRoutes from './routes/token.js';
 import jobRoutes from './routes/jobs.js';
 import userRoutes from './routes/users.js';
 import usersGetRoutes from './routes/users-get.js';
@@ -62,6 +63,9 @@ import interviewRoutes from './routes/interviews.js';
 import meetingRoutes from './routes/meetings.js';
 import advancedSearchRoutes from './routes/advancedSearch.js';
 import searchAnalyticsRoutes from './routes/searchAnalytics.js';
+import collegesRoutes from './routes/colleges.js';
+import skillsRoutes from './routes/skills.js';
+import jobTitlesRoutes from './routes/jobTitles.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import Notification from './models/Notification.js';
 import Message from './models/Message.js';
@@ -245,6 +249,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
 
 app.use('/api/jobs', jobRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/token', tokenRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/users/:id', usersGetRoutes);
 // Move applications route before catch-all
@@ -260,6 +265,9 @@ app.use('/api/companies', companyRoutes);
 app.use('/api/company', companySearchRoutes);
 app.use('/api/locations', locationsRoutes);
 app.use('/api/countries', locationsRoutes);
+app.use('/api/colleges', collegesRoutes);
+app.use('/api/skills', skillsRoutes);
+app.use('/api/job-titles', jobTitlesRoutes);
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/resume-versions', resumeVersionRoutes);
 app.use('/api/ai-suggestions', aiSuggestionsRoutes);
@@ -971,7 +979,7 @@ app.get('*', (req, res) => {
 
 app.use(errorHandler);
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
   console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL}`);
