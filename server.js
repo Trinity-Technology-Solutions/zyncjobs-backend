@@ -66,6 +66,7 @@ import searchAnalyticsRoutes from './routes/searchAnalytics.js';
 import collegesRoutes from './routes/colleges.js';
 import skillsRoutes from './routes/skills.js';
 import jobTitlesRoutes from './routes/jobTitles.js';
+import resumeViewerRoutes from './routes/resumeViewer.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import Notification from './models/Notification.js';
 import Message from './models/Message.js';
@@ -301,6 +302,7 @@ app.use('/api/headline', headlineAnalyticsRoutes);
 app.use('/api/skill-assessments', skillAssessmentRoutes);
 app.use('/api/interviews', interviewRoutes);
 app.use('/api/meetings', meetingRoutes);
+app.use('/api/resume-viewer', resumeViewerRoutes);
 
 // Resume parser with AI
 app.post('/api/resume-parser/parse', async (req, res) => {
