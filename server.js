@@ -92,11 +92,6 @@ const io = new Server(httpServer, {
   cors: {
     origin: [
       'http://localhost:5173',
-      'https://trinity-jobs.vercel.app',
-      'https://trinity-jobs-ezblun328-mutheeswarans-projects.vercel.app',
-      'https://stagging.zyncjobs.com',
-      'https://zyncjobs.com',
-      'https://www.zyncjobs.com',
       process.env.FRONTEND_URL
     ].filter(Boolean),
     credentials: true
