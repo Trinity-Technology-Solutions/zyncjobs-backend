@@ -90,10 +90,7 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: [
-      'http://localhost:5173',
-      process.env.FRONTEND_URL
-    ].filter(Boolean),
+    origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [].filter(Boolean),
     credentials: true
   }
 });
@@ -113,17 +110,17 @@ const userSockets = new Map();
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
-  
+
   socket.on('register', (userId) => {
     userSockets.set(userId, socket.id);
     console.log(`User ${userId} registered with socket ${socket.id}`);
   });
-  
+
   socket.on('send_message', async (data) => {
     try {
       const { senderId, receiverId, message } = data;
       const conversationId = [senderId, receiverId].sort().join('_');
-      
+
       const newMessage = new Message({
         conversationId,
         senderId,
@@ -131,7 +128,7 @@ io.on('connection', (socket) => {
         message
       });
       await newMessage.save();
-      
+
       const receiverSocketId = userSockets.get(receiverId);
       if (receiverSocketId) {
         io.to(receiverSocketId).emit('new_message', newMessage);
@@ -141,7 +138,7 @@ io.on('connection', (socket) => {
       socket.emit('error', error.message);
     }
   });
-  
+
   socket.on('disconnect', () => {
     for (const [userId, socketId] of userSockets.entries()) {
       if (socketId === socket.id) {
@@ -158,7 +155,7 @@ export async function sendNotification(userId, type, title, message, link = null
   try {
     const notification = new Notification({ userId, type, title, message, link });
     await notification.save();
-    
+
     const socketId = userSockets.get(userId);
     if (socketId) {
       io.to(socketId).emit('new_notification', notification);
@@ -209,15 +206,7 @@ const loginLimiter = rateLimit({
 app.use('/api/users/login', loginLimiter);
 app.use(limiter);
 app.use(cors({
-  origin: [
-    "https://trinity-jobs.vercel.app",
-    "https://stagging.zyncjobs.com",
-    "https://api-staging.zyncjobs.com",
-    "http://localhost:5173",
-    "https://zyncjobs.com",
-    "https://www.zyncjobs.com",
-    process.env.FRONTEND_URL
-  ].filter(Boolean),
+  origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [].filter(Boolean),
   credentials: true
 }));
 app.use(cookieParser());
@@ -303,28 +292,28 @@ app.use('/api/resume-viewer', resumeViewerRoutes);
 app.post('/api/resume-parser/parse', async (req, res) => {
   try {
     const { base64Data } = req.body;
-    
+
     if (!base64Data) {
       return res.status(400).json({ success: false, error: 'No PDF data provided' });
     }
 
     console.log('🔍 Processing resume...');
-    
+
     // Convert base64 to buffer and extract text
     const pdfBuffer = Buffer.from(base64Data, 'base64');
     const pdfTextExtractor = (await import('./services/pdfTextExtractor.js')).default;
     const resumeText = await pdfTextExtractor.extractTextFromBuffer(pdfBuffer);
-    
+
     console.log('📄 Extracted text length:', resumeText.length);
-    
+
     if (!resumeText.trim()) {
       return res.status(400).json({ success: false, error: 'Could not extract text from PDF' });
     }
-    
+
     // Use the AI parser to extract structured data
     const { resumeParser } = await import('./utils/resumeParserAI.js');
     const profileData = await resumeParser.parseResumeToProfile(resumeText);
-    
+
     // Convert to the expected format
     const parsedData = {
       personalInfo: {
@@ -351,7 +340,7 @@ app.post('/api/resume-parser/parse', async (req, res) => {
       certifications: profileData.certifications || [],
       languages: ['English']
     };
-    
+
     console.log('✅ Resume parsing completed!');
     res.json({ success: true, data: parsedData });
   } catch (error) {
@@ -380,29 +369,29 @@ const transporter = nodemailer.createTransport({
 
 app.post('/api/forgot-password', async (req, res) => {
   console.log('Forgot password request received:', req.body);
-  
+
   const { email } = req.body;
-  
+
   if (!email) {
     return res.status(400).json({ error: 'Email is required' });
   }
-  
+
   console.log('Processing reset for email:', email);
-  
+
   try {
     const resetToken = crypto.randomBytes(32).toString('hex');
-    
+
     // Store in database instead of memory
     await PasswordReset.create({
       email,
       token: resetToken
     });
-    
+
     console.log('Token generated and stored in database');
-    
+
     const resetLink = `http://localhost:5173/reset-password/${resetToken}`;
     console.log('Reset link:', resetLink);
-    
+
     // Try to send email but don't fail if it doesn't work
     const mailOptions = {
       from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
@@ -458,11 +447,11 @@ ZyncJobs Team
 </div>
       `
     };
-    
+
     transporter.sendMail(mailOptions)
       .then(() => console.log('Email sent successfully!'))
       .catch(err => console.log('Email failed:', err.message));
-    
+
     // Always return success immediately
     res.status(200).json({ message: 'Email sent' });
   } catch (error) {
@@ -474,18 +463,18 @@ ZyncJobs Team
 app.get('/api/verify-reset-token/:token', async (req, res) => {
   try {
     const { token } = req.params;
-    const tokenData = await PasswordReset.findOne({ 
+    const tokenData = await PasswordReset.findOne({
       where: {
-        token, 
+        token,
         used: false,
         expiresAt: { [Op.gt]: new Date() }
       }
     });
-    
+
     if (!tokenData) {
       return res.status(400).json({ error: 'Invalid or expired token' });
     }
-    
+
     res.json({ valid: true, email: tokenData.email });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -495,26 +484,26 @@ app.get('/api/verify-reset-token/:token', async (req, res) => {
 app.post('/api/reset-password', async (req, res) => {
   try {
     const { token, newPassword } = req.body;
-    
+
     if (!token || !newPassword) {
       return res.status(400).json({ error: 'Token and password required' });
     }
-    
-    const tokenData = await PasswordReset.findOne({ 
+
+    const tokenData = await PasswordReset.findOne({
       where: {
-        token, 
+        token,
         used: false,
         expiresAt: { [Op.gt]: new Date() }
       }
     });
-    
+
     if (!tokenData) {
       return res.status(400).json({ error: 'Invalid or expired token' });
     }
-    
+
     // Mark token as used
     await tokenData.update({ used: true });
-    
+
     console.log('Password reset successful for:', tokenData.email);
     res.json({ success: true, message: 'Password reset successful' });
   } catch (error) {
@@ -537,7 +526,7 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/chat', async (req, res) => {
   try {
     const { message, session_id, language } = req.body;
-    
+
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -610,7 +599,7 @@ Always be helpful, professional, and focus on job-related topics. Keep responses
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`❌ OpenRouter API error: ${response.status} - ${errorText}`);
-      
+
       // Provide helpful fallback response based on common queries
       const fallbackResponse = getFallbackResponse(message);
       return res.json({
@@ -621,16 +610,16 @@ Always be helpful, professional, and focus on job-related topics. Keep responses
 
     const data = await response.json();
     const aiResponse = data.choices?.[0]?.message?.content || getFallbackResponse(message);
-    
+
     console.log('✅ Chat response generated successfully');
-    
+
     res.json({
       response: aiResponse.trim(),
       sources: []
     });
   } catch (error) {
     console.error('❌ Chat error:', error.message);
-    
+
     const fallbackResponse = getFallbackResponse(req.body.message || '');
     res.json({
       response: fallbackResponse,
@@ -642,31 +631,31 @@ Always be helpful, professional, and focus on job-related topics. Keep responses
 // Helper function for fallback responses
 function getFallbackResponse(message) {
   const lowerMessage = (message || '').toLowerCase();
-  
+
   if (lowerMessage.includes('apply') || lowerMessage.includes('application')) {
     return "📝 Here's how to apply for jobs effectively:\n\n• Create a complete profile with your skills and experience\n• Search for jobs that match your qualifications\n• Customize your resume for each application\n• Write a compelling cover letter\n• Follow up after applying\n• Use the 'Quick Apply' feature for faster applications\n\nWould you like specific tips on any of these steps?";
   }
-  
+
   if (lowerMessage.includes('resume') || lowerMessage.includes('cv')) {
     return "📄 I'd be happy to help with your resume! Here are some key tips:\n\n• Use a clean, professional format\n• Highlight relevant skills and achievements\n• Quantify your accomplishments with numbers\n• Tailor your resume for each job application\n• Keep it concise (1-2 pages)\n\nWould you like specific advice on any section of your resume?";
   }
-  
+
   if (lowerMessage.includes('interview')) {
     return "🎯 Great question about interviews! Here are some essential tips:\n\n• Research the company and role thoroughly\n• Practice common interview questions\n• Prepare specific examples using the STAR method\n• Ask thoughtful questions about the role\n• Follow up with a thank-you email\n\nWhat specific aspect of interview preparation would you like to focus on?";
   }
-  
+
   if (lowerMessage.includes('job') || lowerMessage.includes('career')) {
     return "💼 I'm here to help with your job search and career! I can assist with:\n\n• Finding relevant job opportunities\n• Optimizing your job applications\n• Career path planning\n• Skill development recommendations\n• Industry insights\n\nWhat specific area would you like guidance on?";
   }
-  
+
   if (lowerMessage.includes('salary') || lowerMessage.includes('negotiate')) {
     return "💰 Salary negotiation is important! Here are key strategies:\n\n• Research market rates for your role\n• Highlight your unique value and achievements\n• Consider the total compensation package\n• Practice your negotiation conversation\n• Be prepared to justify your request\n\nWould you like tips on researching salary ranges or negotiation techniques?";
   }
-  
+
   if (lowerMessage.includes('hi') || lowerMessage.includes('hello') || lowerMessage.includes('hey')) {
     return "👋 Hello! I'm ZyncJobs AI Assistant. I'm here to help you with:\n\n🔍 Job searching and applications\n📄 Resume writing and optimization\n🎯 Interview preparation\n💼 Career development advice\n🏢 Company research\n\nWhat would you like assistance with today?";
   }
-  
+
   return "👋 Hello! I'm ZyncJobs AI Assistant. I'm here to help you with:\n\n🔍 Job searching and applications\n📄 Resume writing and optimization\n🎯 Interview preparation\n💼 Career development advice\n🏢 Company research\n\nWhat would you like assistance with today?";
 }
 
@@ -674,7 +663,7 @@ app.post('/api/generate-content', async (req, res) => {
   try {
     const { type, jobTitle, company, degree, school } = req.body;
     let content = '';
-    
+
     if (type === 'experience') {
       content = `• Managed daily operations and improved efficiency by implementing new processes\n• Collaborated with cross-functional teams to deliver high-quality results\n• Analyzed data and provided insights to support strategic decision-making`;
     } else if (type === 'education') {
@@ -682,7 +671,7 @@ app.post('/api/generate-content', async (req, res) => {
     } else if (type === 'summary') {
       content = `Dedicated ${jobTitle || 'professional'} with strong background and proven track record of delivering results.`;
     }
-    
+
     res.json({ content });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -693,14 +682,14 @@ app.post('/api/generate-content', async (req, res) => {
 app.post('/api/generate-job-description', async (req, res) => {
   try {
     const { jobTitle, company, jobType, location } = req.body;
-    
+
     if (!jobTitle) {
       return res.status(400).json({ error: 'Job title is required' });
     }
-    
+
     const description = generateJobDescription(jobTitle, company, jobType, location);
     const requirements = generateJobRequirements(jobTitle);
-    
+
     res.json({ description, requirements });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -709,7 +698,7 @@ app.post('/api/generate-job-description', async (req, res) => {
 
 function generateJobDescription(jobTitle, company, jobType, location) {
   const companyName = company || 'our company';
-  
+
   const templates = {
     'react': `We are seeking a skilled React Developer to join ${companyName}. You will be responsible for developing user interface components and implementing them following well-known React.js workflows.
 
@@ -719,7 +708,7 @@ Key Responsibilities:
 • Translate designs and wireframes into high-quality code
 • Optimize components for maximum performance
 • Collaborate with team members and stakeholders`,
-    
+
     'python': `Join ${companyName} as a Python Developer and contribute to building scalable applications. You will work on backend development, API integration, and data processing solutions.
 
 Key Responsibilities:
@@ -728,7 +717,7 @@ Key Responsibilities:
 • Work with databases and data processing
 • Write clean, maintainable, and efficient code
 • Collaborate with cross-functional teams`,
-    
+
     'full stack': `We are looking for a Full Stack Developer to join ${companyName}. You will work on both front-end and back-end development.
 
 Key Responsibilities:
@@ -738,7 +727,7 @@ Key Responsibilities:
 • Ensure cross-platform optimization
 • Work with development teams and product managers`
   };
-  
+
   const key = Object.keys(templates).find(k => jobTitle.toLowerCase().includes(k));
   return key ? templates[key] : `Join ${companyName} as a ${jobTitle} and be part of our dynamic team.
 
@@ -759,7 +748,7 @@ function generateJobRequirements(jobTitle) {
 • Knowledge of modern authorization mechanisms
 • Experience with front-end development tools
 • Bachelor's degree in Computer Science or related field`,
-    
+
     'python': `• 3+ years of experience in Python development
 • Strong knowledge of Python frameworks (Django, Flask)
 • Experience with databases (PostgreSQL, MySQL, MongoDB)
@@ -767,7 +756,7 @@ function generateJobRequirements(jobTitle) {
 • Knowledge of version control systems (Git)
 • Experience with cloud platforms (AWS, Azure)
 • Bachelor's degree in Computer Science or related field`,
-    
+
     'full stack': `• 4+ years of experience in full-stack development
 • Proficiency in front-end technologies (HTML, CSS, JavaScript)
 • Strong backend development skills (Node.js, Python, Java)
@@ -776,7 +765,7 @@ function generateJobRequirements(jobTitle) {
 • Familiarity with version control and CI/CD
 • Bachelor's degree in Computer Science or related field`
   };
-  
+
   const key = Object.keys(templates).find(k => jobTitle.toLowerCase().includes(k));
   return key ? templates[key] : `• 2+ years of relevant experience
 • Strong technical skills related to the position
@@ -822,8 +811,8 @@ app.get('/favicon.ico', (req, res) => res.status(204).end());
 
 // Simple health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'Backend server is running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
@@ -832,8 +821,8 @@ app.get('/api/health', (req, res) => {
 
 // Test applications endpoint
 app.get('/api/applications/test', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'Applications endpoint is working',
     timestamp: new Date().toISOString()
   });
@@ -854,8 +843,8 @@ app.get('/api/analytics/profile/:email', async (req, res) => {
     if (userType === 'employer') {
       const Job = (await import('./models/Job.js')).default;
       const Application = (await import('./models/Application.js')).default;
-      
-      const jobsPosted = await Job.count({ 
+
+      const jobsPosted = await Job.count({
         where: {
           [Op.or]: [
             { employerEmail: { [Op.iLike]: `%${email}%` } },
@@ -865,7 +854,7 @@ app.get('/api/analytics/profile/:email', async (req, res) => {
         }
       });
 
-      const applicationsReceived = await Application.count({ 
+      const applicationsReceived = await Application.count({
         where: {
           employerEmail: { [Op.iLike]: `%${email}%` }
         }
@@ -880,8 +869,8 @@ app.get('/api/analytics/profile/:email', async (req, res) => {
     } else {
       const Application = (await import('./models/Application.js')).default;
       const Analytics = (await import('./models/Analytics.js')).default;
-      
-      const applicationsSent = await Application.count({ 
+
+      const applicationsSent = await Application.count({
         where: {
           candidateEmail: { [Op.iLike]: `%${email}%` }
         }
@@ -928,9 +917,9 @@ app.get('/api/test', async (req, res) => {
 app.get('/api/test-analytics', async (req, res) => {
   try {
     const Analytics = (await import('./models/Analytics.js')).default;
-    
+
     const email = 'mutheeswaran@trinitetech.com';
-    
+
     const searchAppearances = await Analytics.count({
       where: {
         email: { [Op.iLike]: `%${email}%` },
@@ -944,14 +933,14 @@ app.get('/api/test-analytics', async (req, res) => {
         eventType: 'recruiter_action'
       }
     });
-    
+
     const allData = await Analytics.findAll({
       where: {
         email: { [Op.iLike]: `%${email}%` }
       },
       order: [['createdAt', 'DESC']]
     });
-    
+
     res.json({
       status: 'success',
       email,
