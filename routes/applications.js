@@ -283,7 +283,26 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Remove unused quick-apply, reapply, withdraw, and timeline routes
-// These use MongoDB-specific features not in the Sequelize model
+// DELETE /api/applications/:id - Delete application
+router.delete('/:id', async (req, res) => {
+  try {
+    console.log('Attempting to delete application:', req.params.id);
+    const application = await Application.findByPk(req.params.id);
+    
+    if (!application) {
+      console.log('Application not found:', req.params.id);
+      const allApps = await Application.findAll({ attributes: ['id'] });
+      console.log('Available applications:', allApps.map(a => a.id));
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    await application.destroy();
+    console.log('Application deleted:', req.params.id);
+    res.json({ message: 'Application deleted successfully' });
+  } catch (error) {
+    console.error('Delete error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 export default router;
