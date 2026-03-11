@@ -27,7 +27,7 @@ export const sendJobApplicationEmail = async (candidateEmail, candidateName, job
         <p>Thank you for applying to the position of <strong>${jobTitle}</strong> at <strong>${company}</strong>.</p>
         <p>We have received your application and will review it shortly. You will be notified of any updates.</p>
         <br>
-        <p>Best regards,<br>Trinity Jobs Team</p>
+        <p>Best regards,<br>ZyncJobs Team</p>
       `
     };
 
@@ -54,7 +54,7 @@ export const sendApplicationRejectionEmail = async (candidateEmail, candidateNam
         <p>After careful consideration, we have decided to move forward with other candidates whose qualifications more closely match our current needs.</p>
         <p>We encourage you to apply for future opportunities that match your skills and experience.</p>
         <br>
-        <p>Best regards,<br>Trinity Jobs Team</p>
+        <p>Best regards,<br>ZyncJobs Team</p>
       `
     };
 
@@ -90,7 +90,7 @@ export const sendApplicationStatusEmail = async (candidateEmail, candidateName, 
         <p><strong>Current Status:</strong> ${status.charAt(0).toUpperCase() + status.slice(1)}</p>
         <p>${statusMessages[status] || 'Your application status has been updated.'}</p>
         <br>
-        <p>Best regards,<br>Trinity Jobs Team</p>
+        <p>Best regards,<br>ZyncJobs Team</p>
       `
     };
 
@@ -126,8 +126,8 @@ export const sendJobAlertEmail = async (userEmail, userName, jobs) => {
         <p>We found ${jobs.length} new job(s) matching your preferences:</p>
         ${jobsHtml}
         <br>
-        <p>Visit Trinity Jobs to apply for these positions.</p>
-        <p>Best regards,<br>Trinity Jobs Team</p>
+        <p>Visit ZyncJobs to apply for these positions.</p>
+        <p>Best regards,<br>ZyncJobs Team</p>
       `
     };
 
@@ -226,7 +226,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
           <p>We wanted to follow up on your application for <strong>${jobTitle}</strong> at <strong>${company}</strong>.</p>
           <p>Your application is still under review. We appreciate your patience and will update you as soon as we have more information.</p>
           <br>
-          <p>Best regards,<br>Trinity Jobs Team</p>
+          <p>Best regards,<br>ZyncJobs Team</p>
         `;
         break;
         
@@ -247,7 +247,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
           </div>
           <p>Please be prepared and arrive on time. Good luck!</p>
           <br>
-          <p>Best regards,<br>Trinity Jobs Team</p>
+          <p>Best regards,<br>ZyncJobs Team</p>
         `;
         break;
         
@@ -259,7 +259,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
           <p>We hope you're still interested in the <strong>${jobTitle}</strong> position at <strong>${company}</strong>.</p>
           <p>If you have any questions about the role or would like to provide additional information, please don't hesitate to reach out.</p>
           <br>
-          <p>Best regards,<br>Trinity Jobs Team</p>
+          <p>Best regards,<br>ZyncJobs Team</p>
         `;
         break;
         
@@ -271,7 +271,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
           <p>This is a reminder that the application deadline for <strong>${jobTitle}</strong> at <strong>${company}</strong> is approaching.</p>
           <p>Please ensure you complete any pending requirements before the deadline.</p>
           <br>
-          <p>Best regards,<br>Trinity Jobs Team</p>
+          <p>Best regards,<br>ZyncJobs Team</p>
         `;
         break;
         
@@ -282,7 +282,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
           <p>Dear ${candidateName},</p>
           <p>We have an update regarding your application for <strong>${jobTitle}</strong> at <strong>${company}</strong>.</p>
           <br>
-          <p>Best regards,<br>Trinity Jobs Team</p>
+          <p>Best regards,<br>ZyncJobs Team</p>
         `;
     }
 
@@ -293,13 +293,13 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background-color: #6366f1; padding: 20px; text-align: center;">
-            <h1 style="color: white; margin: 0;">Trinity Jobs</h1>
+            <h1 style="color: white; margin: 0;">ZyncJobs</h1>
           </div>
           <div style="padding: 30px; background-color: white;">
             ${html}
           </div>
           <div style="background-color: #f1f1f1; padding: 15px; text-align: center;">
-            <p style="color: #666; margin: 0; font-size: 12px;">© 2025 Trinity Jobs. All rights reserved.</p>
+            <p style="color: #666; margin: 0; font-size: 12px;">© 2025 ZyncJobs. All rights reserved.</p>
           </div>
         </div>
       `
