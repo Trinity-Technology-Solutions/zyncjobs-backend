@@ -70,6 +70,7 @@ import resumeViewerRoutes from './routes/resumeViewer.js';
 import savedCandidatesRoutes from './routes/savedCandidates.js';
 import reviewRoutes from './routes/reviews.js';
 // import reminderScheduler from './services/reminderScheduler.js';
+import jobAlertScheduler from './services/jobAlertScheduler.js';
 import Notification from './models/Notification.js';
 import Message from './models/Message.js';
 import { loadInitialData } from './scripts/loadInitialData.js';
@@ -102,6 +103,11 @@ connectDB().then(() => {
   console.log('✅ Database connected');
   // Comment out loadInitialData for faster startup
   // loadInitialData();
+  
+  // Start job alert scheduler
+  if (process.env.ENABLE_JOB_ALERT_SCHEDULER !== 'false') {
+    jobAlertScheduler.start();
+  }
 }).catch(err => {
   console.error('❌ Database connection failed:', err);
   process.exit(1);
@@ -974,7 +980,18 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
   console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL}`);
   console.log(`💬 Socket.io enabled for real-time features`);
+  console.log(`📧 Job alert scheduler: ${jobAlertScheduler.isRunning ? 'ACTIVE' : 'INACTIVE'}`);
 }).on('error', (err) => {
   console.error('❌ Server failed to start:', err);
   process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  jobAlertScheduler.stop();
+  httpServer.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
 });
