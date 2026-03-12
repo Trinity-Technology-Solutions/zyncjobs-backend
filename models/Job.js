@@ -7,6 +7,16 @@ const Job = sequelize.define('Job', {
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true
   },
+  employerId: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    comment: 'Unique employer/company identifier (like Dice ID)'
+  },
+  positionId: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    comment: 'Unique position identifier for this specific job posting'
+  },
   jobTitle: {
     type: DataTypes.STRING,
     allowNull: false
@@ -17,6 +27,11 @@ const Job = sequelize.define('Job', {
     allowNull: false
   },
   companyLogo: DataTypes.STRING,
+  jobHeaderImage: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Banner/hero image for job details page'
+  },
   location: {
     type: DataTypes.STRING,
     allowNull: false
@@ -80,7 +95,9 @@ const Job = sequelize.define('Job', {
     { fields: ['location'] },
     { fields: ['jobType'] },
     { fields: ['employerEmail'] },
-    { fields: ['isActive'] }
+    { fields: ['isActive'] },
+    { fields: ['employerId'] },
+    { fields: ['positionId'], unique: true }
   ]
 });
 
