@@ -15,7 +15,6 @@ const Job = sequelize.define('Job', {
   positionId: {
     type: DataTypes.STRING,
     allowNull: false,
-    unique: true,
     comment: 'Unique position identifier for this specific job posting'
   },
   jobTitle: {

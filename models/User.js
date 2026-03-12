@@ -1,4 +1,4 @@
-import { DataTypes } from 'sequelize';
+import { DataTypes, Op } from 'sequelize';
 import { sequelize } from '../config/postgresql.js';
 
 const User = sequelize.define('User', {
@@ -28,7 +28,6 @@ const User = sequelize.define('User', {
   employerId: {
     type: DataTypes.STRING,
     allowNull: true,
-    unique: true,
     comment: 'Unique employer identifier for companies/recruiters'
   },
   company: DataTypes.STRING,
@@ -70,7 +69,18 @@ const User = sequelize.define('User', {
   lastLogin: DataTypes.DATE
 }, {
   tableName: 'users',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    {
+      unique: true,
+      fields: ['employerId'],
+      where: {
+        employerId: {
+          [Op.ne]: null
+        }
+      }
+    }
+  ]
 });
 
 export default User;
