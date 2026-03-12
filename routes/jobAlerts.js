@@ -4,6 +4,8 @@ import { Op } from 'sequelize';
 import JobAlert from '../models/JobAlert.js';
 import Job from '../models/Job.js';
 import { sendJobAlertEmail } from '../services/emailService.js';
+import JobAlertService from '../services/jobAlertService.js';
+import jobAlertScheduler from '../services/jobAlertScheduler.js';
 
 const router = express.Router();
 
@@ -88,63 +90,93 @@ router.delete('/:id', async (req, res) => {
 // POST /api/job-alerts/check-and-send - Check for matching jobs and send alerts
 router.post('/check-and-send', async (req, res) => {
   try {
-    const activeAlerts = await JobAlert.findAll({ where: { isActive: true } });
-    let alertsSent = 0;
+    const result = await JobAlertService.processAllAlerts();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/job-alerts/stats - Get alert statistics
+router.get('/stats', async (req, res) => {
+  try {
+    const stats = await JobAlertService.getAlertStats();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/job-alerts/:id/test-match - Test job matching for an alert
+router.post('/:id/test-match', async (req, res) => {
+  try {
+    const alert = await JobAlert.findByPk(req.params.id);
     
-    for (const alert of activeAlerts) {
-      // Build query based on alert criteria
-      const whereConditions = { isActive: true };
-      
-      // Keywords search
-      if (alert.keywords && alert.keywords.length > 0) {
-        const keywordConditions = [];
-        alert.keywords.forEach(keyword => {
-          keywordConditions.push(
-            { jobTitle: { [Op.iLike]: `%${keyword}%` } },
-            { description: { [Op.iLike]: `%${keyword}%` } }
-          );
-        });
-        whereConditions[Op.or] = keywordConditions;
-      }
-      
-      // Location filter
-      if (alert.location) {
-        whereConditions.location = { [Op.iLike]: `%${alert.location}%` };
-      }
-      
-      // Job type filter
-      if (alert.jobType) {
-        whereConditions.jobType = alert.jobType;
-      }
-      
-      // Get jobs posted since last alert
-      const lastSent = alert.lastSent || new Date(Date.now() - 24 * 60 * 60 * 1000);
-      whereConditions.createdAt = { [Op.gte]: lastSent };
-      
-      const matchingJobs = await Job.findAll({ where: whereConditions, limit: 10 });
-      
-      if (matchingJobs.length > 0) {
-        try {
-          await sendJobAlertEmail(alert.email, alert.keywords?.join(', ') || 'Job Alert', matchingJobs);
-          
-          await JobAlert.update(
-            { lastSent: new Date() },
-            { where: { id: alert.id } }
-          );
-          
-          alertsSent++;
-        } catch (emailError) {
-          console.error(`Failed to send alert to ${alert.email}:`, emailError);
-        }
-      }
+    if (!alert) {
+      return res.status(404).json({ error: 'Alert not found' });
     }
     
-    res.json({ 
-      message: `Processed ${activeAlerts.length} alerts, sent ${alertsSent} notifications` 
+    const matchingJobs = await JobAlertService.findMatchingJobs(alert, 0);
+    
+    res.json({
+      alertId: alert.id,
+      criteria: {
+        keywords: alert.keywords,
+        location: alert.location,
+        jobType: alert.jobType,
+        experienceLevel: alert.experienceLevel
+      },
+      matchingJobs: matchingJobs.slice(0, 5),
+      totalMatches: matchingJobs.length
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// POST /api/job-alerts/:id/send-now - Send alert immediately
+router.post('/:id/send-now', async (req, res) => {
+  try {
+    const alert = await JobAlert.findByPk(req.params.id);
+    
+    if (!alert) {
+      return res.status(404).json({ error: 'Alert not found' });
+    }
+    
+    const result = await JobAlertService.processAlert(alert);
+    
+    if (result.sent) {
+      res.json({ 
+        message: 'Alert sent successfully',
+        jobsCount: result.jobsCount 
+      });
+    } else {
+      res.status(400).json({ 
+        message: 'Alert not sent',
+        reason: result.reason 
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/job-alerts/scheduler/status - Get scheduler status
+router.get('/scheduler/status', (req, res) => {
+  const status = jobAlertScheduler.getStatus();
+  res.json(status);
+});
+
+// POST /api/job-alerts/scheduler/start - Start the scheduler
+router.post('/scheduler/start', (req, res) => {
+  jobAlertScheduler.start();
+  res.json({ message: 'Scheduler started', status: jobAlertScheduler.getStatus() });
+});
+
+// POST /api/job-alerts/scheduler/stop - Stop the scheduler
+router.post('/scheduler/stop', (req, res) => {
+  jobAlertScheduler.stop();
+  res.json({ message: 'Scheduler stopped', status: jobAlertScheduler.getStatus() });
 });
 
 export default router;
