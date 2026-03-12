@@ -69,6 +69,13 @@ import jobTitlesRoutes from './routes/jobTitles.js';
 import resumeViewerRoutes from './routes/resumeViewer.js';
 import savedCandidatesRoutes from './routes/savedCandidates.js';
 import reviewRoutes from './routes/reviews.js';
+import testLogoRoutes from './routes/testLogo.js';
+import savedRecommendedJobsRoutes from './routes/savedRecommendedJobs.js';
+import userPreferencesRoutes from './routes/userPreferences.js';
+import jobSessionRoutes from './routes/jobSession.js';
+import jobTimingRoutes from './routes/jobTiming.js';
+import employerRoutes from './routes/employers.js';
+import idSystemTestRoutes from './routes/idSystemTest.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import Notification from './models/Notification.js';
@@ -297,6 +304,13 @@ app.use('/api/meetings', meetingRoutes);
 app.use('/api/resume-viewer', resumeViewerRoutes);
 app.use('/api/saved-candidates', savedCandidatesRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api', testLogoRoutes);
+app.use('/api/saved-recommended-jobs', savedRecommendedJobsRoutes);
+app.use('/api/user-preferences', userPreferencesRoutes);
+app.use('/api/job-session', jobSessionRoutes);
+app.use('/api/jobs', jobTimingRoutes);
+app.use('/api/employers', employerRoutes);
+app.use('/api/id-system', idSystemTestRoutes);
 
 // Resume parser with AI
 app.post('/api/resume-parser/parse', async (req, res) => {
