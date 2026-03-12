@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { formatCompanyWithLogo } from '../utils/companyLogoService.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -30,15 +31,8 @@ router.get('/', (req, res) => {
       );
     }
     
-    // Convert to the format expected by CompanyAutocomplete
-    const formattedCompanies = companies.map(company => ({
-      id: company.id.toString(),
-      name: company.name,
-      domain: company.domain,
-      logo: company.logoUrl || company.logo,
-      logoUrl: company.logoUrl || company.logo,
-      website: company.website || `https://${company.domain}`
-    }));
+    // Format companies with logo service (includes Google favicon fallback)
+    const formattedCompanies = companies.map(company => formatCompanyWithLogo(company));
     
     res.json(formattedCompanies);
   } catch (error) {
@@ -65,12 +59,7 @@ router.get('/logo/:companyName', (req, res) => {
   }
   
   if (company) {
-    res.json({ 
-      name: company.name,
-      domain: company.domain,
-      logo: company.logoUrl || company.logo,
-      logoUrl: company.logoUrl || company.logo
-    });
+    res.json(formatCompanyWithLogo(company));
   } else {
     res.status(404).json({ error: 'Company not found' });
   }

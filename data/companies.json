@@ -603,7 +603,7 @@
     "id": 101,
     "name": "Trinity Technology Solutions",
     "domain": "trinitetech.com",
-    "logoUrl": "/images/zync-logo.svg"
+    "logoUrl": "https://img.logo.dev/trinitetech.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
   },
   {
     "id": 102,
@@ -1204,5 +1204,11 @@
     "name": "IKEA",
     "domain": "ikea.com",
     "logoUrl": "https://img.logo.dev/ikea.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 202,
+    "name": "Nambikkai India",
+    "domain": "nambikai.com",
+    "website": "https://nambikai.com"
   }
 ]

@@ -25,6 +25,12 @@ const User = sequelize.define('User', {
     type: DataTypes.ENUM('candidate', 'employer', 'admin'),
     defaultValue: 'candidate'
   },
+  employerId: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true,
+    comment: 'Unique employer identifier for companies/recruiters'
+  },
   company: DataTypes.STRING,
   companyName: DataTypes.STRING,
   companyLogo: DataTypes.STRING,
