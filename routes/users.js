@@ -494,37 +494,77 @@ router.delete('/cleanup/:email', async (req, res) => {
 // DELETE /api/users/:id - Delete user account
 router.delete('/:id', async (req, res) => {
   try {
-    const userId = req.params.id;
+    const identifier = decodeURIComponent(req.params.id || '').trim();
     
-    const user = await User.findByPk(userId);
+    console.log('🗑️ Delete request received');
+    console.log('🗑️ Raw params.id:', req.params.id);
+    console.log('🗑️ Decoded identifier:', identifier);
+    console.log('🗑️ Identifier length:', identifier.length);
+    console.log('🗑️ Request URL:', req.url);
+    
+    if (!identifier) {
+      console.log('❌ Empty identifier provided');
+      return res.status(400).json({ error: 'User identifier is required' });
+    }
+    
+    let user;
+    
+    // Check if identifier is an email (contains @) or UUID
+    if (identifier.includes('@')) {
+      console.log('🔍 Searching by email:', identifier);
+      user = await User.findOne({ 
+        where: { email: { [Op.iLike]: identifier } }
+      });
+    } else {
+      console.log('🔍 Searching by UUID:', identifier);
+      // Validate UUID format before querying
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(identifier)) {
+        console.log('❌ Invalid UUID format:', identifier);
+        return res.status(400).json({ error: 'Invalid user identifier format' });
+      }
+      user = await User.findByPk(identifier);
+    }
+    
     if (!user) {
+      console.log('❌ User not found:', identifier);
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    console.log('✅ Found user to delete:', user.email, 'ID:', user.id);
     
     // Delete from Profile table first
     try {
       const Profile = (await import('../models/Profile.js')).default;
-      await Profile.destroy({ 
+      const deletedProfiles = await Profile.destroy({ 
         where: { 
           [Op.or]: [
-            { userId: userId },
+            { userId: user.id },
             { email: user.email }
           ]
         }
       });
-      console.log('✅ Profile data deleted for:', user.email);
+      console.log('✅ Profile data deleted:', deletedProfiles, 'records for:', user.email);
     } catch (profileError) {
       console.log('⚠️ Profile deletion error (continuing):', profileError.message);
     }
     
     // Delete from User table
-    await User.destroy({ where: { id: userId } });
+    const deletedUsers = await User.destroy({ where: { id: user.id } });
     
-    console.log('✅ User account deleted:', user.email);
-    res.json({ message: 'Account deleted successfully' });
+    console.log('✅ User account deleted:', deletedUsers, 'records for:', user.email);
+    res.json({ 
+      message: 'Account deleted successfully', 
+      email: user.email,
+      deletedRecords: deletedUsers
+    });
   } catch (error) {
     console.error('❌ Delete account error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Error stack:', error.stack);
+    res.status(500).json({ 
+      error: error.message,
+      details: 'Check server logs for more information'
+    });
   }
 });
 
