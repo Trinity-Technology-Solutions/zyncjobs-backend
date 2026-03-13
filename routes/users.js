@@ -167,13 +167,8 @@ router.post('/login', async (req, res) => {
 
     console.log('✅ Password valid for:', email);
 
-    // Check account status
-    if (user.status === 'suspended') {
-      return res.status(403).json({ error: 'Account is suspended. Contact support.' });
-    }
-    if (user.status === 'deleted') {
-      return res.status(403).json({ error: 'Account has been deleted.' });
-    }
+    // Account status checks removed since User model doesn't have status field
+    // User.destroy() completely removes records, so if user exists, it's active
 
     // Load profile data from Profile collection
     let profileData = {};
@@ -506,6 +501,23 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     
+    // Delete from Profile table first
+    try {
+      const Profile = (await import('../models/Profile.js')).default;
+      await Profile.destroy({ 
+        where: { 
+          [Op.or]: [
+            { userId: userId },
+            { email: user.email }
+          ]
+        }
+      });
+      console.log('✅ Profile data deleted for:', user.email);
+    } catch (profileError) {
+      console.log('⚠️ Profile deletion error (continuing):', profileError.message);
+    }
+    
+    // Delete from User table
     await User.destroy({ where: { id: userId } });
     
     console.log('✅ User account deleted:', user.email);
