@@ -58,9 +58,9 @@ router.get('/stats', async (req, res) => {
     
     // Build query conditions, filtering out empty values
     const queryConditions = [];
-    if (employerEmail && employerEmail !== '') queryConditions.push({ employerEmail });
-    if (userName && userName !== '') queryConditions.push({ postedBy: userName });
-    if (employerId && employerId !== '') queryConditions.push({ employerId });
+    if (employerEmail && employerEmail.trim() !== '') queryConditions.push({ employerEmail });
+    if (userName && userName.trim() !== '') queryConditions.push({ postedBy: userName });
+    if (employerId && employerId.trim() !== '') queryConditions.push({ employerId });
     
     // If no valid conditions, return zeros
     if (queryConditions.length === 0) {
@@ -76,8 +76,8 @@ router.get('/stats', async (req, res) => {
     
     // For applications, only use employerEmail or employerId
     const appConditions = [];
-    if (employerEmail && employerEmail !== '') appConditions.push({ employerEmail });
-    if (employerId && employerId !== '') appConditions.push({ employerId });
+    if (employerEmail && employerEmail.trim() !== '') appConditions.push({ employerEmail });
+    if (employerId && employerId.trim() !== '') appConditions.push({ employerId });
     
     const applications = appConditions.length > 0 ? await Application.count({
       where: { [Op.or]: appConditions }
@@ -111,9 +111,9 @@ router.get('/recent-activity', async (req, res) => {
     
     // Build query conditions, filtering out empty values
     const queryConditions = [];
-    if (employerEmail) queryConditions.push({ employerEmail: employerEmail });
-    if (userName) queryConditions.push({ postedBy: userName });
-    if (employerId) queryConditions.push({ employerId: employerId });
+    if (employerEmail && employerEmail.trim() !== '') queryConditions.push({ employerEmail: employerEmail });
+    if (userName && userName.trim() !== '') queryConditions.push({ postedBy: userName });
+    if (employerId && employerId.trim() !== '') queryConditions.push({ employerId: employerId });
     
     // If no valid conditions, return empty array
     if (queryConditions.length === 0) {
