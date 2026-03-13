@@ -29,25 +29,40 @@ export const generateEmployerId = async () => {
 };
 
 /**
- * Get next sequential Position ID
- * Format: 0001, 0002, 0003...
+ * Get next sequential Position ID for current year
+ * Format: 0001, 0002, 0003... (resets each year)
  */
 export const generatePositionId = async () => {
   try {
-    // Get the highest existing position ID
+    const currentYear = new Date().getFullYear();
+    console.log('Generating position ID for year:', currentYear);
+    
+    // Get the highest sequence number for current year using simpler query
     const [results] = await sequelize.query(
-      "SELECT MAX(CAST(positionId AS INTEGER)) as maxId FROM jobs WHERE positionId IS NOT NULL AND positionId ~ '^[0-9]+$'"
+      `SELECT "positionId" FROM jobs WHERE "positionId" LIKE '${currentYear}-%' ORDER BY "positionId" DESC LIMIT 1`
     );
     
-    const maxId = results[0]?.maxId || 0;
-    const nextId = maxId + 1;
+    let nextSequence = 1;
+    
+    if (results.length > 0) {
+      const lastPositionId = results[0].positionId;
+      console.log('Last position ID found:', lastPositionId);
+      
+      // Extract sequence number from format YYYY-NNNN
+      const sequencePart = lastPositionId.split('-')[1];
+      if (sequencePart) {
+        nextSequence = parseInt(sequencePart) + 1;
+      }
+    }
+    
+    console.log('Next sequence number:', nextSequence);
     
     // Format as 4-digit padded number
-    return nextId.toString().padStart(4, '0');
+    return nextSequence.toString().padStart(4, '0');
   } catch (error) {
     console.error('Error generating position ID:', error);
-    // Fallback to timestamp-based ID
-    return Date.now().toString().slice(-4).padStart(4, '0');
+    // Fallback: start from 0001
+    return '0001';
   }
 };
 

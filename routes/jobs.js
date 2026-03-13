@@ -5,7 +5,7 @@ import User from '../models/User.js';
 import { Op } from 'sequelize';
 import { requireRole, requirePermission, PERMISSIONS } from '../middleware/roleAuth.js';
 import { mistralDetector } from '../utils/mistralJobDetector.js';
-import { generateEmployerId, generatePositionId } from '../utils/idGenerator.js';
+import { generateEmployerId, generatePositionId, generatePositionIdWithYear } from '../utils/idGenerator.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -240,10 +240,23 @@ router.post('/', [
       delete jobData.salary;
     }
 
+    console.log('Available functions:', { generateEmployerId, generatePositionId, generatePositionIdWithYear });
+    
+    // Generate position ID with year - inline fallback if import fails
+    const generatePositionIdWithYearFallback = async () => {
+      const year = new Date().getFullYear();
+      const sequence = await generatePositionId();
+      return `${year}-${sequence}`;
+    };
+    
+    const positionId = typeof generatePositionIdWithYear === 'function' 
+      ? await generatePositionIdWithYear() 
+      : await generatePositionIdWithYearFallback();
+    
     const job = await Job.create({
       ...jobData,
       employerId,
-      positionId: await generatePositionIdWithYear(), // Generate year + sequential position ID
+      positionId: positionId, // Use the generated position ID
       status: 'approved',
       employerEmail,
       postedBy: employerEmail,
