@@ -24,8 +24,9 @@ const connectPostgreSQL = async () => {
     await sequelize.authenticate();
     console.log('✅ PostgreSQL Connected successfully');
     
-    await sequelize.sync({ alter: true });
-    console.log('✅ Database tables synchronized');
+    // Skip sync if database is already set up
+    // await sequelize.sync({ alter: false });
+    console.log('✅ Database sync skipped - using existing schema');
     
     return sequelize;
   } catch (error) {
