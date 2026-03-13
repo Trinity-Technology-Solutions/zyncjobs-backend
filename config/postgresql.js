@@ -24,7 +24,7 @@ const connectPostgreSQL = async () => {
     await sequelize.authenticate();
     console.log('✅ PostgreSQL Connected successfully');
     
-    await sequelize.sync({ alter: true });
+    await sequelize.sync({ alter: false });
     console.log('✅ Database tables synchronized');
     
     return sequelize;
