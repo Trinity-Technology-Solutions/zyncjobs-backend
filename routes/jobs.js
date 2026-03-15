@@ -366,14 +366,47 @@ router.get('/employer/email/:email', async (req, res) => {
   }
 });
 
-// DELETE /api/jobs/:id - Delete job
+// DELETE /api/jobs/:id - Delete job (soft delete by setting isActive to false)
 router.delete('/:id', async (req, res) => {
+  try {
+    const job = await Job.findByPk(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    // Soft delete - set isActive to false instead of hard delete
+    await job.update({ isActive: false });
+    
+    res.json({ message: 'Job deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/jobs/:id/permanent - Permanently delete job (hard delete)
+router.delete('/:id/permanent', async (req, res) => {
   try {
     const deleted = await Job.destroy({ where: { id: req.params.id } });
     if (!deleted) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    res.json({ message: 'Job deleted successfully' });
+    res.json({ message: 'Job permanently deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/jobs/:id/reactivate - Reactivate a deleted job
+router.put('/:id/reactivate', async (req, res) => {
+  try {
+    const job = await Job.findByPk(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    await job.update({ isActive: true });
+    
+    res.json({ message: 'Job reactivated successfully', job });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
