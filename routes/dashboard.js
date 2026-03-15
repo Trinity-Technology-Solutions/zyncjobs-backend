@@ -70,7 +70,8 @@ router.get('/stats', async (req, res) => {
     const activeJobs = await Job.count({
       where: {
         [Op.or]: queryConditions,
-        isActive: true
+        isActive: true,
+        status: { [Op.in]: ['approved', 'pending'] }
       }
     });
     
