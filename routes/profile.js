@@ -65,7 +65,7 @@ router.post('/save', async (req, res) => {
     
     // Also update User collection with key fields (only if valid UUID)
     if (isValidUUID) {
-      await User.update({
+      const userUpdateData = {
         name: profileData.name,
         phone: profileData.phone,
         location: profileData.location,
@@ -73,9 +73,13 @@ router.post('/save', async (req, res) => {
         skills: profileData.skills,
         profilePicture: profileData.profilePhoto,
         profilePhoto: profileData.profilePhoto
-      }, {
-        where: { id: userId }
-      });
+      };
+      // Sync companyName back to User table so job post form pre-fills correctly
+      if (profileData.companyName) {
+        userUpdateData.company = profileData.companyName;
+        userUpdateData.companyName = profileData.companyName;
+      }
+      await User.update(userUpdateData, { where: { id: userId } });
       console.log('✅ User table also updated');
     }
     
