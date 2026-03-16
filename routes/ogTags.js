@@ -3,10 +3,10 @@ import Job from '../models/Job.js';
 
 const router = express.Router();
 
-// Helper function to get company logo
-function getCompanyLogo(companyName) {
-  // You can expand this with your companies data
-  return `https://logo.clearbit.com/${companyName.toLowerCase().replace(/\s+/g, '')}.com`;
+function getOgImage(job) {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  // Use trinity-logo as the default OG share image
+  return `${frontendUrl}/images/company-logos/trinity-logo.png`;
 }
 
 // GET /job-detail?id=xxx - Dynamic OG tags for job details
@@ -30,9 +30,8 @@ router.get('/job-detail', async (req, res) => {
 
     const jobTitle = `${job.jobTitle} at ${job.company}`;
     const description = (job.jobDescription || job.description || 'Job opportunity at ' + job.company).substring(0, 160) + '...';
-    const companyLogo = getCompanyLogo(job.company);
+    const ogImage = getOgImage(job);
     const jobUrl = `${process.env.FRONTEND_URL}/job-detail?id=${job._id || job.id}`;
-    const shareUrl = `${process.env.BACKEND_URL || process.env.FRONTEND_URL}/job-detail?id=${job._id || job.id}`;
 
     const html = `
 <!DOCTYPE html>
@@ -47,7 +46,7 @@ router.get('/job-detail', async (req, res) => {
     <meta property="og:url" content="${jobUrl}">
     <meta property="og:title" content="${jobTitle}">
     <meta property="og:description" content="${description}">
-    <meta property="og:image" content="${companyLogo}">
+    <meta property="og:image" content="${ogImage}">
     <meta property="og:site_name" content="ZyncJobs">
     
     <!-- Twitter -->
@@ -55,7 +54,7 @@ router.get('/job-detail', async (req, res) => {
     <meta property="twitter:url" content="${jobUrl}">
     <meta property="twitter:title" content="${jobTitle}">
     <meta property="twitter:description" content="${description}">
-    <meta property="twitter:image" content="${companyLogo}">
+    <meta property="twitter:image" content="${ogImage}">
     
     <!-- Additional meta tags -->
     <meta name="description" content="${description}">
