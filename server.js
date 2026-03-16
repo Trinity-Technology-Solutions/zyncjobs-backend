@@ -1134,12 +1134,22 @@ app.get('/api/test-analytics', async (req, res) => {
   }
 });
 
-// Catch-all error handler for unhandled routes
+// Serve static frontend files (if you have a build folder)
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'build')));
+}
+
+// Serve frontend app for non-API routes (SPA support)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     res.status(404).json({ error: 'API endpoint not found', path: req.path });
+  } else if (process.env.NODE_ENV === 'production') {
+    // Serve index.html for all non-API routes in production
+    res.sendFile(path.join(__dirname, 'build', 'index.html'));
   } else {
-    res.status(404).json({ error: 'Route not found' });
+    // For development, redirect to frontend URL
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(frontendUrl + req.path);
   }
 });
 
