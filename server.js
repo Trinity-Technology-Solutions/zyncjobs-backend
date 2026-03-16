@@ -800,9 +800,18 @@ JSON:
     const parsed = JSON.parse(jsonMatch[0]);
 
     // Safety: reject obviously wrong company values
-    const invalidPhrases = ['good to have', 'must have', 'nice to have', 'required', 'preferred',
-      'skills', 'experience', 'qualifications', 'responsibilities', 'benefits', 'about the role'];
+    const invalidPhrases = [
+      'good to have', 'must have', 'nice to have', 'required', 'preferred',
+      'skills', 'experience', 'qualifications', 'responsibilities', 'benefits',
+      'about the role', 'mandatory', 'optional', 'desired', 'added advantage',
+      'key skills', 'technical skills', 'soft skills', 'job description',
+      'job requirements', 'job responsibilities', 'what we offer', 'who we are'
+    ];
     if (parsed.company && invalidPhrases.some(p => parsed.company.toLowerCase().includes(p))) {
+      parsed.company = '';
+    }
+    // Also reject if company name is too short or looks like a section heading
+    if (parsed.company && (parsed.company.length < 2 || /^[A-Z\s]+$/.test(parsed.company) && parsed.company.split(' ').length > 3)) {
       parsed.company = '';
     }
 
