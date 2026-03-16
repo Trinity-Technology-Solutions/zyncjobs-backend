@@ -714,6 +714,123 @@ app.post('/api/generate-content', async (req, res) => {
   }
 });
 
+// Job Post Text Parser - extracts structured fields from pasted job description
+app.post('/api/parse-job-post', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || text.length < 30) {
+      return res.status(400).json({ error: 'Please provide valid job post text' });
+    }
+
+    const prompt = `You are a precise job post parser. Extract structured data from the job posting below.
+Return ONLY valid JSON, no markdown, no explanation.
+
+STRICT RULES:
+- "company": The hiring company/organization name ONLY. Look for "About [Company]", "at [Company]", "[Company] is hiring", "Company: [Name]". NEVER put skills, requirements, or section headings like "Good to Have", "Must Have", "Required" here. If not clearly found, return "".
+- "jobTitle": The exact job position title (e.g. "Senior React Developer", "Data Analyst").
+- "location": City or region (e.g. "Chennai", "Bangalore", "Remote"). Extract the actual city name.
+- "jobType": One of exactly: Full-time, Part-time, Contract, Freelance, Internship.
+- "workSetting": One of exactly: Remote, Hybrid, On-site.
+- "skills": Array of specific technical skills mentioned (e.g. ["React", "Node.js", "PostgreSQL"]).
+- "experienceLevel": One of exactly: Entry, Mid, Senior, Lead. Infer from years required.
+- "experienceRange": String like "3-5 years" or "2+ years" extracted from the text.
+- "salaryMin": Minimum salary as integer (0 if not mentioned).
+- "salaryMax": Maximum salary as integer (0 if not mentioned).
+- "currency": Currency code like INR, USD, EUR (default INR if Indian context).
+- "jobCategory": One of: Software Development, Data Science & Analytics, Sales & Marketing, Finance & Accounting, Human Resources, Operations, Customer Service, Healthcare, Engineering, Education, Information Technology, Other.
+- "description": The full job description text as-is.
+- "responsibilities": Array of key responsibility bullet points (max 6).
+- "requirements": Array of key requirement bullet points (max 6).
+- "educationLevel": Degree required like "Bachelor's Degree", "Master's Degree", etc.
+- "priority": One of: Low, Medium, High, Urgent. Infer from urgency words.
+
+JOB POST:
+${text.substring(0, 3500)}
+
+JSON:
+{
+  "company": "",
+  "jobTitle": "",
+  "location": "",
+  "jobType": "Full-time",
+  "workSetting": "On-site",
+  "skills": [],
+  "experienceLevel": "Mid",
+  "experienceRange": "",
+  "salaryMin": 0,
+  "salaryMax": 0,
+  "currency": "INR",
+  "jobCategory": "Software Development",
+  "description": "",
+  "responsibilities": [],
+  "requirements": [],
+  "educationLevel": "Bachelor's Degree",
+  "priority": "Medium"
+}`;
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      return res.status(500).json({ error: 'AI service not configured' });
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+        'X-Title': 'ZyncJobs-JobParser'
+      },
+      body: JSON.stringify({
+        model: 'mistralai/mistral-7b-instruct:free',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 1200
+      })
+    });
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const cleaned = content.trim().replace(/```json|```/g, '');
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+
+    if (!jsonMatch) {
+      return res.status(500).json({ error: 'Failed to parse job post' });
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Safety: reject obviously wrong company values
+    const invalidPhrases = [
+      'good to have', 'must have', 'nice to have', 'required', 'preferred',
+      'skills', 'experience', 'qualifications', 'responsibilities', 'benefits',
+      'about the role', 'mandatory', 'optional', 'desired', 'added advantage',
+      'key skills', 'technical skills', 'soft skills', 'job description',
+      'job requirements', 'job responsibilities', 'what we offer', 'who we are'
+    ];
+    if (parsed.company && invalidPhrases.some(p => parsed.company.toLowerCase().includes(p))) {
+      parsed.company = '';
+    }
+    // Also reject if company name is too short or looks like a section heading
+    if (parsed.company && (parsed.company.length < 2 || /^[A-Z\s]+$/.test(parsed.company) && parsed.company.split(' ').length > 3)) {
+      parsed.company = '';
+    }
+
+    // Ensure arrays
+    if (!Array.isArray(parsed.skills)) parsed.skills = [];
+    if (!Array.isArray(parsed.responsibilities)) parsed.responsibilities = [];
+    if (!Array.isArray(parsed.requirements)) parsed.requirements = [];
+
+    // If description is empty, use original text
+    if (!parsed.description) parsed.description = text;
+
+    console.log('✅ Job post parsed - company:', parsed.company, '| title:', parsed.jobTitle, '| location:', parsed.location);
+    res.json({ success: true, data: parsed });
+  } catch (error) {
+    console.error('❌ Job post parse error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // AI Job Description Generation
 app.post('/api/generate-job-description', async (req, res) => {
   try {
