@@ -77,6 +77,8 @@ import jobTimingRoutes from './routes/jobTiming.js';
 import employerRoutes from './routes/employers.js';
 import idSystemTestRoutes from './routes/idSystemTest.js';
 import debugRoutes from './routes/debug.js';
+import ogTagsRoutes from './routes/ogTags.js';
+import socialShareRoutes from './routes/socialShare.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
@@ -319,6 +321,8 @@ app.use('/api/jobs', jobTimingRoutes);
 app.use('/api/employers', employerRoutes);
 app.use('/api/id-system', idSystemTestRoutes);
 app.use('/api/debug', debugRoutes);
+app.use('/api/social', socialShareRoutes);
+app.use('/', ogTagsRoutes);
 
 // Resume parser with AI
 app.post('/api/resume-parser/parse', async (req, res) => {
