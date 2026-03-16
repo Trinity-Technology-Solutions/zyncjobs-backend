@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import Job from '../models/Job.js';
 import { meetingService } from '../services/meetingService.js';
 import { sendInterviewScheduledEmail } from '../services/emailService.js';
+import NotificationService from '../services/notificationService.js';
 
 const router = express.Router();
 
@@ -148,6 +149,14 @@ router.post('/schedule', async (req, res) => {
 
     console.log('✅ Interview saved:', interview.id);
     
+    // Create notification for employer
+    try {
+      await NotificationService.createInterviewNotification(interview);
+      console.log('🔔 Interview notification created');
+    } catch (notificationError) {
+      console.error('⚠️ Interview notification creation failed:', notificationError.message);
+    }
+    
     // Send email
     if (candidateEmail) {
       try {
@@ -220,6 +229,14 @@ router.post('/create-with-meeting', async (req, res) => {
       status: 'scheduled',
       employerConfirmed: true
     });
+    
+    // Create notification for employer
+    try {
+      await NotificationService.createInterviewNotification(interview);
+      console.log('🔔 Interview notification created');
+    } catch (notificationError) {
+      console.error('⚠️ Interview notification creation failed:', notificationError.message);
+    }
     
     // Send email to candidate
     if (candidate && candidate.email) {
