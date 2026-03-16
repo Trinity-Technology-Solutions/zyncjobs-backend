@@ -79,6 +79,7 @@ import idSystemTestRoutes from './routes/idSystemTest.js';
 import debugRoutes from './routes/debug.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
+import notificationScheduler from './services/notificationScheduler.js';
 import Notification from './models/Notification.js';
 import Message from './models/Message.js';
 import { loadInitialData } from './scripts/loadInitialData.js';
@@ -115,6 +116,11 @@ connectDB().then(() => {
   // Start job alert scheduler
   if (process.env.ENABLE_JOB_ALERT_SCHEDULER !== 'false') {
     jobAlertScheduler.start();
+  }
+  
+  // Start notification scheduler
+  if (process.env.ENABLE_NOTIFICATION_SCHEDULER !== 'false') {
+    notificationScheduler.start();
   }
 }).catch(err => {
   console.error('❌ Database connection failed:', err);
@@ -835,6 +841,33 @@ app.get('/robots.txt', (req, res) => {
 
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
+// Test notifications endpoint
+app.get('/api/notifications/test/:employerEmail', async (req, res) => {
+  try {
+    const { employerEmail } = req.params;
+    
+    console.log(`🔔 Testing notifications for: ${employerEmail}`);
+    
+    // Trigger daily summary
+    const summary = await notificationScheduler.triggerDailySummary(employerEmail);
+    
+    // Get current notifications
+    const response = await fetch(`${req.protocol}://${req.get('host')}/api/notifications?employerEmail=${encodeURIComponent(employerEmail)}`);
+    const notifications = await response.json();
+    
+    res.json({
+      message: 'Notification test completed',
+      employerEmail,
+      summaryGenerated: !!summary,
+      currentNotifications: notifications.length,
+      schedulerStatus: notificationScheduler.getStatus()
+    });
+  } catch (error) {
+    console.error('❌ Notification test error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Simple health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
@@ -997,6 +1030,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL}`);
   console.log(`💬 Socket.io enabled for real-time features`);
   console.log(`📧 Job alert scheduler: ${jobAlertScheduler.isRunning ? 'ACTIVE' : 'INACTIVE'}`);
+  console.log(`🔔 Notification scheduler: ${notificationScheduler.isRunning ? 'ACTIVE' : 'INACTIVE'}`);
 }).on('error', (err) => {
   console.error('❌ Server failed to start:', err);
   process.exit(1);
@@ -1006,6 +1040,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully...');
   jobAlertScheduler.stop();
+  notificationScheduler.stop();
   httpServer.close(() => {
     console.log('Server closed');
     process.exit(0);

@@ -5,6 +5,7 @@ import Application from '../models/Application.js';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail } from '../services/emailService.js';
+import NotificationService from '../services/notificationService.js';
 
 const router = express.Router();
 
@@ -61,6 +62,14 @@ router.post('/', [
     });
 
     console.log('✅ Application created:', { id: application.id, jobId, candidateEmail });
+
+    // Create notification for employer
+    try {
+      await NotificationService.createApplicationNotification(application);
+      console.log('🔔 Notification created for employer');
+    } catch (notificationError) {
+      console.error('⚠️ Notification creation failed:', notificationError.message);
+    }
 
     // Send confirmation email (don't fail if email fails)
     try {
@@ -193,6 +202,14 @@ router.put('/:id/status', [
     await application.update({ status });
 
     const job = await Job.findByPk(application.jobId);
+
+    // Create notification for status change
+    try {
+      await NotificationService.createApplicationStatusNotification(application, status);
+      console.log('🔔 Status change notification created');
+    } catch (notificationError) {
+      console.error('⚠️ Status notification creation failed:', notificationError.message);
+    }
 
     // Send email notification
     try {
