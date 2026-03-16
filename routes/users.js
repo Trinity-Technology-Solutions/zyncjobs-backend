@@ -89,7 +89,8 @@ router.post('/register', [
       email: user.email,
       userType: user.role,
       phone: user.phone,
-      company: user.company,
+      company: user.companyName || user.company,
+      companyName: user.companyName || user.company,
       companyLogo: user.companyLogo,
       companyWebsite: user.companyWebsite,
       location: user.location
@@ -201,13 +202,15 @@ router.post('/login', async (req, res) => {
     const refreshToken = generateRefreshToken(user.id);
     const decoded = verifyToken(refreshToken);
 
+    const resolvedCompany = user.companyName || user.company || '';
     const userResponse = {
       id: user.id,
       name: user.name,
       email: user.email,
       userType: user.role,
       phone: user.phone,
-      company: user.company,
+      company: resolvedCompany,
+      companyName: resolvedCompany,
       companyLogo: user.companyLogo,
       companyWebsite: user.companyWebsite,
       location: user.location,
