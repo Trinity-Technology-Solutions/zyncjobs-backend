@@ -247,13 +247,16 @@ app.use(express.urlencoded({ extended: true }));
 // Serve uploaded files with proper headers
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
   setHeaders: (res, path) => {
-    // Set proper content type for PDFs
     if (path.endsWith('.pdf')) {
       res.setHeader('Content-Type', 'application/pdf');
     }
-    // Allow cross-origin access
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
+}));
+
+// Serve public static assets (logos, images)
+app.use('/images', express.static(path.join(__dirname, 'public', 'images'), {
+  setHeaders: (res) => { res.setHeader('Access-Control-Allow-Origin', '*'); }
 }));
 
 app.use('/api/jobs', jobRoutes);
@@ -722,27 +725,46 @@ app.post('/api/parse-job-post', async (req, res) => {
       return res.status(400).json({ error: 'Please provide valid job post text' });
     }
 
+    // Pre-extract company and location with regex before sending to AI
+    const preExtract = preExtractJobFields(text);
+
     const prompt = `You are a precise job post parser. Extract structured data from the job posting below.
 Return ONLY valid JSON, no markdown, no explanation.
 
-STRICT RULES:
-- "company": The hiring company/organization name ONLY. Look for "About [Company]", "at [Company]", "[Company] is hiring", "Company: [Name]". NEVER put skills, requirements, or section headings like "Good to Have", "Must Have", "Required" here. If not clearly found, return "".
-- "jobTitle": The exact job position title (e.g. "Senior React Developer", "Data Analyst").
-- "location": City or region (e.g. "Chennai", "Bangalore", "Remote"). Extract the actual city name.
-- "jobType": One of exactly: Full-time, Part-time, Contract, Freelance, Internship.
-- "workSetting": One of exactly: Remote, Hybrid, On-site.
-- "skills": Array of specific technical skills mentioned (e.g. ["React", "Node.js", "PostgreSQL"]).
-- "experienceLevel": One of exactly: Entry, Mid, Senior, Lead. Infer from years required.
-- "experienceRange": String like "3-5 years" or "2+ years" extracted from the text.
-- "salaryMin": Minimum salary as integer (0 if not mentioned).
-- "salaryMax": Maximum salary as integer (0 if not mentioned).
-- "currency": Currency code like INR, USD, EUR (default INR if Indian context).
-- "jobCategory": One of: Software Development, Data Science & Analytics, Sales & Marketing, Finance & Accounting, Human Resources, Operations, Customer Service, Healthcare, Engineering, Education, Information Technology, Other.
-- "description": The full job description text as-is.
-- "responsibilities": Array of key responsibility bullet points (max 6).
-- "requirements": Array of key requirement bullet points (max 6).
-- "educationLevel": Degree required like "Bachelor's Degree", "Master's Degree", etc.
-- "priority": One of: Low, Medium, High, Urgent. Infer from urgency words.
+CRITICAL EXTRACTION RULES:
+
+"company": Extract ONLY the hiring company/organization name.
+  - Look for patterns: "About [Company]", "[Company] is hiring", "Company: [Name]", "at [Company]", "Join [Company]", "[Company] - Job Title"
+  - The company name is usually a proper noun (e.g. "Infosys", "TCS", "Google", "Zoho", "Freshworks")
+  - NEVER EVER use section headings or requirement labels as company name. These are NOT company names: "Good to Have", "Must Have", "Nice to Have", "Required", "Preferred", "Mandatory", "Skills", "Experience", "Qualifications", "Responsibilities", "Benefits", "About the Role", "Key Skills"
+  - NEVER use tools, technologies, or skills as company name. These are tools NOT companies: "Postman", "REST Assured", "Selenium", "Docker", "Kubernetes", "Jenkins", "Jira", "Git", "GitHub", "React", "Angular", "Python", "Java", "AWS", "Azure", "MySQL", "MongoDB", "Figma", "Agile", "Scrum"
+  - A company name is NEVER a comma-separated list of tools or skills
+  - If you cannot find a real company name, return "" (empty string). Do NOT guess.
+  ${preExtract.company ? `- The company name for this job post is: "${preExtract.company}" — use this value.` : '- No company name pattern found in text, return "".'}}
+
+"location": Extract ONLY the actual city/region where the job is located.
+  - Look for patterns: "Location: [City]", "Based in [City]", "Office in [City]", "[City], India", "[City] | [State]"
+  - Valid examples: "Chennai", "Bangalore", "Mumbai", "Hyderabad", "Pune", "Delhi", "Remote", "Hybrid"
+  - NEVER use: company names, job titles, skill names, or generic words like "India" alone
+  - If the job is remote, return "Remote"
+  - If not found, return ""
+  ${preExtract.location ? `- HINT: Likely location detected: "${preExtract.location}"` : ''}
+
+"jobTitle": The exact job position title only (e.g. "Senior React Developer", "Data Analyst").
+"jobType": Array of applicable types from: Full-time, Part-time, Contract, Freelance, Internship. Can be multiple (e.g. ["Full-time", "Contract"]).
+"workSetting": One of exactly: Remote, Hybrid, On-site.
+"skills": Array of specific technical/professional skills (e.g. ["React", "Node.js", "PostgreSQL"]).
+"experienceLevel": One of exactly: Entry, Mid, Senior, Lead. Infer from years required.
+"experienceRange": String like "3-5 years" or "2+ years" extracted from the text.
+"salaryMin": Minimum salary as integer (0 if not mentioned).
+"salaryMax": Maximum salary as integer (0 if not mentioned).
+"currency": Currency code like INR, USD, EUR (default INR if Indian context).
+"jobCategory": One of: Software Development, Data Science & Analytics, Sales & Marketing, Finance & Accounting, Human Resources, Operations, Customer Service, Healthcare, Engineering, Education, Information Technology, Other.
+"description": The full job description text as-is.
+"responsibilities": Array of key responsibility bullet points (max 6).
+"requirements": Array of key requirement bullet points (max 6).
+"educationLevel": Degree required like "Bachelor's Degree", "Master's Degree", etc.
+"priority": One of: Low, Medium, High, Urgent. Infer from urgency words.
 
 JOB POST:
 ${text.substring(0, 3500)}
@@ -752,7 +774,7 @@ JSON:
   "company": "",
   "jobTitle": "",
   "location": "",
-  "jobType": "Full-time",
+  "jobType": ["Full-time"],
   "workSetting": "On-site",
   "skills": [],
   "experienceLevel": "Mid",
@@ -784,7 +806,7 @@ JSON:
         model: 'mistralai/mistral-7b-instruct:free',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
-        max_tokens: 1200
+        max_tokens: 1500
       })
     });
 
@@ -799,26 +821,17 @@ JSON:
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    // Safety: reject obviously wrong company values
-    const invalidPhrases = [
-      'good to have', 'must have', 'nice to have', 'required', 'preferred',
-      'skills', 'experience', 'qualifications', 'responsibilities', 'benefits',
-      'about the role', 'mandatory', 'optional', 'desired', 'added advantage',
-      'key skills', 'technical skills', 'soft skills', 'job description',
-      'job requirements', 'job responsibilities', 'what we offer', 'who we are'
-    ];
-    if (parsed.company && invalidPhrases.some(p => parsed.company.toLowerCase().includes(p))) {
-      parsed.company = '';
-    }
-    // Also reject if company name is too short or looks like a section heading
-    if (parsed.company && (parsed.company.length < 2 || /^[A-Z\s]+$/.test(parsed.company) && parsed.company.split(' ').length > 3)) {
-      parsed.company = '';
-    }
+    // Post-process: validate and fix company
+    parsed.company = sanitizeCompany(parsed.company, preExtract.company);
+
+    // Post-process: validate and fix location
+    parsed.location = sanitizeLocation(parsed.location, preExtract.location);
 
     // Ensure arrays
     if (!Array.isArray(parsed.skills)) parsed.skills = [];
     if (!Array.isArray(parsed.responsibilities)) parsed.responsibilities = [];
     if (!Array.isArray(parsed.requirements)) parsed.requirements = [];
+    if (!Array.isArray(parsed.jobType)) parsed.jobType = parsed.jobType ? [parsed.jobType] : ['Full-time'];
 
     // If description is empty, use original text
     if (!parsed.description) parsed.description = text;
@@ -830,6 +843,176 @@ JSON:
     res.status(500).json({ error: error.message });
   }
 });
+
+// Pre-extract company and location using regex patterns before AI call
+function preExtractJobFields(text) {
+  const result = { company: '', location: '' };
+
+  // Company extraction patterns
+  const companyPatterns = [
+    /company\s*[:\-]\s*([A-Za-z0-9][\w\s&.,'-]{1,50}?)(?:\n|\||,|$)/im,
+    /(?:about|join|at)\s+([A-Z][A-Za-z0-9\s&.,'-]{1,40}?)(?:\s+is\s+hiring|\s+is\s+looking|\s+we\s+are|\n|\||,)/im,
+    /([A-Z][A-Za-z0-9\s&.,'-]{1,40}?)\s+is\s+(?:hiring|looking for|seeking)/im,
+    /^([A-Z][A-Za-z0-9\s&.,'-]{1,40}?)\s*[-|]\s*(?:job|career|opening|position|hiring)/im,
+    /employer\s*[:\-]\s*([A-Za-z0-9][\w\s&.,'-]{1,50}?)(?:\n|\||,|$)/im,
+    /organisation\s*[:\-]\s*([A-Za-z0-9][\w\s&.,'-]{1,50}?)(?:\n|\||,|$)/im,
+    /organization\s*[:\-]\s*([A-Za-z0-9][\w\s&.,'-]{1,50}?)(?:\n|\||,|$)/im,
+  ];
+
+  for (const pattern of companyPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      const candidate = match[1].trim().replace(/[.,]+$/, '');
+      if (candidate.length >= 2 && candidate.length <= 60) {
+        result.company = candidate;
+        break;
+      }
+    }
+  }
+
+  // Location extraction patterns - Indian cities + common global cities
+  const indianCities = [
+    'Chennai', 'Bangalore', 'Bengaluru', 'Mumbai', 'Hyderabad', 'Pune', 'Delhi',
+    'Kolkata', 'Ahmedabad', 'Coimbatore', 'Madurai', 'Noida', 'Gurgaon', 'Gurugram',
+    'Kochi', 'Thiruvananthapuram', 'Jaipur', 'Chandigarh', 'Indore', 'Bhopal',
+    'Nagpur', 'Surat', 'Vadodara', 'Lucknow', 'Patna', 'Bhubaneswar', 'Visakhapatnam',
+    'Mysore', 'Mysuru', 'Mangalore', 'Hubli', 'Tiruchirappalli', 'Trichy', 'Salem',
+    'Vellore', 'Erode', 'Tirunelveli', 'Pondicherry', 'Puducherry'
+  ];
+  const globalCities = [
+    'Remote', 'Singapore', 'Dubai', 'Abu Dhabi', 'London', 'New York', 'San Francisco',
+    'Toronto', 'Sydney', 'Melbourne', 'Doha', 'Riyadh', 'Berlin', 'Amsterdam'
+  ];
+  const allCities = [...indianCities, ...globalCities];
+
+  // Try explicit location label first
+  const locationLabelMatch = text.match(/location\s*[:\-]\s*([^\n,|]{2,50})/i);
+  if (locationLabelMatch) {
+    const locText = locationLabelMatch[1].trim();
+    // Check if it contains a known city
+    const foundCity = allCities.find(c => locText.toLowerCase().includes(c.toLowerCase()));
+    if (foundCity) {
+      result.location = foundCity === 'Bengaluru' ? 'Bangalore' : foundCity;
+    } else if (locText.toLowerCase().includes('remote')) {
+      result.location = 'Remote';
+    } else if (locText.length <= 40) {
+      result.location = locText.split(/[,|]/)[0].trim();
+    }
+  }
+
+  // Fallback: scan full text for city names
+  if (!result.location) {
+    for (const city of allCities) {
+      const cityRegex = new RegExp(`\\b${city}\\b`, 'i');
+      if (cityRegex.test(text)) {
+        result.location = city === 'Bengaluru' ? 'Bangalore' : city;
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
+// Sanitize AI-returned company name
+function sanitizeCompany(aiCompany, preExtracted) {
+  const invalidPhrases = [
+    'good to have', 'must have', 'nice to have', 'required', 'preferred',
+    'skills', 'experience', 'qualifications', 'responsibilities', 'benefits',
+    'about the role', 'mandatory', 'optional', 'desired', 'added advantage',
+    'key skills', 'technical skills', 'soft skills', 'job description',
+    'job requirements', 'job responsibilities', 'what we offer', 'who we are',
+    'not mentioned', 'not specified', 'not provided', 'n/a', 'na', 'none'
+  ];
+
+  // Known tools/technologies that are NOT company names
+  const knownTools = [
+    'postman', 'rest assured', 'selenium', 'jira', 'confluence', 'jenkins',
+    'docker', 'kubernetes', 'git', 'github', 'gitlab', 'bitbucket',
+    'react', 'angular', 'vue', 'node', 'nodejs', 'express', 'django', 'flask',
+    'spring', 'hibernate', 'maven', 'gradle', 'junit', 'pytest', 'jest',
+    'aws', 'azure', 'gcp', 'terraform', 'ansible', 'linux', 'ubuntu',
+    'mysql', 'postgresql', 'mongodb', 'redis', 'elasticsearch',
+    'python', 'java', 'javascript', 'typescript', 'kotlin', 'swift', 'golang',
+    'html', 'css', 'sass', 'tailwind', 'bootstrap', 'figma', 'sketch',
+    'tableau', 'power bi', 'excel', 'salesforce', 'sap', 'erp',
+    'agile', 'scrum', 'kanban', 'devops', 'ci/cd', 'microservices',
+    'machine learning', 'deep learning', 'tensorflow', 'pytorch',
+    'rest', 'graphql', 'soap', 'api', 'sql', 'nosql'
+  ];
+
+  const isInvalid = (val) => {
+    if (!val || val.trim().length < 2) return true;
+    const lower = val.toLowerCase().trim();
+    if (invalidPhrases.some(p => lower.includes(p))) return true;
+    // Check if it's a known tool/technology
+    if (knownTools.some(t => lower === t || lower.includes(t + ',') || lower.startsWith(t + ' '))) return true;
+    // If it contains a comma and both parts are tools, it's a skills list
+    if (lower.includes(',')) {
+      const parts = lower.split(',').map(p => p.trim());
+      const toolCount = parts.filter(p => knownTools.some(t => p.includes(t))).length;
+      if (toolCount >= 1) return true; // any tool in a comma-separated list = not a company
+    }
+    // All-caps with more than 3 words = likely a section heading
+    if (/^[A-Z\s&]+$/.test(val) && val.trim().split(/\s+/).length > 3) return true;
+    // Starts with a number
+    if (/^\d/.test(val.trim())) return true;
+    return false;
+  };
+
+  if (!isInvalid(aiCompany)) return aiCompany.trim();
+  if (!isInvalid(preExtracted)) return preExtracted.trim();
+  return '';
+}
+
+// Sanitize AI-returned location
+function sanitizeLocation(aiLocation, preExtracted) {
+  const invalidWords = [
+    'not mentioned', 'not specified', 'not provided', 'n/a', 'na', 'none',
+    'india', 'pan india', 'anywhere', 'multiple', 'various'
+  ];
+
+  const knownCities = [
+    'Chennai', 'Bangalore', 'Bengaluru', 'Mumbai', 'Hyderabad', 'Pune', 'Delhi',
+    'Kolkata', 'Ahmedabad', 'Coimbatore', 'Madurai', 'Noida', 'Gurgaon', 'Gurugram',
+    'Kochi', 'Thiruvananthapuram', 'Jaipur', 'Chandigarh', 'Indore', 'Bhopal',
+    'Nagpur', 'Surat', 'Vadodara', 'Lucknow', 'Patna', 'Bhubaneswar', 'Visakhapatnam',
+    'Mysore', 'Mysuru', 'Mangalore', 'Hubli', 'Tiruchirappalli', 'Trichy', 'Salem',
+    'Vellore', 'Erode', 'Tirunelveli', 'Pondicherry', 'Puducherry',
+    'Remote', 'Hybrid', 'Singapore', 'Dubai', 'Abu Dhabi', 'London', 'New York',
+    'San Francisco', 'Toronto', 'Sydney', 'Melbourne', 'Doha', 'Riyadh', 'Berlin'
+  ];
+
+  const isInvalid = (val) => {
+    if (!val || val.trim().length < 2) return true;
+    const lower = val.toLowerCase().trim();
+    if (invalidWords.some(w => lower === w || lower.includes(w))) return true;
+    // If it's just "India" alone, it's too vague
+    if (lower === 'india') return true;
+    return false;
+  };
+
+  const normalize = (val) => {
+    if (!val) return val;
+    // Normalize Bengaluru -> Bangalore
+    return val.replace(/bengaluru/gi, 'Bangalore').replace(/gurugram/gi, 'Gurgaon').trim();
+  };
+
+  // Prefer AI result if it's a known city
+  if (!isInvalid(aiLocation)) {
+    const loc = normalize(aiLocation.trim());
+    // Check if it contains a known city name
+    const matched = knownCities.find(c => loc.toLowerCase().includes(c.toLowerCase()));
+    if (matched) return matched === 'Bengaluru' ? 'Bangalore' : matched;
+    // Accept short location strings (city names)
+    if (loc.length <= 50 && !loc.includes('\n')) return loc;
+  }
+
+  // Fall back to pre-extracted
+  if (!isInvalid(preExtracted)) return normalize(preExtracted.trim());
+
+  return '';
+}
 
 // AI Job Description Generation
 app.post('/api/generate-job-description', async (req, res) => {

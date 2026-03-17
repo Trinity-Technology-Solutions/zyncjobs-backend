@@ -4,19 +4,27 @@ import { Op } from 'sequelize';
 import Application from '../models/Application.js';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
-import { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail } from '../services/emailService.js';
+import { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendEmployerApplicationEmail } from '../services/emailService.js';
 import NotificationService from '../services/notificationService.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// POST /api/applications - Submit job application
-router.post('/', [
+// POST /api/applications - Submit job application (login required)
+router.post('/', authenticateToken, [
   body('jobId').notEmpty().withMessage('Job ID is required'),
-  body('candidateName').notEmpty().withMessage('Name is required'),
-  body('candidateEmail').isEmail().withMessage('Valid email is required')
+  body('candidateName').notEmpty().withMessage('Full name is required'),
+  body('candidateEmail').isEmail().withMessage('Valid email is required'),
+  body('candidatePhone').notEmpty().withMessage('Phone number is required'),
+  body('resumeUrl').notEmpty().withMessage('Resume is required')
 ], async (req, res) => {
   try {
     console.log('📝 Application submission received:', req.body);
+
+    // Only candidates can apply
+    if (req.user.role !== 'candidate') {
+      return res.status(403).json({ error: 'Only candidates can apply for jobs' });
+    }
     
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -71,7 +79,7 @@ router.post('/', [
       console.error('⚠️ Notification creation failed:', notificationError.message);
     }
 
-    // Send confirmation email (don't fail if email fails)
+    // Send confirmation email to candidate
     try {
       await sendJobApplicationEmail(
         candidateEmail, 
@@ -79,9 +87,25 @@ router.post('/', [
         job.jobTitle || job.title, 
         job.company
       );
-      console.log('📧 Email sent to:', candidateEmail);
+      console.log('📧 Confirmation email sent to candidate:', candidateEmail);
     } catch (emailError) {
-      console.error('⚠️ Email sending failed:', emailError.message);
+      console.error('⚠️ Candidate email sending failed:', emailError.message);
+    }
+
+    // Send notification email to employer with candidate resume
+    const employerEmail = job.employerEmail || job.postedBy;
+    if (employerEmail) {
+      try {
+        await sendEmployerApplicationEmail(
+          employerEmail,
+          job.jobTitle || job.title,
+          job.company,
+          { name: candidateName, email: candidateEmail, phone: candidatePhone, resumeUrl, coverLetter }
+        );
+        console.log('📧 Employer notification email sent to:', employerEmail);
+      } catch (emailError) {
+        console.error('⚠️ Employer email sending failed:', emailError.message);
+      }
     }
 
     res.status(201).json({ 

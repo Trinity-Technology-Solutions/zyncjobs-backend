@@ -37,8 +37,9 @@ const Job = sequelize.define('Job', {
     allowNull: false
   },
   jobType: {
-    type: DataTypes.ENUM('Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'),
-    allowNull: false
+    type: DataTypes.ARRAY(DataTypes.STRING),
+    allowNull: false,
+    defaultValue: []
   },
   workSetting: {
     type: DataTypes.ENUM('Remote', 'Hybrid', 'On-site'),
