@@ -8,7 +8,10 @@ const Profile = sequelize.define('Profile', {
     primaryKey: true
   },
   userId: DataTypes.UUID,
-  email: DataTypes.STRING,
+  email: {
+    type: DataTypes.STRING,
+    unique: true
+  },
   name: DataTypes.STRING,
   phone: DataTypes.STRING,
   location: DataTypes.STRING,

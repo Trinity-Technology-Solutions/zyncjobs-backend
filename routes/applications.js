@@ -4,9 +4,11 @@ import { Op } from 'sequelize';
 import Application from '../models/Application.js';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
+import Resume from '../models/Resume.js';
 import { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendEmployerApplicationEmail } from '../services/emailService.js';
 import NotificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { runAutoRejection } from './aiRejectionSettings.js';
 
 const router = express.Router();
 
@@ -15,7 +17,7 @@ router.post('/', authenticateToken, [
   body('jobId').notEmpty().withMessage('Job ID is required'),
   body('candidateName').notEmpty().withMessage('Full name is required'),
   body('candidateEmail').isEmail().withMessage('Valid email is required'),
-  body('candidatePhone').notEmpty().withMessage('Phone number is required'),
+  body('candidatePhone').optional(),
   body('resumeUrl').notEmpty().withMessage('Resume is required')
 ], async (req, res) => {
   try {
@@ -56,13 +58,17 @@ router.post('/', authenticateToken, [
 
     console.log('✅ Job found:', { id: job.id, title: job.jobTitle, company: job.company });
 
+    // Sanitize employerId - must be a valid UUID or null
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const safeEmployerId = job.employerId && uuidRegex.test(job.employerId) ? job.employerId : null;
+
     // Create application
     const application = await Application.create({
       jobId,
       candidateId: candidateId || null,
       candidateName,
       candidateEmail,
-      employerId: job.employerId || null,
+      employerId: safeEmployerId,
       employerEmail: job.employerEmail || job.postedBy || '',
       coverLetter: coverLetter || '',
       resumeUrl: resumeUrl || '',
@@ -70,6 +76,32 @@ router.post('/', authenticateToken, [
     });
 
     console.log('✅ Application created:', { id: application.id, jobId, candidateEmail });
+
+    // Persist resumeUrl to Resume table + User.resumeUrl so it survives logout
+    const PLACEHOLDERS = ['resume_from_quick_apply', 'resume_from_profile', 'resume_uploaded'];
+    const realResumeUrl = resumeUrl && !PLACEHOLDERS.includes(resumeUrl) && resumeUrl.includes('/') ? resumeUrl : null;
+    if (realResumeUrl) {
+      const candidateUserId = candidateId || (await User.findOne({ where: { email: { [Op.iLike]: candidateEmail } } }))?.id;
+      if (candidateUserId) {
+        const existing = await Resume.findOne({ where: { userId: candidateUserId, fileUrl: realResumeUrl } });
+        if (!existing) {
+          await Resume.update({ isActive: false }, { where: { userId: candidateUserId } });
+          await Resume.create({
+            userId: candidateUserId,
+            email: candidateEmail,
+            fileName: realResumeUrl.split('/').pop() || 'resume.pdf',
+            fileUrl: realResumeUrl,
+            isActive: true,
+            status: 'approved'
+          });
+          await User.update({ resumeUrl: realResumeUrl }, { where: { id: candidateUserId } });
+          console.log(`✅ Resume linked to user ${candidateUserId} from application`);
+        }
+      }
+    }
+
+    // Run auto-rejection check (non-blocking)
+    runAutoRejection(application, job).catch(e => console.error('Auto-rejection check failed:', e.message));
 
     // Create notification for employer
     try {

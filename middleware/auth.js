@@ -17,7 +17,7 @@ export const authenticateToken = async (req, res, next) => {
       return res.status(403).json({ error: 'Invalid token type' });
     }
 
-    const user = await User.findById(decoded.userId).select('-password -refreshTokens');
+    const user = await User.findOne({ where: { id: decoded.userId }, attributes: { exclude: ['password'] } });
     
     if (!user || !user.isActive) {
       return res.status(401).json({ error: 'Invalid token' });
