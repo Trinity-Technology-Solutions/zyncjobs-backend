@@ -24,44 +24,28 @@ router.post('/save', async (req, res) => {
     const isValidUUID = userId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
     console.log('🔍 UUID validation:', { userId, isValidUUID });
     
-    // Save to Profile collection
-    const [profile, created] = await Profile.upsert({
-      userId: isValidUUID ? userId : null,
-      email, 
-      name: profileData.name,
-      phone: profileData.phone,
-      location: profileData.location,
-      title: profileData.title,
-      yearsExperience: profileData.yearsExperience,
-      skills: profileData.skills,
-      experience: profileData.experience,
-      education: profileData.education,
-      certifications: profileData.certifications,
-      workAuthorization: profileData.workAuthorization,
-      securityClearance: profileData.securityClearance,
-      resume: profileData.resume,
-      profilePhoto: profileData.profilePhoto || null,
-      profileFrame: profileData.profileFrame || null,
-      profileSummary: profileData.profileSummary || null,
-      employment: profileData.employment || null,
-      projects: profileData.projects || null,
-      internships: profileData.internships || null,
-      languages: profileData.languages || null,
-      awards: profileData.awards || null,
-      clubsCommittees: profileData.clubsCommittees || null,
-      competitiveExams: profileData.competitiveExams || null,
-      academicAchievements: profileData.academicAchievements || null,
-      companyName: profileData.companyName || null,
-      roleTitle: profileData.roleTitle || null,
-      salary: profileData.salary || null,
-      jobType: profileData.jobType || null,
-      gender: profileData.gender || null,
-      birthday: profileData.birthday || null,
-      college: profileData.college || null,
-      degree: profileData.degree || null
-    });
-    
-    console.log('✅ Profile saved:', { id: profile.id, created, email });
+    // Build update fields — only include keys that were actually sent
+    const updateFields = {};
+    const fieldMap = [
+      'name','phone','location','title','yearsExperience','skills','experience',
+      'education','certifications','workAuthorization','securityClearance','resume',
+      'profilePhoto','profileFrame','profileSummary','employment','projects',
+      'internships','languages','awards','clubsCommittees','competitiveExams',
+      'academicAchievements','companyName','roleTitle','salary','jobType',
+      'gender','birthday','college','degree'
+    ];
+    fieldMap.forEach(f => { if (profileData[f] !== undefined) updateFields[f] = profileData[f]; });
+    if (isValidUUID) updateFields.userId = userId;
+
+    // Find existing profile and update, or create new one
+    let profile = await Profile.findOne({ where: { email } });
+    if (profile) {
+      await profile.update(updateFields);
+      console.log('✅ Profile updated:', { id: profile.id, email });
+    } else {
+      profile = await Profile.create({ email, ...updateFields });
+      console.log('✅ Profile created:', { id: profile.id, email });
+    }
     
     // Also update User collection with key fields (only if valid UUID)
     if (isValidUUID) {
@@ -74,6 +58,7 @@ router.post('/save', async (req, res) => {
         profilePicture: profileData.profilePhoto,
         profilePhoto: profileData.profilePhoto
       };
+      if (profileData.resumeUrl) userUpdateData.resumeUrl = profileData.resumeUrl;
       // Sync companyName back to User table so job post form pre-fills correctly
       if (profileData.companyName) {
         userUpdateData.company = profileData.companyName;
@@ -102,12 +87,19 @@ router.get('/:identifier', async (req, res) => {
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
     
     let profile = await Profile.findOne({
-      where: isUUID ? { userId: identifier } : { email: identifier }
+      where: isUUID ? { userId: identifier } : { email: identifier },
+      order: [['updatedAt', 'DESC']]
     });
     
     if (profile) {
       console.log('Profile found:', profile.id);
-      res.json(profile);
+      // Also fetch resumeUrl from User table
+      let resumeUrl = null;
+      try {
+        const user = await User.findOne({ where: isUUID ? { id: identifier } : { email: identifier } });
+        resumeUrl = user?.resumeUrl || null;
+      } catch (_) {}
+      res.json({ ...profile.toJSON(), resumeUrl });
     } else {
       console.log('Profile not found for identifier:', identifier);
       // Create a basic profile entry if it doesn't exist

@@ -3,6 +3,8 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import Resume from '../models/Resume.js';
+import User from '../models/User.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,17 +45,55 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
 });
 
-// Resume upload endpoint
-router.post('/resume', upload.single('resume'), (req, res) => {
+// Resume upload endpoint — saves file to disk AND persists to Resume table
+router.post('/resume', upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
     const fileUrl = `/uploads/resumes/${req.file.filename}`;
-    
+
+    // Persist to Resume table so it survives logout
+    const { userId, userEmail } = req.body;
+
+    // Resolve userId from token header if not in body
+    let resolvedUserId = userId || null;
+    let resolvedEmail = userEmail || null;
+
+    if (!resolvedUserId && req.headers.authorization) {
+      try {
+        const { verifyAccessToken } = await import('../utils/jwt.js');
+        const token = req.headers.authorization.replace('Bearer ', '');
+        const decoded = verifyAccessToken(token);
+        resolvedUserId = decoded?.userId || decoded?.id || null;
+        if (!resolvedEmail && resolvedUserId) {
+          const user = await User.findByPk(resolvedUserId);
+          resolvedEmail = user?.email || null;
+        }
+      } catch (_) { /* token optional */ }
+    }
+
+    if (resolvedUserId) {
+      // Upsert: deactivate old resumes, save new one
+      await Resume.update({ isActive: false }, { where: { userId: resolvedUserId } });
+      await Resume.create({
+        userId: resolvedUserId,
+        email: resolvedEmail,
+        fileName: req.file.originalname,
+        fileUrl,
+        fileSize: req.file.size,
+        isActive: true,
+        status: 'approved'
+      });
+      // Also update User.resumeUrl so it's always current
+      await User.update({ resumeUrl: fileUrl }, { where: { id: resolvedUserId } });
+      console.log(`✅ Resume saved to DB for user ${resolvedUserId}`);
+    }
+
     res.json({
       success: true,
+      fileUrl,
       file: {
         name: req.file.originalname,
         size: req.file.size,

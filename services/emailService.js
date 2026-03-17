@@ -40,21 +40,39 @@ export const sendJobApplicationEmail = async (candidateEmail, candidateName, job
   }
 };
 
-// Send application rejection email
-export const sendApplicationRejectionEmail = async (candidateEmail, candidateName, jobTitle, company) => {
+// Send application rejection email (supports optional AI feedback)
+export const sendApplicationRejectionEmail = async (candidateEmail, candidateName, jobTitle, company, aiFeedback = null, aiReasons = []) => {
   try {
+    const reasonsHtml = aiReasons.length
+      ? `<ul style="color:#555;">${aiReasons.map(r => `<li>${r}</li>`).join('')}</ul>`
+      : '';
+    const feedbackHtml = aiFeedback
+      ? `<p><strong>Feedback:</strong> ${aiFeedback}</p>`
+      : '';
+
     const mailOptions = {
       from: process.env.SMTP_EMAIL,
       to: candidateEmail,
       subject: `Application Update - ${jobTitle}`,
       html: `
-        <h2>Application Update</h2>
-        <p>Dear ${candidateName},</p>
-        <p>Thank you for your interest in the position of <strong>${jobTitle}</strong> at <strong>${company}</strong>.</p>
-        <p>After careful consideration, we have decided to move forward with other candidates whose qualifications more closely match our current needs.</p>
-        <p>We encourage you to apply for future opportunities that match your skills and experience.</p>
-        <br>
-        <p>Best regards,<br>ZyncJobs Team</p>
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          <div style="background:#6366f1;padding:20px;text-align:center;">
+            <h1 style="color:white;margin:0;">ZyncJobs</h1>
+          </div>
+          <div style="padding:30px;background:white;">
+            <h2>Application Update</h2>
+            <p>Dear ${candidateName},</p>
+            <p>Thank you for your interest in <strong>${jobTitle}</strong> at <strong>${company}</strong>.</p>
+            <p>After careful review, we have decided to move forward with other candidates whose qualifications more closely match our current needs.</p>
+            ${reasonsHtml}
+            ${feedbackHtml}
+            <p>We encourage you to apply for future opportunities that match your skills and experience.</p>
+            <p>Best regards,<br>ZyncJobs Team</p>
+          </div>
+          <div style="background:#f1f1f1;padding:15px;text-align:center;">
+            <p style="color:#666;margin:0;font-size:12px;">© 2025 ZyncJobs. All rights reserved.</p>
+          </div>
+        </div>
       `
     };
 
