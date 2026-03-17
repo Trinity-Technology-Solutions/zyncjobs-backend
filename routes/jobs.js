@@ -131,7 +131,7 @@ router.get('/', async (req, res) => {
     const where = { isActive: true, status: 'approved' };
 
     if (location) where.location = { [Op.iLike]: `%${location}%` };
-    if (jobType) where.jobType = jobType;
+    if (jobType) where.jobType = { [Op.overlap]: Array.isArray(jobType) ? jobType : [jobType] };
     if (search) {
       where[Op.or] = [
         { jobTitle: { [Op.iLike]: `%${search}%` } },
@@ -168,42 +168,55 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/jobs/:id - Get single job (supports both UUID and positionId)
-router.get('/:id', async (req, res) => {
+// GET /api/jobs/employer/:employerId - Get jobs by employer ID
+router.get('/employer/:employerId', async (req, res) => {
   try {
-    let job;
-    
-    // First try to find by primary key (UUID)
-    job = await Job.findByPk(req.params.id);
-    
-    // If not found, try to find by positionId
-    if (!job) {
-      job = await Job.findOne({ 
-        where: { 
-          positionId: req.params.id,
-          isActive: true 
-        } 
-      });
-    }
-    
-    if (!job) {
-      return res.status(404).json({ error: 'Job not found' });
-    }
-    
+    const jobs = await Job.findAll({ 
+      where: {
+        employerId: req.params.employerId,
+        isActive: true,
+        status: { [Op.in]: ['approved', 'pending'] }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+    const jobsWithLogos = jobs.map(job => {
+      const jobJson = job.toJSON();
+      return { ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
+    });
+    res.json(jobsWithLogos);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/jobs/employer/email/:email - Get jobs by employer email
+router.get('/employer/email/:email', async (req, res) => {
+  try {
+    const jobs = await Job.findAll({ 
+      where: {
+        employerEmail: req.params.email,
+        isActive: true,
+        status: { [Op.in]: ['approved', 'pending'] }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+    const jobsWithLogos = jobs.map(job => {
+      const jobJson = job.toJSON();
+      return { ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
+    });
+    res.json(jobsWithLogos);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/jobs/position/:positionId - Get job by position ID
+router.get('/position/:positionId', async (req, res) => {
+  try {
+    const job = await Job.findOne({ where: { positionId: req.params.positionId, isActive: true } });
+    if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    const jobWithLogo = {
-      ...jobJson,
-      companyLogo: getCompanyLogo(job.company),
-      // Force generate header image for all jobs
-      jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []),
-      salary: {
-        min: jobJson.salaryMin,
-        max: jobJson.salaryMax,
-        currency: jobJson.currency || 'INR'
-      }
-    };
-    
-    res.json(jobWithLogo);
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -214,7 +227,13 @@ router.post('/', [
   body('jobTitle').notEmpty().withMessage('Job title is required'),
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
-  body('jobType').isIn(['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship']),
+  body('jobType').custom(val => {
+    const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'];
+    const types = Array.isArray(val) ? val : [val];
+    if (!types.length) throw new Error('Job type is required');
+    if (!types.every(t => valid.includes(t))) throw new Error('Invalid job type');
+    return true;
+  }),
   body('description').notEmpty().withMessage('Description is required').isLength({ max: 5000 }).withMessage('Description cannot exceed 5000 characters')
 ], async (req, res) => {
   try {
@@ -245,6 +264,11 @@ router.post('/', [
     }
 
     const jobData = { ...req.body };
+
+    // Normalize jobType to array
+    if (jobData.jobType && !Array.isArray(jobData.jobType)) {
+      jobData.jobType = [jobData.jobType];
+    }
     
     // Flatten salary object if it exists
     if (jobData.salary) {
@@ -285,96 +309,16 @@ router.post('/', [
   }
 });
 
-// GET /api/jobs/employer/:employerId - Get jobs by employer ID
-router.get('/employer/:employerId', async (req, res) => {
+// GET /api/jobs/:id - Get single job (supports both UUID and positionId)
+router.get('/:id', async (req, res) => {
   try {
-    const jobs = await Job.findAll({ 
-      where: {
-        employerId: req.params.employerId,
-        isActive: true,
-        status: { [Op.in]: ['approved', 'pending'] }
-      },
-      order: [['createdAt', 'DESC']]
-    });
-    
-    const jobsWithLogos = jobs.map(job => {
-      const jobJson = job.toJSON();
-      return {
-        ...jobJson,
-        companyLogo: getCompanyLogo(job.company),
-        salary: {
-          min: jobJson.salaryMin,
-          max: jobJson.salaryMax,
-          currency: jobJson.currency || 'INR'
-        }
-      };
-    });
-    
-    res.json(jobsWithLogos);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// GET /api/jobs/position/:positionId - Get job by position ID
-router.get('/position/:positionId', async (req, res) => {
-  try {
-    const job = await Job.findOne({ 
-      where: { 
-        positionId: req.params.positionId,
-        isActive: true 
-      } 
-    });
-    
+    let job = await Job.findByPk(req.params.id);
     if (!job) {
-      return res.status(404).json({ error: 'Job not found' });
+      job = await Job.findOne({ where: { positionId: req.params.id, isActive: true } });
     }
-    
+    if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    const jobWithLogo = {
-      ...jobJson,
-      companyLogo: getCompanyLogo(job.company),
-      // Force generate header image for all jobs
-      jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []),
-      salary: {
-        min: jobJson.salaryMin,
-        max: jobJson.salaryMax,
-        currency: jobJson.currency || 'INR'
-      }
-    };
-    
-    res.json(jobWithLogo);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// GET /api/jobs/employer/email/:email - Get jobs by employer email
-router.get('/employer/email/:email', async (req, res) => {
-  try {
-    const jobs = await Job.findAll({ 
-      where: {
-        employerEmail: req.params.email,
-        isActive: true,
-        status: { [Op.in]: ['approved', 'pending'] }
-      },
-      order: [['createdAt', 'DESC']]
-    });
-    
-    const jobsWithLogos = jobs.map(job => {
-      const jobJson = job.toJSON();
-      return {
-        ...jobJson,
-        companyLogo: getCompanyLogo(job.company),
-        salary: {
-          min: jobJson.salaryMin,
-          max: jobJson.salaryMax,
-          currency: jobJson.currency || 'INR'
-        }
-      };
-    });
-    
-    res.json(jobsWithLogos);
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -314,7 +314,61 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
   }
 };
 
-export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendJobAlertEmail, sendWelcomeEmail, sendFollowUpReminderEmail };
+// Send new application notification to employer with candidate resume
+export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, company, candidate) => {
+  try {
+    const { name, email, phone, resumeUrl, coverLetter } = candidate;
+
+    const attachments = [];
+    if (resumeUrl) {
+      // If resumeUrl is a local file path (uploads/resumes/...), attach it directly
+      const isLocalPath = resumeUrl.startsWith('uploads/') || resumeUrl.startsWith('/');
+      if (isLocalPath) {
+        attachments.push({
+          filename: `${name.replace(/\s+/g, '_')}_resume.pdf`,
+          path: resumeUrl
+        });
+      }
+    }
+
+    const mailOptions = {
+      from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
+      to: employerEmail,
+      subject: `New Application for ${jobTitle} - ${name}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: #6366f1; padding: 30px 20px; text-align: center;">
+            <h1 style="color: white; margin: 0;">New Job Application</h1>
+          </div>
+          <div style="padding: 30px; background-color: white;">
+            <h2 style="color: #333;">New applicant for <strong>${jobTitle}</strong></h2>
+            <table style="width:100%; border-collapse: collapse; margin: 20px 0;">
+              <tr><td style="padding: 8px; font-weight: bold; color: #555;">Name</td><td style="padding: 8px;">${name}</td></tr>
+              <tr style="background:#f9f9f9;"><td style="padding: 8px; font-weight: bold; color: #555;">Email</td><td style="padding: 8px;"><a href="mailto:${email}">${email}</a></td></tr>
+              <tr><td style="padding: 8px; font-weight: bold; color: #555;">Phone</td><td style="padding: 8px;">${phone || 'Not provided'}</td></tr>
+              ${resumeUrl && !resumeUrl.startsWith('uploads/') && !resumeUrl.startsWith('/') ? `<tr style="background:#f9f9f9;"><td style="padding: 8px; font-weight: bold; color: #555;">Resume</td><td style="padding: 8px;"><a href="${resumeUrl}" style="color: #6366f1;">View Resume</a></td></tr>` : ''}
+              ${coverLetter ? `<tr><td style="padding: 8px; font-weight: bold; color: #555; vertical-align: top;">Cover Letter</td><td style="padding: 8px;">${coverLetter}</td></tr>` : ''}
+            </table>
+            <p style="color: #666; font-size: 14px;">Log in to ZyncJobs to review and manage this application.</p>
+          </div>
+          <div style="background-color: #f1f1f1; padding: 15px; text-align: center;">
+            <p style="color: #666; margin: 0; font-size: 12px;">© 2025 ZyncJobs. All rights reserved.</p>
+          </div>
+        </div>
+      `,
+      attachments
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log('✅ Employer application email sent to:', employerEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Employer email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendJobAlertEmail, sendWelcomeEmail, sendFollowUpReminderEmail, sendEmployerApplicationEmail };
 
 // Send interview scheduled email to candidate
 export const sendInterviewScheduledEmail = async (candidateEmail, candidateName, jobTitle, company, interviewDetails) => {
