@@ -168,10 +168,24 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/jobs/:id - Get single job
+// GET /api/jobs/:id - Get single job (supports both UUID and positionId)
 router.get('/:id', async (req, res) => {
   try {
-    const job = await Job.findByPk(req.params.id);
+    let job;
+    
+    // First try to find by primary key (UUID)
+    job = await Job.findByPk(req.params.id);
+    
+    // If not found, try to find by positionId
+    if (!job) {
+      job = await Job.findOne({ 
+        where: { 
+          positionId: req.params.id,
+          isActive: true 
+        } 
+      });
+    }
+    
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
