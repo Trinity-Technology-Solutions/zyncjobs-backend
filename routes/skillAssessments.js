@@ -3,152 +3,113 @@ import SkillAssessment from '../models/SkillAssessment.js';
 import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
-// Generate exactly 10 AI questions for any skill using Mistral
-const generateAIQuestions = async (skill) => {
-  try {
-    if (!process.env.OPENROUTER_API_KEY) {
-      console.error('OPENROUTER_API_KEY not found');
-      return null;
-    }
+const FREE_MODELS = [
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'mistralai/mistral-small-3.1-24b-instruct:free',
+  'google/gemma-3-27b-it:free',
+  'qwen/qwen3-4b:free',
+  'meta-llama/llama-3.2-3b-instruct:free'
+];
 
-    const prompt = `You are an expert technical assessment creator. Generate EXACTLY 10 multiple choice questions about ${skill}.
-
-IMPORTANT: You MUST return EXACTLY 10 questions, no more, no less.
-
-Return ONLY a valid JSON array. Do not include any text before or after the JSON.
-
-Format:
-[
-  {"question": "Question 1?", "options": ["A", "B", "C", "D"], "correctAnswer": 0},
-  {"question": "Question 2?", "options": ["A", "B", "C", "D"], "correctAnswer": 1},
-  {"question": "Question 3?", "options": ["A", "B", "C", "D"], "correctAnswer": 2},
-  {"question": "Question 4?", "options": ["A", "B", "C", "D"], "correctAnswer": 3},
-  {"question": "Question 5?", "options": ["A", "B", "C", "D"], "correctAnswer": 0},
-  {"question": "Question 6?", "options": ["A", "B", "C", "D"], "correctAnswer": 1},
-  {"question": "Question 7?", "options": ["A", "B", "C", "D"], "correctAnswer": 2},
-  {"question": "Question 8?", "options": ["A", "B", "C", "D"], "correctAnswer": 3},
-  {"question": "Question 9?", "options": ["A", "B", "C", "D"], "correctAnswer": 0},
-  {"question": "Question 10?", "options": ["A", "B", "C", "D"], "correctAnswer": 1}
-]
-
-Requirements:
-- EXACTLY 10 questions
-- Each question has exactly 4 options
-- correctAnswer is 0, 1, 2, or 3
-- Questions test practical knowledge
-- Vary difficulty levels
-- Return ONLY valid JSON`;
-
-    console.log(`🚀 Generating 10 questions for ${skill}...`);
-
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-        'X-Title': 'ZyncJobs'
-      },
-      body: JSON.stringify({
-        model: 'mistralai/mistral-7b-instruct:free',
-        messages: [{
-          role: 'user',
-          content: prompt
-        }],
-        max_tokens: 3000,
-        temperature: 0.7
-      })
-    });
-    
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('Mistral API error:', error);
-      return null;
-    }
-
-    const data = await response.json();
-    const content = data.choices[0]?.message?.content || '';
-    
-    console.log('📝 Raw response:', content.substring(0, 200));
-
-    // Extract JSON from response - try multiple patterns
-    let jsonMatch = content.match(/\[\s*\{[\s\S]*\}\s*\]/m);
-    
-    if (!jsonMatch) {
-      console.error('No JSON array found in response');
-      return null;
-    }
-
-    let questions = [];
+const callAI = async (prompt) => {
+  for (const model of FREE_MODELS) {
     try {
-      questions = JSON.parse(jsonMatch[0]);
-    } catch (e) {
-      console.error('JSON parse error:', e.message);
-      return null;
-    }
-    
-    // Validate we have exactly 10 questions
-    if (!Array.isArray(questions)) {
-      console.error('Response is not an array');
-      return null;
-    }
-
-    console.log(`📊 Received ${questions.length} questions`);
-
-    if (questions.length !== 10) {
-      console.error(`Expected 10 questions, got ${questions.length}`);
-      return null;
-    }
-
-    // Validate each question
-    const valid = questions.every((q, idx) => {
-      const hasQuestion = q.question && typeof q.question === 'string';
-      const hasOptions = Array.isArray(q.options) && q.options.length === 4;
-      const hasCorrectAnswer = typeof q.correctAnswer === 'number' && q.correctAnswer >= 0 && q.correctAnswer <= 3;
-      
-      if (!hasQuestion || !hasOptions || !hasCorrectAnswer) {
-        console.error(`Question ${idx + 1} invalid:`, { hasQuestion, hasOptions, hasCorrectAnswer });
-        return false;
+      console.log(`🤖 Trying model: ${model}`);
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+          'X-Title': 'ZyncJobs'
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 3000,
+          temperature: 0.7
+        })
+      });
+      if (!response.ok) {
+        const err = await response.text();
+        console.warn(`Model ${model} failed:`, err.substring(0, 100));
+        continue;
       }
-      return true;
-    });
-    
-    if (!valid) {
-      console.error('Invalid question format');
-      return null;
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '';
+      if (content) {
+        console.log(`✅ Got response from ${model}`);
+        return content;
+      }
+    } catch (e) {
+      console.warn(`Model ${model} error:`, e.message);
     }
-
-    console.log(`✅ Successfully generated 10 valid questions for ${skill}`);
-    return questions;
-  } catch (error) {
-    console.error('AI question generation failed:', error.message);
   }
   return null;
 };
 
-// Generate assessment review using Mistral
+const parseQuestions = (content) => {
+  let jsonMatch = content.match(/\[\s*\{[\s\S]*?\}\s*\]/m) || content.match(/\[[\s\S]*\]/m);
+  if (!jsonMatch) {
+    const codeBlock = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlock) jsonMatch = [codeBlock[1].trim()];
+    else return null;
+  }
+  try {
+    const questions = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(questions)) return null;
+    const placeholderPattern = /^(option|concept|tool|practice|method|pattern|debug|trend|framework|future|purpose|feature|topic|mistake|answer)\s*[a-d0-9]$/i;
+    const valid = questions.filter(q =>
+      q.question?.length > 10 &&
+      Array.isArray(q.options) && q.options.length === 4 &&
+      typeof q.correctAnswer === 'number' && q.correctAnswer >= 0 && q.correctAnswer <= 3 &&
+      !q.options.some(o => placeholderPattern.test(o.trim()))
+    );
+    return valid.length >= 5 ? valid.slice(0, 10) : null;
+  } catch {
+    try {
+      const fixed = jsonMatch[0].replace(/,\s*]/g, ']').replace(/,\s*}/g, '}');
+      const questions = JSON.parse(fixed);
+      return Array.isArray(questions) && questions.length >= 5 ? questions.slice(0, 10) : null;
+    } catch { return null; }
+  }
+};
+
+// Generate exactly 10 AI questions for any skill
+const generateAIQuestions = async (skill) => {
+  if (!process.env.OPENROUTER_API_KEY) {
+    console.error('OPENROUTER_API_KEY not found');
+    return null;
+  }
+
+  const prompt = `Generate EXACTLY 10 multiple choice questions about ${skill} for a technical skill assessment.
+
+Return ONLY a valid JSON array with no extra text.
+
+Example format:
+[
+  {"question": "What does the 'let' keyword do in JavaScript?", "options": ["Declares a block-scoped variable", "Declares a function", "Imports a module", "Creates a class"], "correctAnswer": 0},
+  {"question": "Which method removes the last element from an array?", "options": ["shift()", "unshift()", "pop()", "push()"], "correctAnswer": 2}
+]
+
+Rules:
+- EXACTLY 10 real questions about ${skill}
+- Each question must have exactly 4 meaningful, distinct options (NOT placeholders like 'Option A')
+- correctAnswer is the index (0-3) of the correct option
+- Questions must test real practical knowledge of ${skill}
+- Return ONLY the JSON array`;
+
+  const content = await callAI(prompt);
+  if (!content) return null;
+  console.log('📝 Raw response:', content.substring(0, 200));
+  return parseQuestions(content);
+};
+
 const generateAssessmentReview = async (skill, score, correctAnswers, totalQuestions) => {
   try {
-    if (!process.env.OPENROUTER_API_KEY) {
-      return getDefaultReview(skill, score);
-    }
+    if (!process.env.OPENROUTER_API_KEY) return getDefaultReview(skill, score);
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-        'X-Title': 'ZyncJobs'
-      },
-      body: JSON.stringify({
-        model: 'mistralai/mistral-7b-instruct:free',
-        messages: [{
-          role: 'system',
-          content: 'You are an expert career coach and technical assessor. Provide constructive, encouraging feedback on skill assessments.'
-        }, {
-          role: 'user',
-          content: `Generate a professional assessment review for a candidate who scored ${score}% (${correctAnswers}/${totalQuestions} correct) on a ${skill} skill assessment.
+    const prompt = `Generate a professional assessment review for a candidate who scored ${score}% (${correctAnswers}/${totalQuestions} correct) on a ${skill} skill assessment.
 
 Provide:
 1. Performance Summary (1-2 sentences)
@@ -163,27 +124,15 @@ Format as JSON:
   "improvements": ["...", "..."],
   "recommendations": ["...", "..."],
   "level": "Beginner|Intermediate|Advanced"
-}`
-        }],
-        max_tokens: 800,
-        temperature: 0.7
-      })
-    });
+}`;
 
-    if (!response.ok) {
-      return getDefaultReview(skill, score);
-    }
+    const content = await callAI(prompt);
+    if (!content) return getDefaultReview(skill, score);
 
-    const data = await response.json();
-    const content = data.choices[0]?.message?.content || '';
-    
     const jsonMatch = content.match(/\{[\s\S]*\}/m);
-    if (!jsonMatch) {
-      return getDefaultReview(skill, score);
-    }
+    if (!jsonMatch) return getDefaultReview(skill, score);
 
-    const review = JSON.parse(jsonMatch[0]);
-    return review;
+    return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error('Review generation failed:', error.message);
     return getDefaultReview(skill, score);
@@ -240,21 +189,15 @@ router.post('/start', authenticateToken, async (req, res) => {
     // Generate AI questions
     let questions = await generateAIQuestions(skill);
     
-    // Fallback if AI generation fails - use 10 generic questions
+    // Retry once if AI generation fails
     if (!questions) {
-      console.log('⚠️ AI generation failed, using fallback questions');
-      questions = [
-        { question: `What is a fundamental concept in ${skill}?`, options: ['Concept A', 'Concept B', 'Concept C', 'Concept D'], correctAnswer: 0 },
-        { question: `Which is commonly used with ${skill}?`, options: ['Tool A', 'Tool B', 'Tool C', 'Tool D'], correctAnswer: 1 },
-        { question: `What is a best practice in ${skill}?`, options: ['Practice A', 'Practice B', 'Practice C', 'Practice D'], correctAnswer: 2 },
-        { question: `How do you optimize ${skill} code?`, options: ['Method A', 'Method B', 'Method C', 'Method D'], correctAnswer: 3 },
-        { question: `What is the purpose of ${skill}?`, options: ['Purpose A', 'Purpose B', 'Purpose C', 'Purpose D'], correctAnswer: 0 },
-        { question: `Which pattern is used in ${skill}?`, options: ['Pattern A', 'Pattern B', 'Pattern C', 'Pattern D'], correctAnswer: 1 },
-        { question: `How do you debug ${skill}?`, options: ['Debug A', 'Debug B', 'Debug C', 'Debug D'], correctAnswer: 2 },
-        { question: `What is the latest trend in ${skill}?`, options: ['Trend A', 'Trend B', 'Trend C', 'Trend D'], correctAnswer: 3 },
-        { question: `Which framework works with ${skill}?`, options: ['Framework A', 'Framework B', 'Framework C', 'Framework D'], correctAnswer: 0 },
-        { question: `What is the future of ${skill}?`, options: ['Future A', 'Future B', 'Future C', 'Future D'], correctAnswer: 1 }
-      ];
+      console.log('⚠️ First attempt failed, retrying AI generation...');
+      questions = await generateAIQuestions(skill);
+    }
+
+    if (!questions) {
+      console.error('❌ AI generation failed after retry');
+      return res.status(503).json({ error: 'Failed to generate assessment questions. Please try again in a moment.' });
     }
     
     const assessment = await SkillAssessment.create({
@@ -289,15 +232,16 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Assessment not found' });
     }
     
+    const questions = Array.isArray(assessment.questions) ? assessment.questions : [];
     let correctAnswers = 0;
-    const questions = assessment.questions || [];
     
-    questions.forEach((q, i) => {
-      q.userAnswer = answers[i];
-      if (answers[i] === q.correctAnswer) correctAnswers++;
+    const updatedQuestions = questions.map((q, i) => {
+      const userAnswer = Array.isArray(answers) ? answers[i] : -1;
+      if (userAnswer === q.correctAnswer) correctAnswers++;
+      return { ...q, userAnswer };
     });
     
-    const score = Math.round((correctAnswers / questions.length) * 100);
+    const score = questions.length > 0 ? Math.round((correctAnswers / questions.length) * 100) : 0;
     
     // Generate review
     const review = await generateAssessmentReview(
@@ -308,7 +252,7 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
     );
     
     await SkillAssessment.update({
-      questions,
+      questions: updatedQuestions,
       answers,
       score,
       completedAt: new Date(),
@@ -346,7 +290,8 @@ router.get('/review/:id', authenticateToken, async (req, res) => {
       score: assessment.score,
       completedAt: assessment.completedAt,
       review: assessment.review || {},
-      status: assessment.status
+      status: assessment.status,
+      questions: assessment.questions || []
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -357,12 +302,18 @@ router.get('/review/:id', authenticateToken, async (req, res) => {
 router.get('/my-assessments', authenticateToken, async (req, res) => {
   try {
     const assessments = await SkillAssessment.findAll({ 
-      where: { userId: req.user.id },
+      where: { userId: req.user.id, status: 'completed' },
       attributes: ['id', 'skill', 'score', 'completedAt', 'status'],
       order: [['completedAt', 'DESC']]
     });
     
-    res.json(assessments);
+    res.json(assessments.map(a => ({
+      assessmentId: a.id,
+      skill: a.skill,
+      score: a.score,
+      completedAt: a.completedAt,
+      status: a.status
+    })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
