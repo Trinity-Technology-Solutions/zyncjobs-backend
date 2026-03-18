@@ -19,6 +19,11 @@ const SkillAssessment = sequelize.define('SkillAssessment', {
   level: DataTypes.STRING,
   questions: DataTypes.JSONB,
   answers: DataTypes.JSONB,
+  review: DataTypes.JSONB,
+  status: {
+    type: DataTypes.STRING,
+    defaultValue: 'in_progress'
+  },
   completedAt: DataTypes.DATE
 }, {
   tableName: 'skill_assessments',

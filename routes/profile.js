@@ -112,27 +112,39 @@ router.get('/:identifier', async (req, res) => {
     // Check if identifier is UUID or email
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identifier);
     
-    let profile = await Profile.findOne({
-      where: isUUID ? { userId: identifier } : { email: identifier },
-      order: [['updatedAt', 'DESC']]
-    });
+    let profile = null;
+    let resumeUrl = null;
+
+    if (isUUID) {
+      // Try by userId first, then by User.id lookup
+      profile = await Profile.findOne({ where: { userId: identifier }, order: [['updatedAt', 'DESC']] });
+      
+      if (!profile) {
+        // Maybe profile was saved by email — find user's email first
+        const user = await User.findOne({ where: { id: identifier } });
+        if (user?.email) {
+          profile = await Profile.findOne({ where: { email: user.email }, order: [['updatedAt', 'DESC']] });
+        }
+        resumeUrl = user?.resumeUrl || null;
+      } else {
+        const user = await User.findOne({ where: { id: identifier } });
+        resumeUrl = user?.resumeUrl || null;
+      }
+    } else {
+      // Email-based lookup
+      profile = await Profile.findOne({ where: { email: identifier }, order: [['updatedAt', 'DESC']] });
+      const user = await User.findOne({ where: { email: identifier } }).catch(() => null);
+      resumeUrl = user?.resumeUrl || null;
+    }
     
     if (profile) {
       console.log('Profile found:', profile.id);
-      // Also fetch resumeUrl from User table
-      let resumeUrl = null;
-      try {
-        const user = await User.findOne({ where: isUUID ? { id: identifier } : { email: identifier } });
-        resumeUrl = user?.resumeUrl || null;
-      } catch (_) {}
       res.json({ ...profile.toJSON(), resumeUrl });
     } else {
       console.log('Profile not found for identifier:', identifier);
-      // Create a basic profile entry if it doesn't exist
-      if (identifier.includes('@')) {
-        profile = await Profile.create({
-          email: identifier
-        });
+      // Create a basic profile entry if it doesn't exist (email only)
+      if (!isUUID && identifier.includes('@')) {
+        profile = await Profile.create({ email: identifier });
         console.log('Created new profile for:', identifier);
         res.json(profile);
       } else {

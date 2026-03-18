@@ -62,10 +62,17 @@ router.post('/', authenticateToken, [
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const safeEmployerId = job.employerId && uuidRegex.test(job.employerId) ? job.employerId : null;
 
+    // Resolve candidateId from token user or lookup by email
+    let resolvedCandidateId = candidateId || req.user?.id || null;
+    if (!resolvedCandidateId) {
+      const candidateUser = await User.findOne({ where: { email: { [Op.iLike]: candidateEmail } } });
+      resolvedCandidateId = candidateUser?.id || null;
+    }
+
     // Create application
     const application = await Application.create({
       jobId,
-      candidateId: candidateId || null,
+      candidateId: resolvedCandidateId,
       candidateName,
       candidateEmail,
       employerId: safeEmployerId,
@@ -331,24 +338,35 @@ router.put('/:id', [
 // GET /api/applications - Get all applications
 router.get('/', async (req, res) => {
   try {
-    const { status, jobId, employerId, page = 1, limit = 10 } = req.query;
+    const { status, jobId, employerId, page, limit } = req.query;
     const where = {};
     
     if (status) where.status = status;
     if (jobId) where.jobId = jobId;
     if (employerId) where.employerId = employerId;
 
+    // If no pagination params, return all
+    if (!page && !limit) {
+      const rows = await Application.findAll({
+        where,
+        order: [['createdAt', 'DESC']]
+      });
+      return res.json({ applications: rows, total: rows.length });
+    }
+
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 50;
     const { count, rows } = await Application.findAndCountAll({
       where,
       order: [['createdAt', 'DESC']],
-      limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit)
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum
     });
 
     res.json({
       applications: rows,
-      totalPages: Math.ceil(count / limit),
-      currentPage: parseInt(page),
+      totalPages: Math.ceil(count / limitNum),
+      currentPage: pageNum,
       total: count
     });
   } catch (error) {

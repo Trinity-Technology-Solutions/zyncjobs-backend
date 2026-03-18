@@ -31,14 +31,14 @@ async function generateDynamicNotifications(employerEmail) {
   const notifications = [];
   const now = new Date();
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
   try {
     // Get recent applications
     const recentApplications = await Application.findAll({
       where: {
         employerEmail,
-        createdAt: { [Op.gte]: threeDaysAgo }
+        createdAt: { [Op.gte]: sevenDaysAgo }
       },
       order: [['createdAt', 'DESC']],
       limit: 5
@@ -60,10 +60,10 @@ async function generateDynamicNotifications(employerEmail) {
     const upcomingInterviews = await Interview.findAll({
       where: {
         employerEmail,
-        date: { [Op.gte]: now },
-        status: { [Op.ne]: 'cancelled' }
+        scheduledDate: { [Op.gte]: now },
+        status: { [Op.notIn]: ['cancelled', 'completed'] }
       },
-      order: [['date', 'ASC']],
+      order: [['scheduledDate', 'ASC']],
       limit: 3
     });
 
@@ -109,16 +109,17 @@ async function generateDynamicNotifications(employerEmail) {
     // Create notifications for upcoming interviews
     for (const interview of upcomingInterviews) {
       const jobTitle = await getJobTitle(interview.jobId);
-      const interviewDate = new Date(interview.date).toLocaleDateString();
+      const interviewDate = new Date(interview.scheduledDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      const interviewTime = interview.scheduledDate ? new Date(interview.scheduledDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
       
       notifications.push({
         id: `interview_${interview.id}`,
         type: 'interview',
         title: 'Interview scheduled',
-        message: `Interview with ${interview.candidateName || 'candidate'} for ${jobTitle || 'position'} on ${interviewDate}`,
-        time: getTimeAgo(interview.createdAt || interview.date),
+        message: `Interview with ${interview.candidateName || 'candidate'} for ${jobTitle || 'position'} on ${interviewDate}${interviewTime ? ' at ' + interviewTime : ''}`,
+        time: getTimeAgo(interview.createdAt || interview.scheduledDate),
         data: interview,
-        createdAt: interview.createdAt || interview.date
+        createdAt: interview.createdAt || interview.scheduledDate
       });
     }
 
