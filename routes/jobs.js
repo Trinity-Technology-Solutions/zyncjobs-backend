@@ -131,7 +131,7 @@ router.get('/', async (req, res) => {
     const where = { isActive: true, status: 'approved' };
 
     if (location) where.location = { [Op.iLike]: `%${location}%` };
-    if (jobType) where.jobType = { [Op.overlap]: Array.isArray(jobType) ? jobType : [jobType] };
+    if (jobType) where.jobType = Array.isArray(jobType) ? { [Op.in]: jobType } : jobType;
     if (search) {
       where[Op.or] = [
         { jobTitle: { [Op.iLike]: `%${search}%` } },
@@ -265,9 +265,9 @@ router.post('/', [
 
     const jobData = { ...req.body };
 
-    // Normalize jobType to array
-    if (jobData.jobType && !Array.isArray(jobData.jobType)) {
-      jobData.jobType = [jobData.jobType];
+    // Normalize jobType - extract first value if array sent from frontend
+    if (Array.isArray(jobData.jobType)) {
+      jobData.jobType = jobData.jobType[0] || 'Full-time';
     }
     
     // Flatten salary object if it exists
