@@ -27,12 +27,27 @@ router.get('/:applicationId', async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
 
-    if (!resume && application.candidateId) {
-      const user = await User.findByPk(application.candidateId);
-      if (user && user.resumeUrl) {
+    // Fallback: look up by candidateEmail in Resume table
+    if (!resume) {
+      resume = await Resume.findOne({
+        where: { email: { [Op.iLike]: application.candidateEmail } },
+        order: [['createdAt', 'DESC']]
+      });
+    }
+
+    // Fallback: look up user by email and use their resumeUrl
+    if (!resume) {
+      const user = await User.findOne({
+        where: { email: { [Op.iLike]: application.candidateEmail } }
+      }) || (application.candidateId ? await User.findByPk(application.candidateId) : null);
+
+      if (user) {
+        const fileUrl = user.resumeUrl && !['resume_from_quick_apply', 'resume_from_profile'].includes(user.resumeUrl)
+          ? user.resumeUrl
+          : null;
         resume = {
           id: user.id,
-          fileUrl: user.resumeUrl,
+          fileUrl,
           fileName: 'Resume',
           parsedData: {
             name: user.name,
@@ -49,8 +64,20 @@ router.get('/:applicationId', async (req, res) => {
       }
     }
 
-    if (!resume) {
-      return res.status(404).json({ error: 'Resume not found for this candidate' });
+    // Fallback: use application.resumeUrl if it's a real file path
+    if (!resume || !resume.fileUrl) {
+      const appResumeUrl = application.resumeUrl;
+      const isPlaceholder = !appResumeUrl || ['resume_from_quick_apply', 'resume_from_profile'].includes(appResumeUrl);
+      if (!isPlaceholder) {
+        resume = resume || {};
+        resume.fileUrl = appResumeUrl.startsWith('http') ? appResumeUrl : `${process.env.BACKEND_URL || 'http://localhost:5000'}/${appResumeUrl.replace(/^\//, '')}`;
+        resume.fileName = 'Resume';
+        resume.parsedData = resume.parsedData || {};
+      }
+    }
+
+    if (!resume || !resume.fileUrl) {
+      return res.status(404).json({ error: 'No resume file found for this candidate. They may not have uploaded a resume yet.' });
     }
 
     res.json({

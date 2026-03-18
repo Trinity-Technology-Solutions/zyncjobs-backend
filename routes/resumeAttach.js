@@ -16,13 +16,18 @@ router.post('/attach', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // If it's a placeholder or non-file URL, return it as-is
+    if (!resumeUrl.startsWith('http://localhost:5000/uploads/')) {
+      return res.json({ success: true, resumeUrl, fileName: null });
+    }
+
     // Extract filename from URL
     const resumePath = resumeUrl.replace('http://localhost:5000/', '');
     const sourceFile = path.join(__dirname, '..', resumePath);
     
     // Check if source file exists
     if (!fs.existsSync(sourceFile)) {
-      return res.status(404).json({ error: 'Resume file not found' });
+      return res.json({ success: true, resumeUrl, fileName: null });
     }
 
     // Create application-specific filename
