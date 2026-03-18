@@ -37,11 +37,38 @@ router.post('/save', async (req, res) => {
     fieldMap.forEach(f => { if (profileData[f] !== undefined) updateFields[f] = profileData[f]; });
     if (isValidUUID) updateFields.userId = userId;
 
+    // Coerce types to match DB schema
+    if (updateFields.birthday !== undefined) {
+      const d = new Date(updateFields.birthday);
+      updateFields.birthday = isNaN(d.getTime()) ? null : d;
+    }
+    // skills must be an array
+    if (updateFields.skills !== undefined && !Array.isArray(updateFields.skills)) {
+      try { updateFields.skills = JSON.parse(updateFields.skills); } catch { updateFields.skills = []; }
+    }
+    // TEXT fields must be strings (not objects/arrays)
+    const textFields = ['experience','education','certifications','employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements'];
+    textFields.forEach(f => {
+      if (updateFields[f] !== undefined && typeof updateFields[f] !== 'string') {
+        updateFields[f] = JSON.stringify(updateFields[f]);
+      }
+    });
+
     // Find existing profile and update, or create new one
-    let profile = await Profile.findOne({ where: { email } });
+    let profile = null;
+    if (email) {
+      profile = await Profile.findOne({ where: { email } });
+    } else if (isValidUUID) {
+      profile = await Profile.findOne({ where: { userId } });
+    }
+
+    if (!email && !profile) {
+      return res.status(400).json({ error: 'email or valid userId required' });
+    }
+
     if (profile) {
       await profile.update(updateFields);
-      console.log('✅ Profile updated:', { id: profile.id, email });
+      console.log('✅ Profile updated:', { id: profile.id, email: profile.email });
     } else {
       profile = await Profile.create({ email, ...updateFields });
       console.log('✅ Profile created:', { id: profile.id, email });
@@ -54,9 +81,8 @@ router.post('/save', async (req, res) => {
         phone: profileData.phone,
         location: profileData.location,
         title: profileData.title,
-        skills: profileData.skills,
-        profilePicture: profileData.profilePhoto,
-        profilePhoto: profileData.profilePhoto
+        skills: Array.isArray(profileData.skills) ? profileData.skills : (updateFields.skills || []),
+        profilePicture: profileData.profilePhoto
       };
       if (profileData.resumeUrl) userUpdateData.resumeUrl = profileData.resumeUrl;
       // Sync companyName back to User table so job post form pre-fills correctly
