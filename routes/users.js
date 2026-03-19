@@ -239,6 +239,17 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// GET /api/users/stats/counts - Get user counts by role
+router.get('/stats/counts', async (req, res) => {
+  try {
+    const candidates = await User.count({ where: { role: 'candidate', isActive: true } });
+    const employers = await User.count({ where: { role: 'employer', isActive: true } });
+    res.json({ candidates, employers, total: candidates + employers });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/users/:id - Get user by ID
 router.get('/:id', async (req, res) => {
   try {

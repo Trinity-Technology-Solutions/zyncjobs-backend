@@ -242,8 +242,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // Serve uploaded files with proper headers
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
-  setHeaders: (res, path) => {
-    if (path.endsWith('.pdf')) {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.pdf')) {
       res.setHeader('Content-Type', 'application/pdf');
     }
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -816,10 +816,14 @@ JSON:
     const parsed = JSON.parse(jsonMatch[0]);
 
     // Post-process: validate and fix company
-    parsed.company = sanitizeCompany(parsed.company, preExtract.company);
+    parsed.company = ''; // Never auto-fill company from JD
 
     // Post-process: validate and fix location
     parsed.location = sanitizeLocation(parsed.location, preExtract.location);
+
+    // Never auto-fill salary from JD
+    parsed.salaryMin = 0;
+    parsed.salaryMax = 0;
 
     // Ensure arrays
     if (!Array.isArray(parsed.skills)) parsed.skills = [];
