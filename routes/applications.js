@@ -170,17 +170,21 @@ router.get('/candidate/:email', async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
     
-    // Fetch job details for each application
+    // Fetch full job details for each application
     const applicationsWithJobs = await Promise.all(
       applications.map(async (app) => {
         const job = await Job.findByPk(app.jobId);
         return {
           ...app.toJSON(),
           jobId: job ? {
-            jobTitle: job.jobTitle,
-            title: job.title,
+            _id: job.id,
+            id: job.id,
+            jobTitle: job.jobTitle || job.title,
             company: job.company,
-            location: job.location
+            location: job.location,
+            jobDescription: job.jobDescription || job.description,
+            salary: job.salary,
+            skills: job.skills || []
           } : null
         };
       })

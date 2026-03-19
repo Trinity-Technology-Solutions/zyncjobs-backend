@@ -60,6 +60,56 @@ router.post('/locations', async (req, res) => {
   }
 });
 
+// Career Coach - Live AI Chat
+router.post('/career-coach', async (req, res) => {
+  try {
+    const { messages, systemPrompt } = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'Messages are required' });
+    }
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      return res.status(503).json({ error: 'AI service not configured' });
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+        'X-Title': 'ZyncJobs-CareerCoach'
+      },
+      body: JSON.stringify({
+        model: 'mistralai/mistral-7b-instruct:free',
+        messages: [
+          { role: 'system', content: systemPrompt || 'You are a helpful AI career coach.' },
+          ...messages
+        ],
+        max_tokens: 700,
+        temperature: 0.7
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('OpenRouter error:', response.status, err);
+      return res.status(502).json({ error: 'AI service error' });
+    }
+
+    const data = await response.json();
+    const reply = data.choices?.[0]?.message?.content || '';
+
+    if (!reply) return res.status(502).json({ error: 'Empty AI response' });
+
+    res.json({ reply });
+  } catch (error) {
+    console.error('Career coach error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Job description generation
 router.post('/job-description', async (req, res) => {
   try {
