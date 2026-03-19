@@ -319,6 +319,70 @@ router.get('/my-assessments', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/skill-assessments/learning-resources?skill=React
+router.get('/learning-resources', async (req, res) => {
+  const { skill } = req.query;
+  if (!skill) return res.status(400).json({ error: 'skill is required' });
+
+  try {
+    const prompt = `For the skill "${skill}", return a JSON object with exactly 3 free learning resources.
+Return ONLY valid JSON, no markdown.
+{
+  "resources": [
+    { "title": "resource name", "url": "https://...", "type": "Documentation|Course|Tutorial|Video" },
+    { "title": "resource name", "url": "https://...", "type": "Documentation|Course|Tutorial|Video" },
+    { "title": "resource name", "url": "https://...", "type": "Documentation|Course|Tutorial|Video" }
+  ]
+}
+Rules:
+- Only real, working URLs (official docs, freeCodeCamp, MDN, YouTube, Coursera free tier, etc.)
+- No paid courses
+- Specific to "${skill}"`;
+
+    const content = await callAI(prompt);
+    if (!content) return res.json({ resources: [] });
+
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.json({ resources: [] });
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    res.json({ skill, resources: parsed.resources || [] });
+  } catch (e) {
+    console.error('learning-resources error:', e.message);
+    res.json({ resources: [] });
+  }
+});
+
+// GET /api/skill-assessments/career-path?jobTitle=React Developer&skills=React,JavaScript
+router.get('/career-path', async (req, res) => {
+  const { jobTitle, skills } = req.query;
+  if (!jobTitle) return res.status(400).json({ error: 'jobTitle is required' });
+
+  try {
+    const prompt = `Given a job role "${jobTitle}" with current skills: ${skills || 'not specified'}.
+Return a JSON career path suggestion.
+Return ONLY valid JSON, no markdown.
+{
+  "currentLevel": "Junior|Mid|Senior",
+  "nextRole": "next logical job title",
+  "timeframe": "e.g. 1-2 years",
+  "skillsToLearn": ["skill1", "skill2", "skill3", "skill4"],
+  "tip": "one actionable career advice sentence"
+}`;
+
+    const content = await callAI(prompt);
+    if (!content) return res.json(null);
+
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.json(null);
+
+    res.json(JSON.parse(jsonMatch[0]));
+  } catch (e) {
+    console.error('career-path error:', e.message);
+    res.json(null);
+  }
+});
+
 // Get available skills
 router.get('/skills', async (req, res) => {
   try {

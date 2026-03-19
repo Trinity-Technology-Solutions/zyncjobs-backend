@@ -288,6 +288,7 @@ app.use('/api/ai', aiScoringRoutes);
 app.use('/api/ai-flow', aiScoringFlowRoutes);
 app.use('/api/employer', employerCandidatesRoutes);
 app.use('/api/candidates', employerCandidatesRoutes);
+app.use('/api/profiles', employerCandidatesRoutes);
 app.use('/api/admin/system', adminSystemRoutes);
 app.use('/api/admin/notifications', adminNotificationRoutes);
 app.use('/api/resume', resumeBasicRoutes);

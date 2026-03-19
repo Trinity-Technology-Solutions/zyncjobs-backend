@@ -215,9 +215,24 @@ router.get('/job/:jobId', async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
     
+    // Enrich with candidate skills from Profile
+    const { Op } = await import('sequelize');
+    const Profile = (await import('../models/Profile.js')).default;
+    const emails = applications.map(a => a.candidateEmail).filter(Boolean);
+    const profiles = emails.length > 0
+      ? await Profile.findAll({ where: { email: { [Op.in]: emails } }, attributes: ['email', 'skills'] })
+      : [];
+    const skillsMap = {};
+    profiles.forEach(p => { skillsMap[p.email.toLowerCase()] = p.skills || []; });
+
+    const enriched = applications.map(a => ({
+      ...a.toJSON(),
+      skills: skillsMap[a.candidateEmail?.toLowerCase()] || []
+    }));
+    
     console.log('✅ Found applications:', applications.length);
     
-    res.json(applications);
+    res.json(enriched);
   } catch (error) {
     console.error('Get job applications error:', error);
     res.status(500).json({ error: error.message });
