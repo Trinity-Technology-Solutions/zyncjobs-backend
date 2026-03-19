@@ -7,6 +7,27 @@ import Interview from '../models/Interview.js';
 
 const router = express.Router();
 
+// Get candidate notifications by email
+router.get('/candidate/:email', async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    const candidate = await (await import('../models/User.js')).default.findOne({
+      where: { email: { [Op.iLike]: email } }
+    });
+    if (!candidate) return res.json([]);
+
+    const notifications = await Notification.findAll({
+      where: { userId: candidate.id },
+      order: [['createdAt', 'DESC']],
+      limit: 50
+    });
+    res.json(notifications);
+  } catch (error) {
+    console.error('Error fetching candidate notifications:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get employer notifications by email
 router.get('/', async (req, res) => {
   try {
