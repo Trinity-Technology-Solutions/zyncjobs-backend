@@ -64,18 +64,25 @@ router.get('/', async (req, res) => {
       const profile = profileMap[candidate.email] || {};
       
       return {
-        _id: candidate._id,
+        _id: candidate.id,
         name: candidate.name || profile.name,
         fullName: candidate.name || profile.name,
         email: candidate.email,
         phone: candidate.phone || profile.phone,
         location: candidate.location || profile.location || 'Location not specified',
         title: profile.title || candidate.title || 'Software Developer',
+        jobTitle: profile.title || candidate.title || 'Software Developer',
         skills: profile.skills || [],
         experience: profile.yearsExperience || candidate.experience || '2+ years',
-        salary: candidate.salary || profile.salary || '$80,000 - $100,000',
+        salary: candidate.salary || profile.salary || '',
         availability: candidate.availability || 'Available',
-        rating: candidate.rating || (4.0 + Math.random() * 1).toFixed(1)
+        rating: candidate.rating || (4.0 + Math.random() * 1).toFixed(1),
+        profilePhoto: profile.profilePhoto || null,
+        profileSummary: profile.profileSummary || null,
+        education: profile.education || null,
+        certifications: profile.certifications || null,
+        languages: profile.languages || null,
+        employment: profile.employment || null
       };
     });
     
