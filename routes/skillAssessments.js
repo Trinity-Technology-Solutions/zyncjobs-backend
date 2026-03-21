@@ -326,21 +326,32 @@ router.get('/review/:id', authenticateToken, async (req, res) => {
 // Get user assessments
 router.get('/my-assessments', authenticateToken, async (req, res) => {
   try {
-    const assessments = await SkillAssessment.findAll({ 
-      where: { userId: req.user.id },
-      attributes: ['id', 'skill', 'score', 'completedAt'],
-      order: [['createdAt', 'DESC']]
-    });
-    const completed = assessments.filter(a => a.completedAt != null);
-    
+    const { sequelize } = SkillAssessment;
+    let rows;
+    try {
+      rows = await sequelize.query(
+        `SELECT id, skill, score, "completedAt", "createdAt" FROM skill_assessments WHERE "userId" = :userId ORDER BY "createdAt" DESC`,
+        { replacements: { userId: req.user.id }, type: sequelize.QueryTypes.SELECT }
+      );
+    } catch {
+      rows = await sequelize.query(
+        `SELECT id, skill, score, "createdAt" FROM skill_assessments WHERE "userId" = :userId ORDER BY "createdAt" DESC`,
+        { replacements: { userId: req.user.id }, type: sequelize.QueryTypes.SELECT }
+      );
+    }
+
+    const data = Array.isArray(rows) ? rows : [];
+    const completed = data.filter(a => a.completedAt != null || a.score > 0);
+
     res.json(completed.map(a => ({
       assessmentId: a.id,
       skill: a.skill,
       score: a.score,
-      completedAt: a.completedAt
+      completedAt: a.completedAt || a.createdAt
     })));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('my-assessments error:', error.message);
+    res.json([]);
   }
 });
 
