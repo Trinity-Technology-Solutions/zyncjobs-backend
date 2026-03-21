@@ -4,19 +4,22 @@ import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
 const FREE_MODELS = [
-  'meta-llama/llama-3.3-70b-instruct:free',
+  'qwen/qwen3-4b:free',
+  'meta-llama/llama-3.2-3b-instruct:free',
   'mistralai/mistral-small-3.1-24b-instruct:free',
   'google/gemma-3-27b-it:free',
-  'qwen/qwen3-4b:free',
-  'meta-llama/llama-3.2-3b-instruct:free'
+  'meta-llama/llama-3.3-70b-instruct:free'
 ];
 
 const callAI = async (prompt) => {
   for (const model of FREE_MODELS) {
     try {
       console.log(`🤖 Trying model: ${model}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000); // 20s per model
       const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
@@ -30,9 +33,10 @@ const callAI = async (prompt) => {
           temperature: 0.7
         })
       });
+      clearTimeout(timeout);
       if (!response.ok) {
         const err = await response.text();
-        console.warn(`Model ${model} failed:`, err.substring(0, 100));
+        console.warn(`Model ${model} failed (${response.status}):`, err.substring(0, 100));
         continue;
       }
       const data = await response.json();
@@ -73,6 +77,27 @@ const parseQuestions = (content) => {
       return Array.isArray(questions) && questions.length >= 5 ? questions.slice(0, 10) : null;
     } catch { return null; }
   }
+};
+
+// Fallback question bank for common skills
+const FALLBACK_QUESTIONS = {
+  default: (skill) => [
+    { question: `Which of the following best describes ${skill}?`, options: [`A programming paradigm`, `A software tool or technology`, `A database system`, `A networking protocol`], correctAnswer: 1 },
+    { question: `What is a primary use case for ${skill}?`, options: [`Data storage`, `Building applications or solving technical problems`, `Network routing`, `Hardware management`], correctAnswer: 1 },
+    { question: `Which concept is most closely associated with ${skill}?`, options: [`Abstraction`, `Encapsulation`, `Modularity`, `All of the above`], correctAnswer: 3 },
+    { question: `What is a best practice when working with ${skill}?`, options: [`Ignoring documentation`, `Writing clean, readable code`, `Avoiding version control`, `Skipping testing`], correctAnswer: 1 },
+    { question: `How does ${skill} handle errors?`, options: [`It ignores them`, `Through error handling mechanisms`, `By crashing the program`, `Errors are not possible`], correctAnswer: 1 },
+    { question: `What tool is commonly used alongside ${skill}?`, options: [`A text editor or IDE`, `A physical calculator`, `A fax machine`, `A typewriter`], correctAnswer: 0 },
+    { question: `Which of the following is a key benefit of ${skill}?`, options: [`Increased complexity`, `Improved productivity and efficiency`, `Slower performance`, `Higher hardware costs`], correctAnswer: 1 },
+    { question: `What does debugging mean in the context of ${skill}?`, options: [`Adding new features`, `Finding and fixing errors in code`, `Deploying to production`, `Writing documentation`], correctAnswer: 1 },
+    { question: `What is version control used for in ${skill} projects?`, options: [`Tracking changes and collaborating`, `Speeding up execution`, `Reducing file size`, `Encrypting data`], correctAnswer: 0 },
+    { question: `Which approach improves code quality in ${skill}?`, options: [`Writing everything in one file`, `Code reviews and testing`, `Avoiding comments`, `Using global variables everywhere`], correctAnswer: 1 }
+  ]
+};
+
+const getFallbackQuestions = (skill) => {
+  const generator = FALLBACK_QUESTIONS[skill.toLowerCase()] || FALLBACK_QUESTIONS.default;
+  return generator(skill);
 };
 
 // Generate exactly 10 AI questions for any skill
@@ -196,8 +221,8 @@ router.post('/start', authenticateToken, async (req, res) => {
     }
 
     if (!questions) {
-      console.error('❌ AI generation failed after retry');
-      return res.status(503).json({ error: 'Failed to generate assessment questions. Please try again in a moment.' });
+      console.log('⚠️ AI generation failed, using fallback questions');
+      questions = getFallbackQuestions(skill);
     }
     
     const assessment = await SkillAssessment.create({

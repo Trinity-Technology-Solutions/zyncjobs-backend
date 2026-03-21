@@ -505,6 +505,84 @@ router.delete('/cleanup/:email', async (req, res) => {
   }
 });
 
+// PUT /api/users/:id - Update user email
+router.put('/:id', async (req, res) => {
+  try {
+    const identifier = decodeURIComponent(req.params.id || '').trim();
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    let user;
+    if (identifier.includes('@')) {
+      user = await User.findOne({ where: { email: { [Op.iLike]: identifier } } });
+    } else {
+      user = await User.findByPk(identifier);
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if new email is already taken by another user
+    const existing = await User.findOne({
+      where: { email: { [Op.iLike]: email }, id: { [Op.ne]: user.id } }
+    });
+    if (existing) {
+      return res.status(400).json({ error: 'Email already in use by another account' });
+    }
+
+    await user.update({ email: email.toLowerCase() });
+
+    res.json({ message: 'Email updated successfully', email: user.email });
+  } catch (error) {
+    console.error('❌ Update email error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/users/:id/change-password - Change user password
+router.put('/:id/change-password', async (req, res) => {
+  try {
+    const identifier = decodeURIComponent(req.params.id || '').trim();
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    let user;
+    if (identifier.includes('@')) {
+      user = await User.findOne({ where: { email: { [Op.iLike]: identifier } } });
+    } else {
+      user = await User.findByPk(identifier);
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 8);
+    await user.update({ password: hashedPassword });
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('❌ Change password error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DELETE /api/users/:id - Delete user account
 router.delete('/:id', async (req, res) => {
   try {
