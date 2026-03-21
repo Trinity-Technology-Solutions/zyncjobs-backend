@@ -6,11 +6,11 @@ import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
 const FREE_MODELS = [
-  'qwen/qwen3-4b:free',
-  'meta-llama/llama-3.2-3b-instruct:free',
+  'google/gemma-3-4b-it:free',
+  'google/gemma-3-12b-it:free',
   'mistralai/mistral-small-3.1-24b-instruct:free',
-  'google/gemma-3-27b-it:free',
-  'meta-llama/llama-3.3-70b-instruct:free'
+  'qwen/qwen3-4b:free',
+  'meta-llama/llama-3.2-3b-instruct:free'
 ];
 
 const callAI = async (prompt) => {
