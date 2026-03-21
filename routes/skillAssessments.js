@@ -327,17 +327,17 @@ router.get('/review/:id', authenticateToken, async (req, res) => {
 router.get('/my-assessments', authenticateToken, async (req, res) => {
   try {
     const assessments = await SkillAssessment.findAll({ 
-      where: { userId: req.user.id, status: 'completed' },
-      attributes: ['id', 'skill', 'score', 'completedAt', 'status'],
-      order: [['completedAt', 'DESC']]
+      where: { userId: req.user.id },
+      attributes: ['id', 'skill', 'score', 'completedAt'],
+      order: [['createdAt', 'DESC']]
     });
+    const completed = assessments.filter(a => a.completedAt != null);
     
-    res.json(assessments.map(a => ({
+    res.json(completed.map(a => ({
       assessmentId: a.id,
       skill: a.skill,
       score: a.score,
-      completedAt: a.completedAt,
-      status: a.status
+      completedAt: a.completedAt
     })));
   } catch (error) {
     res.status(500).json({ error: error.message });
