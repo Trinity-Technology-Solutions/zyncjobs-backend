@@ -423,7 +423,7 @@ app.post('/api/forgot-password', async (req, res) => {
 
     console.log('Token generated and stored in database');
 
-    const resetLink = `http://localhost:5173/reset-password/${resetToken}`;
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
     console.log('Reset link:', resetLink);
 
     // Try to send email but don't fail if it doesn't work
@@ -534,6 +534,14 @@ app.post('/api/reset-password', async (req, res) => {
     if (!tokenData) {
       return res.status(400).json({ error: 'Invalid or expired token' });
     }
+
+    // Update the user's password
+    const user = await User.findOne({ where: { email: { [Op.iLike]: tokenData.email } } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const hashedPassword = await bcrypt.hash(newPassword, 8);
+    await user.update({ password: hashedPassword });
 
     // Mark token as used
     await tokenData.update({ used: true });
