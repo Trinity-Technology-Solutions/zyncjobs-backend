@@ -247,24 +247,38 @@ router.post('/start', authenticateToken, async (req, res) => {
 router.post('/submit/:id', authenticateToken, async (req, res) => {
   try {
     const { answers, timeSpent } = req.body;
-    const assessment = await SkillAssessment.findByPk(req.params.id);
-    
-    if (!assessment || assessment.userId !== req.user.id) {
+
+    // Use raw SQL to avoid ORM crash on QA DB missing columns
+    let rows;
+    try {
+      rows = await sequelize.query(
+        `SELECT id, "userId", skill, questions, score FROM skill_assessments WHERE id = :id`,
+        { replacements: { id: req.params.id }, type: sequelize.QueryTypes.SELECT }
+      );
+    } catch (e) {
+      console.error('Fetch assessment error:', e.message);
+      return res.status(500).json({ error: 'Failed to fetch assessment' });
+    }
+
+    if (!rows || rows.length === 0 || rows[0].userId !== req.user.id) {
       return res.status(404).json({ error: 'Assessment not found' });
     }
-    
-    const questions = Array.isArray(assessment.questions) ? assessment.questions : [];
+
+    const assessment = rows[0];
+    const questions = typeof assessment.questions === 'string'
+      ? JSON.parse(assessment.questions)
+      : (Array.isArray(assessment.questions) ? assessment.questions : []);
+
     let correctAnswers = 0;
     const updatedQuestions = questions.map((q, i) => {
       const userAnswer = Array.isArray(answers) ? answers[i] : -1;
       if (userAnswer === q.correctAnswer) correctAnswers++;
       return { ...q, userAnswer };
     });
-    
+
     const score = questions.length > 0 ? Math.round((correctAnswers / questions.length) * 100) : 0;
     const review = await generateAssessmentReview(assessment.skill, score, correctAnswers, questions.length);
 
-    // Raw UPDATE to avoid missing status column on QA DB
     try {
       await sequelize.query(
         `UPDATE skill_assessments SET questions=:questions, answers=:answers, score=:score, "completedAt"=NOW(), review=:review, "updatedAt"=NOW() WHERE id=:id`,
@@ -276,7 +290,7 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
         { replacements: { questions: JSON.stringify(updatedQuestions), answers: JSON.stringify(answers), score, review: JSON.stringify(review), id: req.params.id } }
       );
     }
-    
+
     res.json({ assessmentId: req.params.id, score, correctAnswers, totalQuestions: questions.length, timeSpent, status: 'completed', review });
   } catch (error) {
     console.error('Submit assessment error:', error);
