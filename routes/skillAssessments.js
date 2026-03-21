@@ -1,5 +1,7 @@
 import express from 'express';
+import { randomUUID } from 'crypto';
 import SkillAssessment from '../models/SkillAssessment.js';
+import { sequelize } from '../config/postgresql.js';
 import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
@@ -204,38 +206,32 @@ const getDefaultReview = (skill, score) => {
 router.post('/start', authenticateToken, async (req, res) => {
   try {
     const { skill } = req.body;
-    
-    if (!skill) {
-      return res.status(400).json({ error: 'Skill is required' });
-    }
+    if (!skill) return res.status(400).json({ error: 'Skill is required' });
 
     console.log(`🚀 Starting assessment for ${skill}...`);
-    
-    // Generate AI questions
     let questions = await generateAIQuestions(skill);
-    
-    // Retry once if AI generation fails
-    if (!questions) {
-      console.log('⚠️ First attempt failed, retrying AI generation...');
-      questions = await generateAIQuestions(skill);
+    if (!questions) questions = await generateAIQuestions(skill);
+    if (!questions) { console.log('⚠️ Using fallback questions'); questions = getFallbackQuestions(skill); }
+
+    // Use raw INSERT to avoid missing column errors on QA DB
+    const id = randomUUID();
+    const questionsWithAnswer = questions.map(q => ({ ...q, userAnswer: -1 }));
+
+    try {
+      await sequelize.query(
+        `INSERT INTO skill_assessments (id, "userId", skill, questions, score, answers, "createdAt", "updatedAt") VALUES (:id, :userId, :skill, :questions, 0, '{}', NOW(), NOW())`,
+        { replacements: { id, userId: req.user.id, skill, questions: JSON.stringify(questionsWithAnswer) } }
+      );
+    } catch {
+      // fallback: try with status column
+      await sequelize.query(
+        `INSERT INTO skill_assessments (id, "userId", skill, questions, score, answers, status, "createdAt", "updatedAt") VALUES (:id, :userId, :skill, :questions, 0, '{}', 'in_progress', NOW(), NOW())`,
+        { replacements: { id, userId: req.user.id, skill, questions: JSON.stringify(questionsWithAnswer) } }
+      );
     }
 
-    if (!questions) {
-      console.log('⚠️ AI generation failed, using fallback questions');
-      questions = getFallbackQuestions(skill);
-    }
-    
-    const assessment = await SkillAssessment.create({
-      userId: req.user.id,
-      skill,
-      questions: questions.map(q => ({ ...q, userAnswer: -1 })),
-      score: 0,
-      answers: {},
-      status: 'in_progress'
-    });
-    
     res.json({
-      assessmentId: assessment.id,
+      assessmentId: id,
       skill,
       questions: questions.map(q => ({ question: q.question, options: q.options })),
       totalQuestions: questions.length,
@@ -259,7 +255,6 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
     
     const questions = Array.isArray(assessment.questions) ? assessment.questions : [];
     let correctAnswers = 0;
-    
     const updatedQuestions = questions.map((q, i) => {
       const userAnswer = Array.isArray(answers) ? answers[i] : -1;
       if (userAnswer === q.correctAnswer) correctAnswers++;
@@ -267,33 +262,22 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
     });
     
     const score = questions.length > 0 ? Math.round((correctAnswers / questions.length) * 100) : 0;
+    const review = await generateAssessmentReview(assessment.skill, score, correctAnswers, questions.length);
+
+    // Raw UPDATE to avoid missing status column on QA DB
+    try {
+      await sequelize.query(
+        `UPDATE skill_assessments SET questions=:questions, answers=:answers, score=:score, "completedAt"=NOW(), review=:review, "updatedAt"=NOW() WHERE id=:id`,
+        { replacements: { questions: JSON.stringify(updatedQuestions), answers: JSON.stringify(answers), score, review: JSON.stringify(review), id: req.params.id } }
+      );
+    } catch {
+      await sequelize.query(
+        `UPDATE skill_assessments SET questions=:questions, answers=:answers, score=:score, "completedAt"=NOW(), status='completed', review=:review, "updatedAt"=NOW() WHERE id=:id`,
+        { replacements: { questions: JSON.stringify(updatedQuestions), answers: JSON.stringify(answers), score, review: JSON.stringify(review), id: req.params.id } }
+      );
+    }
     
-    // Generate review
-    const review = await generateAssessmentReview(
-      assessment.skill,
-      score,
-      correctAnswers,
-      questions.length
-    );
-    
-    await SkillAssessment.update({
-      questions: updatedQuestions,
-      answers,
-      score,
-      completedAt: new Date(),
-      status: 'completed',
-      review
-    }, { where: { id: req.params.id } });
-    
-    res.json({
-      assessmentId: req.params.id,
-      score,
-      correctAnswers,
-      totalQuestions: questions.length,
-      timeSpent,
-      status: 'completed',
-      review
-    });
+    res.json({ assessmentId: req.params.id, score, correctAnswers, totalQuestions: questions.length, timeSpent, status: 'completed', review });
   } catch (error) {
     console.error('Submit assessment error:', error);
     res.status(500).json({ error: error.message });
@@ -326,7 +310,6 @@ router.get('/review/:id', authenticateToken, async (req, res) => {
 // Get user assessments
 router.get('/my-assessments', authenticateToken, async (req, res) => {
   try {
-    const { sequelize } = SkillAssessment;
     let rows;
     try {
       rows = await sequelize.query(
