@@ -74,11 +74,11 @@ router.post('/career-coach', async (req, res) => {
     }
 
     const MODELS = [
+      'google/gemma-3-4b-it:free',
+      'google/gemma-3-12b-it:free',
+      'mistralai/mistral-small-3.1-24b-instruct:free',
       'qwen/qwen3-4b:free',
       'meta-llama/llama-3.2-3b-instruct:free',
-      'google/gemma-3-4b-it:free',
-      'mistralai/mistral-small-3.1-24b-instruct:free',
-      'google/gemma-3-12b-it:free',
     ];
 
     let reply = '';
@@ -130,6 +130,8 @@ router.post('/career-coach', async (req, res) => {
         reply = 'For salary negotiation: research market rates on Glassdoor/LinkedIn, wait for the employer to give a number first, counter with a range where your target is the bottom, and always negotiate — most employers expect it.';
       } else if (lastMsg.includes('skill') || lastMsg.includes('learn')) {
         reply = 'To grow your skills: identify gaps by reading job descriptions for your target role, use free resources like freeCodeCamp, Coursera, or official docs, build real projects to demonstrate skills, and contribute to open source for visibility.';
+      } else if (lastMsg.includes('find') || lastMsg.includes('job search') || lastMsg.includes('search') || lastMsg.includes('apply') || lastMsg.includes('application')) {
+        reply = 'To find jobs faster:\n\n• Set up job alerts on LinkedIn, Naukri, and ZyncJobs for your target role\n• Apply within 24-48 hours of posting — early applicants get more responses\n• Tailor your resume keywords to each job description\n• Reach out directly to hiring managers on LinkedIn after applying\n• Track all applications in a spreadsheet to follow up on time\n• Aim to apply to 5-10 quality jobs per day rather than mass applying';
       } else {
         reply = 'I\'m here to help with your career! I can advise on resumes, interview preparation, salary negotiation, skill development, and job search strategies. What specific area would you like guidance on?';
       }
