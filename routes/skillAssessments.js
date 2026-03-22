@@ -248,7 +248,20 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
   try {
     const { answers, timeSpent } = req.body;
 
-    // Use raw SQL to avoid ORM crash on QA DB missing columns
+    // Step 1: fetch existing columns to know what QA DB actually has
+    let existingCols = [];
+    try {
+      const colRows = await sequelize.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'skill_assessments'`,
+        { type: sequelize.QueryTypes.SELECT }
+      );
+      existingCols = colRows.map(r => r.column_name);
+      console.log('📋 skill_assessments columns:', existingCols);
+    } catch (e) {
+      console.warn('Could not fetch columns:', e.message);
+    }
+
+    // Step 2: fetch the assessment row
     let rows;
     try {
       rows = await sequelize.query(
@@ -257,14 +270,20 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
       );
     } catch (e) {
       console.error('Fetch assessment error:', e.message);
-      return res.status(500).json({ error: 'Failed to fetch assessment' });
+      return res.status(500).json({ error: 'Failed to fetch assessment: ' + e.message });
     }
 
-    if (!rows || rows.length === 0 || rows[0].userId !== req.user.id) {
+    if (!rows || rows.length === 0) {
       return res.status(404).json({ error: 'Assessment not found' });
     }
 
     const assessment = rows[0];
+    // userId column may come back as userId or userId depending on pg driver
+    const rowUserId = assessment.userId || assessment['userId'];
+    if (String(rowUserId) !== String(req.user.id)) {
+      return res.status(404).json({ error: 'Assessment not found' });
+    }
+
     const questions = typeof assessment.questions === 'string'
       ? JSON.parse(assessment.questions)
       : (Array.isArray(assessment.questions) ? assessment.questions : []);
@@ -279,17 +298,30 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
     const score = questions.length > 0 ? Math.round((correctAnswers / questions.length) * 100) : 0;
     const review = await generateAssessmentReview(assessment.skill, score, correctAnswers, questions.length);
 
-    try {
-      await sequelize.query(
-        `UPDATE skill_assessments SET questions=:questions, answers=:answers, score=:score, "completedAt"=NOW(), review=:review, "updatedAt"=NOW() WHERE id=:id`,
-        { replacements: { questions: JSON.stringify(updatedQuestions), answers: JSON.stringify(answers), score, review: JSON.stringify(review), id: req.params.id } }
-      );
-    } catch {
-      await sequelize.query(
-        `UPDATE skill_assessments SET questions=:questions, answers=:answers, score=:score, "completedAt"=NOW(), status='completed', review=:review, "updatedAt"=NOW() WHERE id=:id`,
-        { replacements: { questions: JSON.stringify(updatedQuestions), answers: JSON.stringify(answers), score, review: JSON.stringify(review), id: req.params.id } }
-      );
-    }
+    // Step 3: build UPDATE only with columns that exist
+    const hasCompletedAt = existingCols.includes('completedAt') || existingCols.includes('completedAt');
+    const hasStatus = existingCols.includes('status');
+    const hasReview = existingCols.includes('review');
+    const hasAnswers = existingCols.includes('answers');
+
+    let setClauses = [`questions=:questions`, `score=:score`, `"updatedAt"=NOW()`];
+    if (hasAnswers) setClauses.push(`answers=:answers`);
+    if (hasCompletedAt) setClauses.push(`"completedAt"=NOW()`);
+    if (hasStatus) setClauses.push(`status='completed'`);
+    if (hasReview) setClauses.push(`review=:review`);
+
+    const updateSQL = `UPDATE skill_assessments SET ${setClauses.join(', ')} WHERE id=:id`;
+    console.log('📝 UPDATE SQL:', updateSQL);
+
+    await sequelize.query(updateSQL, {
+      replacements: {
+        questions: JSON.stringify(updatedQuestions),
+        answers: JSON.stringify(answers),
+        score,
+        review: JSON.stringify(review),
+        id: req.params.id
+      }
+    });
 
     res.json({ assessmentId: req.params.id, score, correctAnswers, totalQuestions: questions.length, timeSpent, status: 'completed', review });
   } catch (error) {
