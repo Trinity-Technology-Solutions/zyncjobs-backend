@@ -1,6 +1,5 @@
 import express from 'express';
 import { randomUUID } from 'crypto';
-import SkillAssessment from '../models/SkillAssessment.js';
 import { sequelize } from '../config/postgresql.js';
 import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
@@ -333,22 +332,57 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
 // Get assessment review
 router.get('/review/:id', authenticateToken, async (req, res) => {
   try {
-    const assessment = await SkillAssessment.findByPk(req.params.id);
-    
-    if (!assessment || assessment.userId !== req.user.id) {
+    // Detect available columns to handle QA DB schema differences
+    let existingCols = [];
+    try {
+      const colRows = await sequelize.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'skill_assessments'`,
+        { type: sequelize.QueryTypes.SELECT }
+      );
+      existingCols = colRows.map(r => r.column_name);
+    } catch (e) {
+      console.warn('Could not fetch columns:', e.message);
+    }
+
+    const selectCols = ['id', '"userId"', 'skill', 'score', 'questions'];
+    if (existingCols.includes('review')) selectCols.push('review');
+    if (existingCols.includes('completedAt')) selectCols.push('"completedAt"');
+    if (existingCols.includes('status')) selectCols.push('status');
+
+    const rows = await sequelize.query(
+      `SELECT ${selectCols.join(', ')} FROM skill_assessments WHERE id = :id`,
+      { replacements: { id: req.params.id }, type: sequelize.QueryTypes.SELECT }
+    );
+
+    if (!rows || rows.length === 0) {
       return res.status(404).json({ error: 'Assessment not found' });
     }
-    
+
+    const assessment = rows[0];
+    const rowUserId = assessment.userId || assessment['userId'];
+    if (String(rowUserId) !== String(req.user.id)) {
+      return res.status(404).json({ error: 'Assessment not found' });
+    }
+
+    const questions = typeof assessment.questions === 'string'
+      ? JSON.parse(assessment.questions)
+      : (Array.isArray(assessment.questions) ? assessment.questions : []);
+
+    const review = assessment.review
+      ? (typeof assessment.review === 'string' ? JSON.parse(assessment.review) : assessment.review)
+      : {};
+
     res.json({
       assessmentId: assessment.id,
       skill: assessment.skill,
       score: assessment.score,
-      completedAt: assessment.completedAt,
-      review: assessment.review || {},
-      status: assessment.status,
-      questions: assessment.questions || []
+      completedAt: assessment.completedAt || assessment.createdAt || null,
+      review,
+      status: assessment.status || 'completed',
+      questions
     });
   } catch (error) {
+    console.error('Review fetch error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
