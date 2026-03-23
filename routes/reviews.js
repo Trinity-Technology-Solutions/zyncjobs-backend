@@ -8,19 +8,17 @@ const router = express.Router();
 // POST /api/reviews - Submit a review (requires company to have posted jobs)
 router.post('/', async (req, res) => {
   try {
-    const { companyId, companyName, rating, title, review, reviewerName, reviewerEmail, reviewerRole } = req.body;
+    const { companyName, rating, title, review, reviewerName, reviewerEmail, reviewerRole } = req.body;
+    const companyId = req.body.companyId || companyName;
 
-    if (!companyId || !companyName || !rating || !review) {
+    if (!companyName || !rating || !review) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // Check if company has posted any jobs
     const jobCount = await Job.count({
       where: {
-        [Op.or]: [
-          { company: { [Op.iLike]: `%${companyName}%` } },
-          { companyId }
-        ]
+        company: { [Op.iLike]: `%${companyName}%` }
       }
     });
 
