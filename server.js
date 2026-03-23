@@ -57,6 +57,7 @@ import linkedinParserRoutes from './routes/linkedinParser.js';
 import dashboardRoutes from './routes/dashboard.js';
 import reminderRoutes from './routes/reminders.js';
 import headlineAnalyticsRoutes from './routes/headlineAnalytics.js';
+import resumeScoreRoutes from './routes/resumeScore.js';
 import skillAssessmentRoutes from './routes/skillAssessments.js';
 import interviewRoutes from './routes/interviews.js';
 import meetingRoutes from './routes/meetings.js';
@@ -86,6 +87,8 @@ import { generateAccessToken, generateRefreshToken } from './utils/jwt.js';
 import { errorHandler, notFound } from './utils/errorHandler.js';
 import { validateEnv } from './utils/envValidator.js';
 
+
+import * as Sentry from '@sentry/node';
 
 dotenv.config();
 validateEnv();
@@ -306,6 +309,7 @@ app.use('/api/reminders', reminderRoutes);
 app.use('/api/search', advancedSearchRoutes);
 app.use('/api/search-analytics', searchAnalyticsRoutes);
 app.use('/api/headline', headlineAnalyticsRoutes);
+app.use('/api/resume-score', resumeScoreRoutes);
 app.use('/api/skill-assessments', skillAssessmentRoutes);
 app.use('/api/interviews', interviewRoutes);
 app.use('/api/meetings', meetingRoutes);
@@ -1343,6 +1347,7 @@ app.get('*', (req, res) => {
   }
 });
 
+app.use(Sentry.expressErrorHandler());
 app.use(errorHandler);
 
 httpServer.listen(PORT, '0.0.0.0', () => {

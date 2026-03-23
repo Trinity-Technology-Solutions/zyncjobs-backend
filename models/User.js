@@ -79,7 +79,10 @@ const User = sequelize.define('User', {
           [Op.ne]: null
         }
       }
-    }
+    },
+    { fields: ['email'] },
+    { fields: ['role'] },
+    { fields: ['isActive'] }
   ]
 });
 
