@@ -8,8 +8,8 @@ const Review = sequelize.define('Review', {
     primaryKey: true
   },
   companyId: {
-    type: DataTypes.UUID,
-    allowNull: false
+    type: DataTypes.STRING,
+    allowNull: true
   },
   companyName: DataTypes.STRING,
   rating: {
