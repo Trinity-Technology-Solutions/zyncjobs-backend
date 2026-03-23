@@ -51,7 +51,11 @@ const Profile = sequelize.define('Profile', {
   degree: DataTypes.STRING
 }, {
   tableName: 'profiles',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['email'] }
+  ]
 });
 
 export default Profile;

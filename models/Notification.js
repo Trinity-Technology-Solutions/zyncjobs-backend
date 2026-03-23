@@ -30,7 +30,12 @@ const Notification = sequelize.define('Notification', {
   }
 }, {
   tableName: 'notifications',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['read'] },
+    { fields: ['userId', 'read'] }
+  ]
 });
 
 export default Notification;

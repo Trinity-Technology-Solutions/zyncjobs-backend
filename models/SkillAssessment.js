@@ -27,7 +27,11 @@ const SkillAssessment = sequelize.define('SkillAssessment', {
   completedAt: DataTypes.DATE
 }, {
   tableName: 'skill_assessments',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['userId', 'skill'] }
+  ]
 });
 
 export default SkillAssessment;

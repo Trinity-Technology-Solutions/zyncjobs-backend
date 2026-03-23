@@ -46,6 +46,13 @@ router.post('/save', async (req, res) => {
     if (updateFields.skills !== undefined && !Array.isArray(updateFields.skills)) {
       try { updateFields.skills = JSON.parse(updateFields.skills); } catch { updateFields.skills = []; }
     }
+    // resume must be valid JSONB (object/null), not a string
+    if (updateFields.resume !== undefined) {
+      if (typeof updateFields.resume === 'string') {
+        try { updateFields.resume = JSON.parse(updateFields.resume); } catch { updateFields.resume = null; }
+      }
+      if (typeof updateFields.resume !== 'object') updateFields.resume = null;
+    }
     // TEXT fields must be strings (not objects/arrays)
     const textFields = ['experience','education','certifications','employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements'];
     textFields.forEach(f => {
@@ -96,8 +103,9 @@ router.post('/save', async (req, res) => {
     
     res.json({ success: true, profile });
   } catch (error) {
-    console.error('❌ Profile save error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Profile save error:', error.message);
+    console.error('❌ Error details:', error.errors?.map(e => e.message) || error.original?.message || error.stack?.split('\n')[0]);
+    res.status(500).json({ error: error.message, details: error.errors?.map(e => e.message) || error.original?.message });
   }
 });
 
