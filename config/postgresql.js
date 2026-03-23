@@ -44,6 +44,21 @@ const INDEXES = [
 ];
 
 const applyIndexes = async () => {
+  // Migrate companyId column in reviews from UUID to TEXT if needed
+  try {
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='reviews' AND column_name='companyId') THEN
+          ALTER TABLE reviews ALTER COLUMN "companyId" TYPE TEXT USING "companyId"::TEXT;
+          ALTER TABLE reviews ALTER COLUMN "companyId" DROP NOT NULL;
+        END IF;
+      END $$;
+    `);
+    console.log('✅ reviews.companyId migration applied');
+  } catch (e) {
+    console.warn('⚠️  reviews migration warning:', e.message);
+  }
+
   for (const sql of INDEXES) {
     try {
       await sequelize.query(sql);
