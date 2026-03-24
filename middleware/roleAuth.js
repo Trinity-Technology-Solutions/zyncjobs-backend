@@ -1,13 +1,17 @@
 // Role-based access control middleware
 export const requireRole = (allowedRoles) => {
   return (req, res, next) => {
-    const userRole = req.user?.userType || req.body.userType;
+    // User model uses 'role' field; support both for compatibility
+    const userRole = req.user?.role || req.user?.userType || req.body.userType;
     
     if (!userRole) {
       return res.status(401).json({ error: 'Authentication required' });
     }
     
-    if (!allowedRoles.includes(userRole)) {
+    // super_admin has access to everything admin can access
+    const effectiveRole = userRole === 'super_admin' ? 'admin' : userRole;
+    
+    if (!allowedRoles.includes(effectiveRole) && !allowedRoles.includes(userRole)) {
       return res.status(403).json({ error: 'Access denied. Insufficient permissions.' });
     }
     
