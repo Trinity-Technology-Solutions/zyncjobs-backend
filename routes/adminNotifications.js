@@ -5,7 +5,6 @@ import { requireRole } from '../middleware/roleAuth.js';
 
 const router = express.Router();
 
-// Email transporter
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_SERVER || 'smtp.gmail.com',
   port: 587,
@@ -20,7 +19,7 @@ const transporter = nodemailer.createTransport({
 let notificationQueue = [];
 
 // POST /api/admin/notifications/send - Send notification
-router.post('/send', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.post('/send', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
   try {
     const { type, recipients, subject, message, priority = 'medium' } = req.body;
 
@@ -37,7 +36,6 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
 
     notificationQueue.push(notification);
 
-    // Send email notifications
     if (type === 'email') {
       for (const email of recipients) {
         try {
@@ -83,37 +81,40 @@ router.get('/queue', authenticateToken, requireRole(['admin']), async (req, res)
   }
 });
 
-// POST /api/admin/notifications/broadcast - Broadcast to all users
-router.post('/broadcast', authenticateToken, requireRole(['admin']), async (req, res) => {
+// POST /api/admin/notifications/broadcast - Broadcast to real users
+router.post('/broadcast', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
   try {
     const { subject, message, userType = 'all' } = req.body;
+    const User = (await import('../models/User.js')).default;
+    const { Op } = await import('sequelize');
 
-    // Mock user emails based on type
-    const userEmails = {
-      all: ['user1@test.com', 'user2@test.com', 'employer@test.com'],
-      candidates: ['candidate1@test.com', 'candidate2@test.com'],
-      employers: ['employer1@test.com', 'employer2@test.com']
-    };
+    const where = { isActive: true };
+    if (userType === 'candidates') where.role = 'candidate';
+    else if (userType === 'employers') where.role = 'employer';
+    else where.role = { [Op.in]: ['candidate', 'employer'] };
 
-    const recipients = userEmails[userType] || userEmails.all;
+    const users = await User.findAll({ where, attributes: ['email'] });
+    const emails = users.map(u => u.email);
 
-    const notification = {
-      id: Date.now(),
-      type: 'broadcast',
-      userType,
-      subject,
-      message,
-      recipients: recipients.length,
-      status: 'sent',
-      createdAt: new Date()
-    };
+    let sent = 0, failed = 0;
+    for (const email of emails) {
+      try {
+        await transporter.sendMail({
+          from: `"ZyncJobs Admin" <${process.env.SMTP_EMAIL}>`,
+          to: email, subject,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <div style="background:#6366f1;padding:20px;text-align:center"><h1 style="color:white;margin:0">ZyncJobs</h1></div>
+            <div style="padding:30px">${message.replace(/\n/g, '<br>')}</div>
+            <div style="background:#f8f9fa;padding:10px;text-align:center;font-size:12px;color:#666">ZyncJobs Admin</div>
+          </div>`
+        });
+        sent++;
+      } catch { failed++; }
+    }
 
+    const notification = { id: Date.now(), type: 'broadcast', userType, subject, message, recipients: emails.length, sent, failed, status: 'sent', createdAt: new Date() };
     notificationQueue.push(notification);
-
-    res.json({ 
-      message: `Broadcast sent to ${recipients.length} ${userType} users`,
-      notification 
-    });
+    res.json({ message: `Sent to ${sent}/${emails.length} users`, notification });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

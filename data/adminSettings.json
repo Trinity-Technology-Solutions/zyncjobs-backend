@@ -1,0 +1,13 @@
+{
+  "siteName": "ZyncJobs",
+  "siteDescription": "Find your dream job",
+  "maintenanceMode": false,
+  "allowRegistrations": true,
+  "requireEmailVerification": false,
+  "jobAutoApprove": false,
+  "maxJobsPerEmployer": 10,
+  "emailFrom": "noreply@zyncjobs.com",
+  "emailFromName": "ZyncJobs",
+  "smtpHost": "smtp.gmail.com",
+  "smtpPort": 587
+}
