@@ -365,22 +365,32 @@ app.post('/api/resume-parser/parse', async (req, res) => {
         phone: profileData.phone || '',
         location: profileData.location || ''
       },
+      title: profileData.title || '',
       summary: profileData.summary || '',
       skills: profileData.skills || [],
-      experience: profileData.workExperience ? [{
-        title: profileData.title || '',
-        company: 'Previous Company',
-        duration: profileData.experience ? `${profileData.experience} years` : '',
-        description: profileData.workExperience,
+      softSkills: profileData.softSkills || [],
+      tools: profileData.tools || [],
+      experience: (profileData.workExperiences || []).map(w => ({
+        title: w.jobTitle || '',
+        company: w.company || '',
+        duration: w.date || '',
+        description: (w.descriptions || []).join(' '),
         current: false
-      }] : [],
-      education: profileData.education ? [{
-        degree: profileData.education,
-        institution: 'University/College',
-        duration: ''
-      }] : [],
-      projects: [],
-      certifications: profileData.certifications || [],
+      })),
+      education: (profileData.educations || []).map(e => ({
+        degree: e.degree || '',
+        institution: e.school || '',
+        duration: e.date || '',
+        grade: e.grade || ''
+      })),
+      projects: (profileData.projects || []).map(p => ({
+        name: p.name || '',
+        description: p.description || ''
+      })),
+      certifications: (profileData.certifications || []).map(c =>
+        typeof c === 'string' ? c : `${c.name || ''}${c.provider ? ' - ' + c.provider : ''}`
+      ),
+      competitions: profileData.competitions || [],
       languages: ['English']
     };
 
