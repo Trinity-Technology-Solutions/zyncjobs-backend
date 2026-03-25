@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import { Op } from 'sequelize';
 import { generateAccessToken, generateRefreshToken, verifyToken } from '../utils/jwt.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
+import { registrationGuard, emailVerificationGuard } from '../middleware/settingsMiddleware.js';
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ const router = express.Router();
 // });
 
 // POST /api/users/register - Register new user
-router.post('/register', [
+router.post('/register', registrationGuard, [
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
 ], async (req, res) => {
@@ -151,6 +152,9 @@ router.post('/login', async (req, res) => {
     if (!user.isActive) {
       return res.status(403).json({ error: 'Account is inactive. Contact support.' });
     }
+
+    // Email verification check
+    if (emailVerificationGuard(user, res)) return;
     
     // Check password - add validation
     if (!user.password) {
@@ -639,6 +643,22 @@ router.delete('/:id', async (req, res) => {
       console.log('✅ Profile data deleted:', deletedProfiles, 'records for:', user.email);
     } catch (profileError) {
       console.log('⚠️ Profile deletion error (continuing):', profileError.message);
+    }
+
+    // Delete jobs posted by this employer
+    try {
+      const Job = (await import('../models/Job.js')).default;
+      const deletedJobs = await Job.destroy({
+        where: {
+          [Op.or]: [
+            { employerEmail: user.email },
+            { postedBy: user.email }
+          ]
+        }
+      });
+      console.log('✅ Jobs deleted:', deletedJobs, 'records for:', user.email);
+    } catch (jobError) {
+      console.log('⚠️ Job deletion error (continuing):', jobError.message);
     }
     
     // Delete from User table
