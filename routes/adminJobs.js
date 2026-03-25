@@ -222,4 +222,16 @@ router.post('/:jobId/analyze', async (req, res) => {
   }
 });
 
+// DELETE /api/admin/jobs/:jobId - Hard delete job (admin only)
+router.delete('/:jobId', async (req, res) => {
+  try {
+    const job = await Job.findByPk(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    await job.destroy();
+    res.json({ message: 'Job deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

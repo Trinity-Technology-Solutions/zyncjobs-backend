@@ -73,7 +73,11 @@ const SavedCandidate = sequelize.define('SavedCandidate', {
   indexes: [
     {
       unique: true,
-      fields: ['employerId', 'candidateId'] // Prevent duplicate saves
+      fields: ['employerId', 'candidateId']
+    },
+    {
+      unique: true,
+      fields: ['employerId', 'candidateEmail']
     },
     {
       fields: ['employerEmail']
