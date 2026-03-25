@@ -44,7 +44,16 @@ const Interview = sequelize.define('Interview', {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   },
-  feedback: DataTypes.JSONB
+  feedback: DataTypes.JSONB,
+  round: {
+    type: DataTypes.ENUM('HR', 'Technical', 'Managerial', 'Final'),
+    defaultValue: 'HR'
+  },
+  result: {
+    type: DataTypes.ENUM('Pass', 'Fail', 'Pending'),
+    defaultValue: 'Pending'
+  },
+  interviewer: DataTypes.STRING
 }, {
   tableName: 'interviews',
   timestamps: true

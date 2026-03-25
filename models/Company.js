@@ -18,7 +18,11 @@ const Company = sequelize.define('Company', {
   industry: DataTypes.STRING,
   size: DataTypes.STRING,
   website: DataTypes.STRING,
-  location: DataTypes.STRING
+  location: DataTypes.STRING,
+  followers: {
+    type: DataTypes.JSONB,
+    defaultValue: []
+  }
 }, {
   tableName: 'companies',
   timestamps: true

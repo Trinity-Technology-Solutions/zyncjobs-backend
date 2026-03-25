@@ -21,7 +21,6 @@ router.get('/', async (req, res) => {
     if (employerId && employerId !== '') where.employerId = employerId;
     if (employerEmail && employerEmail !== '') where.employerEmail = employerEmail;
     
-    // If no valid filters, return empty array
     if (Object.keys(where).length === 0) {
       return res.json([]);
     }
@@ -33,7 +32,6 @@ router.get('/', async (req, res) => {
     
     console.log('✅ Found interviews:', interviews.length);
     
-    // Format interviews for frontend
     const formattedInterviews = await Promise.all(interviews.map(async (interview) => {
       let job = null;
       if (interview.jobId) {
@@ -89,6 +87,66 @@ router.get('/my-interviews', async (req, res) => {
   }
 });
 
+// GET /api/interviews/application/:applicationId - Get interviews for a specific application
+router.get('/application/:applicationId', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const interviews = await Interview.findAll({
+      where: { applicationId },
+      order: [['createdAt', 'ASC']]
+    });
+    res.json(interviews);
+  } catch (error) {
+    console.error('Get interviews by application error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/interviews/candidate/:email - Get interviews for a candidate by email
+router.get('/candidate/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    console.log('📅 Fetching interviews for candidate:', email);
+
+    const interviews = await Interview.findAll({
+      where: { candidateEmail: decodeURIComponent(email) },
+      order: [['scheduledDate', 'DESC']]
+    });
+
+    const formatted = await Promise.all(interviews.map(async (iv) => {
+      let job = null;
+      if (iv.jobId) job = await Job.findByPk(iv.jobId);
+      return {
+        _id: iv.id,
+        jobId: {
+          _id: job?.id,
+          jobTitle: job?.jobTitle || job?.title || 'Position',
+          company: job?.company || 'Company'
+        },
+        candidateEmail: iv.candidateEmail,
+        candidateName: iv.candidateName,
+        interviewDate: iv.scheduledDate,
+        interviewTime: new Date(iv.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        interviewType: iv.type,
+        meetingLink: iv.meetingLink,
+        location: iv.location,
+        interviewerName: iv.interviewer || null,
+        status: iv.status,
+        round: iv.round,
+        result: iv.result,
+        notes: iv.notes,
+        createdAt: iv.createdAt
+      };
+    }));
+
+    console.log('✅ Found', formatted.length, 'interviews for', email);
+    res.json(formatted);
+  } catch (error) {
+    console.error('Get candidate interviews error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/interviews/schedule - Schedule new interview
 router.post('/schedule', async (req, res) => {
   try {
@@ -96,7 +154,6 @@ router.post('/schedule', async (req, res) => {
     
     console.log('📅 Schedule request:', { candidateEmail, employerId });
 
-    // Get candidateId from email
     let finalCandidateId = candidateId;
     if (!finalCandidateId && candidateEmail) {
       const candidate = await User.findOne({ where: { email: candidateEmail } });
@@ -106,7 +163,6 @@ router.post('/schedule', async (req, res) => {
       }
     }
 
-    // Get employerId from email if it looks like an email
     let finalEmployerId = employerId;
     if (employerId && employerId.includes('@')) {
       const employer = await User.findOne({ where: { email: employerId } });
@@ -116,7 +172,6 @@ router.post('/schedule', async (req, res) => {
       }
     }
 
-    // Get job
     let job;
     if (applicationId) {
       const application = await Application.findByPk(applicationId);
@@ -128,7 +183,6 @@ router.post('/schedule', async (req, res) => {
       job = await Job.findByPk(jobId);
     }
 
-    // Create interview
     const interview = await Interview.create({
       jobId: job?.id || jobId,
       candidateId: finalCandidateId,
@@ -149,7 +203,6 @@ router.post('/schedule', async (req, res) => {
 
     console.log('✅ Interview saved:', interview.id);
     
-    // Create notification for employer
     try {
       await NotificationService.createInterviewNotification(interview);
       console.log('🔔 Interview notification created');
@@ -157,7 +210,6 @@ router.post('/schedule', async (req, res) => {
       console.error('⚠️ Interview notification creation failed:', notificationError.message);
     }
     
-    // Send email
     if (candidateEmail) {
       try {
         await sendInterviewScheduledEmail(
@@ -191,7 +243,6 @@ router.post('/create-with-meeting', async (req, res) => {
     
     let meetingLink = '';
     
-    // Create Zoom meeting if type is video
     if (type === 'video' && platform === 'zoom') {
       const meetingResult = await meetingService.createZoomMeeting({
         topic: 'Interview Meeting',
@@ -205,17 +256,14 @@ router.post('/create-with-meeting', async (req, res) => {
       }
     }
 
-    // Get application details
     const application = await Application.findByPk(applicationId);
     if (!application) {
       return res.status(404).json({ success: false, error: 'Application not found' });
     }
 
-    // Get candidate and job details
     const candidate = await User.findByPk(candidateId || application.candidateId);
     const job = await Job.findByPk(application.jobId);
 
-    // Create interview
     const interview = await Interview.create({
       jobId: application.jobId,
       candidateId: candidateId || application.candidateId,
@@ -230,15 +278,12 @@ router.post('/create-with-meeting', async (req, res) => {
       employerConfirmed: true
     });
     
-    // Create notification for employer
     try {
       await NotificationService.createInterviewNotification(interview);
-      console.log('🔔 Interview notification created');
     } catch (notificationError) {
       console.error('⚠️ Interview notification creation failed:', notificationError.message);
     }
     
-    // Send email to candidate
     if (candidate && candidate.email) {
       await sendInterviewScheduledEmail(
         candidate.email,
