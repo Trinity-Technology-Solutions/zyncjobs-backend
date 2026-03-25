@@ -32,7 +32,8 @@ router.post('/save', async (req, res) => {
       'profilePhoto','profileFrame','profileSummary','employment','projects',
       'internships','languages','awards','clubsCommittees','competitiveExams',
       'academicAchievements','companyName','roleTitle','salary','jobType',
-      'gender','birthday','college','degree'
+      'gender','birthday','college','degree',
+      'careerPreferences','educationCollege','educationClass12','educationClass10'
     ];
     fieldMap.forEach(f => { if (profileData[f] !== undefined) updateFields[f] = profileData[f]; });
     if (isValidUUID) updateFields.userId = userId;
@@ -54,7 +55,7 @@ router.post('/save', async (req, res) => {
       if (typeof updateFields.resume !== 'object') updateFields.resume = null;
     }
     // TEXT fields must be strings (not objects/arrays)
-    const textFields = ['experience','education','certifications','employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements'];
+    const textFields = ['experience','education','certifications','employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','careerPreferences','educationCollege','educationClass12','educationClass10'];
     textFields.forEach(f => {
       if (updateFields[f] !== undefined && typeof updateFields[f] !== 'string') {
         updateFields[f] = JSON.stringify(updateFields[f]);
@@ -147,7 +148,15 @@ router.get('/:identifier', async (req, res) => {
     
     if (profile) {
       console.log('Profile found:', profile.id);
-      res.json({ ...profile.toJSON(), resumeUrl });
+      const data = profile.toJSON();
+      // Parse JSON-stringified fields back to objects
+      const jsonFields = ['employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','certifications','careerPreferences','educationCollege','educationClass12','educationClass10'];
+      jsonFields.forEach(f => {
+        if (data[f] && typeof data[f] === 'string') {
+          try { data[f] = JSON.parse(data[f]); } catch { /* leave as-is */ }
+        }
+      });
+      res.json({ ...data, resumeUrl });
     } else {
       console.log('Profile not found for identifier:', identifier);
       // Create a basic profile entry if it doesn't exist (email only)
