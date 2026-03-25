@@ -24,7 +24,7 @@ let systemAlerts = [];
 let supportTickets = [];
 
 // GET /api/admin/system/health - System health monitoring
-router.get('/health', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.get('/health', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
   try {
     const uptime = process.uptime();
     const memUsage = process.memoryUsage();

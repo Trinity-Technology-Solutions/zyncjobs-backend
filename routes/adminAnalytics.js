@@ -28,45 +28,33 @@ router.get('/overview', ...adminGuard, async (req, res) => {
       newAppsToday, newAppsWeek, newAppsMonth,
       suspiciousCandidates, suspiciousEmployers, suspiciousJobs
     ] = await Promise.all([
-      User.count({ where: { role: 'candidate', isActive: true } }),
-      User.count({ where: { role: 'employer', isActive: true } }),
-      User.count({ where: { role: { [Op.in]: ['admin', 'super_admin'] } } }),
+      User.count({ where: { role: 'candidate', isActive: true } }).catch(() => 0),
+      User.count({ where: { role: 'employer', isActive: true } }).catch(() => 0),
+      User.count({ where: { role: { [Op.in]: ['admin', 'super_admin'] } } }).catch(() => 0),
 
-      Job.count(),
-      Job.count({ where: { status: 'approved', isActive: true } }),
-      Job.count({ where: { status: 'pending' } }),
-      Job.count({ where: { status: 'rejected' } }),
-      Job.count({ where: { status: 'flagged' } }),
+      Job.count().catch(() => 0),
+      Job.count({ where: { status: 'approved', isActive: true } }).catch(() => 0),
+      Job.count({ where: { status: 'pending' } }).catch(() => 0),
+      Job.count({ where: { status: 'rejected' } }).catch(() => 0),
+      Job.count({ where: { status: 'flagged' } }).catch(() => 0),
 
-      Application.count(),
+      Application.count().catch(() => 0),
 
-      User.count({ where: { createdAt: { [Op.gte]: todayStart } } }),
-      User.count({ where: { createdAt: { [Op.gte]: weekStart } } }),
-      User.count({ where: { createdAt: { [Op.gte]: monthStart } } }),
+      User.count({ where: { createdAt: { [Op.gte]: todayStart } } }).catch(() => 0),
+      User.count({ where: { createdAt: { [Op.gte]: weekStart } } }).catch(() => 0),
+      User.count({ where: { createdAt: { [Op.gte]: monthStart } } }).catch(() => 0),
 
-      Job.count({ where: { createdAt: { [Op.gte]: todayStart } } }),
-      Job.count({ where: { createdAt: { [Op.gte]: weekStart } } }),
-      Job.count({ where: { createdAt: { [Op.gte]: monthStart } } }),
+      Job.count({ where: { createdAt: { [Op.gte]: todayStart } } }).catch(() => 0),
+      Job.count({ where: { createdAt: { [Op.gte]: weekStart } } }).catch(() => 0),
+      Job.count({ where: { createdAt: { [Op.gte]: monthStart } } }).catch(() => 0),
 
-      Application.count({ where: { createdAt: { [Op.gte]: todayStart } } }),
-      Application.count({ where: { createdAt: { [Op.gte]: weekStart } } }),
-      Application.count({ where: { createdAt: { [Op.gte]: monthStart } } }),
+      Application.count({ where: { createdAt: { [Op.gte]: todayStart } } }).catch(() => 0),
+      Application.count({ where: { createdAt: { [Op.gte]: weekStart } } }).catch(() => 0),
+      Application.count({ where: { createdAt: { [Op.gte]: monthStart } } }).catch(() => 0),
 
-      // Fake/suspicious: candidates with 10+ applications in last 24h
-      sequelize.query(`
-        SELECT COUNT(DISTINCT "candidateEmail") as count FROM applications
-        WHERE "createdAt" >= NOW() - INTERVAL '24 hours'
-        GROUP BY "candidateEmail" HAVING COUNT(*) >= 10
-      `, { type: 'SELECT' }),
-
-      // Suspicious employers: 5+ jobs in last 24h
-      sequelize.query(`
-        SELECT COUNT(DISTINCT "employerEmail") as count FROM jobs
-        WHERE "createdAt" >= NOW() - INTERVAL '24 hours'
-        GROUP BY "employerEmail" HAVING COUNT(*) >= 5
-      `, { type: 'SELECT' }),
-
-      Job.count({ where: { status: 'flagged' } })
+      sequelize.query(`SELECT COUNT(DISTINCT "candidateEmail") as count FROM applications WHERE "createdAt" >= NOW() - INTERVAL '24 hours' GROUP BY "candidateEmail" HAVING COUNT(*) >= 10`, { type: 'SELECT' }).catch(() => []),
+      sequelize.query(`SELECT COUNT(DISTINCT "employerEmail") as count FROM jobs WHERE "createdAt" >= NOW() - INTERVAL '24 hours' GROUP BY "employerEmail" HAVING COUNT(*) >= 5`, { type: 'SELECT' }).catch(() => []),
+      Job.count({ where: { status: 'flagged' } }).catch(() => 0)
     ]);
 
     res.json({
@@ -198,6 +186,37 @@ router.get('/fake-suspects', ...adminGuard, async (req, res) => {
   }
 });
 
+// GET /api/admin/analytics/quick-stats — top job role, top company, most active user
+router.get('/quick-stats', ...adminGuard, async (req, res) => {
+  try {
+    const [topRoleRows, topCompanyRows, topUserRows] = await Promise.all([
+      sequelize.query(`
+        SELECT COALESCE(j.title, j."jobTitle") as role, COUNT(*) as cnt
+        FROM applications a LEFT JOIN jobs j ON a."jobId" = j.id
+        WHERE COALESCE(j.title, j."jobTitle") IS NOT NULL
+        GROUP BY COALESCE(j.title, j."jobTitle") ORDER BY cnt DESC LIMIT 1
+      `, { type: 'SELECT' }).catch(() => []),
+      sequelize.query(`
+        SELECT company, COUNT(*) as cnt FROM jobs
+        WHERE company IS NOT NULL AND company != ''
+        GROUP BY company ORDER BY cnt DESC LIMIT 1
+      `, { type: 'SELECT' }).catch(() => []),
+      sequelize.query(`
+        SELECT "candidateName", "candidateEmail", COUNT(*) as cnt
+        FROM applications GROUP BY "candidateName", "candidateEmail"
+        ORDER BY cnt DESC LIMIT 1
+      `, { type: 'SELECT' }).catch(() => []),
+    ]);
+    res.json({
+      topJobRole:     topRoleRows[0]?.role    || '—',
+      topCompany:     topCompanyRows[0]?.company || '—',
+      mostActiveUser: topUserRows[0]?.candidateName || topUserRows[0]?.candidateEmail || '—',
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Legacy dashboard endpoint (keep for backward compat)
 router.get('/dashboard', ...adminGuard, async (req, res) => {
   try {
@@ -216,6 +235,32 @@ router.get('/dashboard', ...adminGuard, async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// GET /api/admin/analytics/top-companies
+router.get('/top-companies', ...adminGuard, async (req, res) => {
+  try {
+    const rows = await sequelize.query(`
+      SELECT company, COUNT(*) as job_count
+      FROM jobs WHERE company IS NOT NULL AND company != ''
+      GROUP BY company ORDER BY job_count DESC LIMIT 10
+    `, { type: 'SELECT' });
+    res.json(rows.map(r => ({ company: r.company, jobs: parseInt(r.job_count) })));
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// GET /api/admin/analytics/top-roles
+router.get('/top-roles', ...adminGuard, async (req, res) => {
+  try {
+    const rows = await sequelize.query(`
+      SELECT COALESCE("jobTitle", title) as role, COUNT(*) as count
+      FROM applications a
+      LEFT JOIN jobs j ON a."jobId" = j.id
+      WHERE COALESCE("jobTitle", title) IS NOT NULL
+      GROUP BY COALESCE("jobTitle", title) ORDER BY count DESC LIMIT 10
+    `, { type: 'SELECT' });
+    res.json(rows.map(r => ({ role: r.role, applications: parseInt(r.count) })));
+  } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
 export default router;

@@ -48,6 +48,8 @@ import aiScoringFlowRoutes from './routes/aiScoringFlow.js';
 import employerCandidatesRoutes from './routes/employerCandidates.js';
 import adminSystemRoutes from './routes/adminSystem.js';
 import adminNotificationRoutes from './routes/adminNotifications.js';
+import adminVerificationsRoutes from './routes/adminVerifications.js';
+import { maintenanceGuard, registrationGuard, maxJobsGuard } from './middleware/settingsMiddleware.js';
 import notificationRoutes from './routes/notifications.js';
 import messageRoutes from './routes/messages.js';
 import profileRoutes from './routes/profile.js';
@@ -258,11 +260,13 @@ app.use('/images', express.static(path.join(__dirname, 'public', 'images'), {
   setHeaders: (res) => { res.setHeader('Access-Control-Allow-Origin', '*'); }
 }));
 
+// Settings enforcement middleware
+app.use(maintenanceGuard);
+
 app.use('/api/jobs', jobRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/token', tokenRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/users/:id', usersGetRoutes);
 // Move applications route before catch-all
 app.use('/api/applications', applicationRoutes);
 app.use('/api/job-alerts', jobAlertRoutes);
@@ -294,6 +298,7 @@ app.use('/api/candidates', employerCandidatesRoutes);
 app.use('/api/profiles', employerCandidatesRoutes);
 app.use('/api/admin/system', adminSystemRoutes);
 app.use('/api/admin/notifications', adminNotificationRoutes);
+app.use('/api/admin/verifications', adminVerificationsRoutes);
 app.use('/api/resume', resumeBasicRoutes);
 app.use('/api/resume', resumeRoutes);
 app.use('/api/resume', resumeAttachRoutes);

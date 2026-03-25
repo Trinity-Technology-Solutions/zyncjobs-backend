@@ -24,7 +24,7 @@ export const logAdminAction = (action, details) => {
 };
 
 // GET /api/admin/audit - Get audit logs
-router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.get('/', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
   try {
     const { page = 1, limit = 50 } = req.query;
     const start = (page - 1) * limit;

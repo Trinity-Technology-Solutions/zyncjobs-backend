@@ -57,63 +57,87 @@ router.get('/', authenticateToken, requireRole(['employer']), async (req, res) =
 // POST /api/saved-candidates - Save a candidate
 router.post('/', authenticateToken, requireRole(['employer']), async (req, res) => {
   try {
-    const { candidateId, notes, tags } = req.body;
-    
+    const { candidateId, fullName, name, title, jobTitle, location, email, skills, experience, profilePhoto, companyName: reqCompanyName, companyLogo: reqCompanyLogo, notes, tags } = req.body;
+
     if (!candidateId) {
       return res.status(400).json({ error: 'Candidate ID is required' });
     }
-    
-    // Check if candidate exists
-    const candidate = await User.findOne({
-      where: { id: candidateId, role: 'candidate' }
-    });
-    
-    if (!candidate) {
-      return res.status(404).json({ error: 'Candidate not found' });
-    }
-    
-    // Check if already saved
+
+    // Normalize candidateId: if not a valid UUID, use employerEmail+candidateId as a lookup key
+    // and store the raw id as a string by using candidateEmail as unique key instead
+    const candidateName = fullName || name || 'Unknown';
+    const candidateEmail = email || `candidate_${candidateId}@placeholder.com`;
+
+    // Check if already saved (by employerId + candidateEmail to handle non-UUID ids)
     const existingSave = await SavedCandidate.findOne({
-      where: {
-        employerId: req.user.id,
-        candidateId: candidateId
-      }
+      where: { employerId: req.user.id, candidateEmail }
     });
-    
     if (existingSave) {
-      return res.status(409).json({ error: 'Candidate already saved' });
+      return res.status(409).json({ error: 'Candidate already saved', savedId: existingSave.id });
     }
-    
-    // Create saved candidate record
+
+    // Parse experience: extract number from strings like "3 years", "5+", etc.
+    let experienceNum = null;
+    if (experience !== undefined && experience !== null && experience !== '') {
+      const parsed = parseInt(String(experience));
+      experienceNum = isNaN(parsed) ? null : parsed;
+    }
+
+    // Try to get extra info from DB, fall back to request body
+    let candidateData = {
+      name: candidateName,
+      email: candidateEmail,
+      title: title || jobTitle || '',
+      location: location || '',
+      skills: skills || [],
+      experience: experienceNum,
+      profilePicture: profilePhoto || ''
+    };
+
+    // Try UUID lookup only if candidateId looks like a UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRegex.test(candidateId)) {
+      try {
+        const dbUser = await User.findOne({ where: { id: candidateId } });
+        if (dbUser) {
+          candidateData = {
+            name: dbUser.name || dbUser.fullName || candidateData.name,
+            email: dbUser.email || candidateData.email,
+            title: dbUser.title || dbUser.jobTitle || candidateData.title,
+            location: dbUser.location || candidateData.location,
+            skills: dbUser.skills || candidateData.skills,
+            experience: typeof dbUser.experience === 'number' ? dbUser.experience : experienceNum,
+            profilePicture: dbUser.profilePicture || dbUser.profilePhoto || candidateData.profilePicture,
+          };
+        }
+      } catch (_) {}
+    }
+
+    // Generate a deterministic UUID for non-UUID candidateIds
+    const { v5: uuidv5 } = await import('uuid');
+    const NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+    const resolvedCandidateId = uuidRegex.test(candidateId)
+      ? candidateId
+      : uuidv5(`${candidateId}`, NAMESPACE);
+
     const savedCandidate = await SavedCandidate.create({
       employerId: req.user.id,
       employerEmail: req.user.email,
-      candidateId: candidateId,
-      candidateName: candidate.name,
-      candidateEmail: candidate.email,
-      candidateTitle: candidate.title,
-      candidateLocation: candidate.location,
-      candidatePhone: candidate.phone,
-      candidateHeadline: candidate.headline,
-      candidateBio: candidate.bio,
-      candidateSkills: candidate.skills || [],
-      candidateExperience: candidate.experience,
-      candidateEducation: candidate.education,
-      candidateProfilePicture: candidate.profilePicture,
-      candidateResumeUrl: candidate.resumeUrl,
-      candidateLinkedinUrl: candidate.linkedinUrl,
-      candidateGithubUrl: candidate.githubUrl,
-      candidatePortfolioUrl: candidate.portfolioUrl,
-      companyName: req.user.companyName,
-      companyLogo: req.user.companyLogo,
+      candidateId: resolvedCandidateId,
+      candidateName: candidateData.name,
+      candidateEmail: candidateData.email,
+      candidateTitle: candidateData.title,
+      candidateLocation: candidateData.location,
+      candidateSkills: Array.isArray(candidateData.skills) ? candidateData.skills : [],
+      candidateExperience: candidateData.experience,
+      candidateProfilePicture: candidateData.profilePicture,
+      companyName: reqCompanyName || req.user.companyName || '',
+      companyLogo: reqCompanyLogo || req.user.companyLogo || '',
       notes: notes || '',
       tags: tags || []
     });
-    
-    res.status(201).json({
-      message: 'Candidate saved successfully',
-      savedCandidate
-    });
+
+    res.status(201).json({ message: 'Candidate saved successfully', savedCandidate });
   } catch (error) {
     console.error('Error saving candidate:', error);
     res.status(500).json({ error: error.message });

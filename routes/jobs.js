@@ -6,6 +6,7 @@ import { Op } from 'sequelize';
 import { requireRole, requirePermission, PERMISSIONS } from '../middleware/roleAuth.js';
 import { mistralDetector } from '../utils/mistralJobDetector.js';
 import { generateEmployerId, generatePositionId, generatePositionIdWithYear } from '../utils/idGenerator.js';
+import { maxJobsGuard, getJobStatus } from '../middleware/settingsMiddleware.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -223,7 +224,7 @@ router.get('/position/:positionId', async (req, res) => {
 });
 
 // POST /api/jobs - Create new job
-router.post('/', [
+router.post('/', maxJobsGuard, [
   body('jobTitle').notEmpty().withMessage('Job title is required'),
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
@@ -295,7 +296,7 @@ router.post('/', [
       ...jobData,
       employerId,
       positionId: positionId, // Use the generated position ID
-      status: 'approved',
+      status: getJobStatus(), // 'approved' if autoApprove ON, else 'pending'
       employerEmail,
       postedBy: employerEmail,
       isActive: true

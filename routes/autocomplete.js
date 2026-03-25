@@ -17,14 +17,15 @@ const skills = JSON.parse(readFileSync(join(__dirname, '../data/skills.json'), '
 router.get('/jobs', (req, res) => {
   try {
     const { q } = req.query;
-    if (!q || q.length < 2) {
-      return res.json([]);
+    if (!q) {
+      return res.json(jobTitles.slice(0, 50));
     }
-
+    if (q.length < 1) {
+      return res.json(jobTitles.slice(0, 50));
+    }
     const matches = jobTitles
       .filter(title => title.toLowerCase().includes(q.toLowerCase()))
-      .slice(0, 10);
-
+      .slice(0, 50);
     res.json(matches);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -35,20 +36,12 @@ router.get('/jobs', (req, res) => {
 router.get('/locations', (req, res) => {
   try {
     const { q } = req.query;
-    
     if (!q) {
-      // Return all locations if no query
-      return res.json(locations);
+      return res.json(locations.slice(0, 50));
     }
-    
-    if (q.length < 2) {
-      return res.json([]);
-    }
-
     const matches = locations
       .filter(loc => loc.toLowerCase().includes(q.toLowerCase()))
-      .slice(0, 10);
-
+      .slice(0, 50);
     res.json(matches);
   } catch (error) {
     res.status(500).json({ error: error.message });
