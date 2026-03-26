@@ -4,7 +4,7 @@
   "maintenanceMode": false,
   "allowRegistrations": true,
   "requireEmailVerification": false,
-  "jobAutoApprove": false,
+  "jobAutoApprove": true,
   "maxJobsPerEmployer": 10,
   "emailFrom": "noreply@zyncjobs.com",
   "emailFromName": "ZyncJobs",

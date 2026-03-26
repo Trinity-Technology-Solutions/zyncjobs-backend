@@ -223,6 +223,97 @@ router.get('/position/:positionId', async (req, res) => {
   }
 });
 
+// GET /api/jobs/search/query - Quick search endpoint
+router.get('/search/query', async (req, res) => {
+  try {
+    const { q, limit = 10, page = 1 } = req.query;
+    
+    if (!q || q.trim().length === 0) {
+      return res.json([]);
+    }
+
+    const where = {
+      isActive: true,
+      status: 'approved',
+      [Op.or]: [
+        { jobTitle: { [Op.iLike]: `%${q}%` } },
+        { company: { [Op.iLike]: `%${q}%` } },
+        { description: { [Op.iLike]: `%${q}%` } },
+        { skills: { [Op.contains]: [q] } }
+      ]
+    };
+
+    const jobs = await Job.findAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit)
+    });
+
+    const jobsWithLogos = jobs.map(job => {
+      const jobJson = job.toJSON();
+      return {
+        ...jobJson,
+        companyLogo: getCompanyLogo(job.company),
+        salary: {
+          min: jobJson.salaryMin,
+          max: jobJson.salaryMax,
+          currency: jobJson.currency || 'INR'
+        }
+      };
+    });
+
+    res.json(jobsWithLogos);
+  } catch (error) {
+    console.error('Search query error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/jobs/search - General search endpoint
+router.get('/search', async (req, res) => {
+  try {
+    const { q, location, jobType, limit = 10, page = 1 } = req.query;
+    const where = { isActive: true, status: 'approved' };
+
+    if (q) {
+      where[Op.or] = [
+        { jobTitle: { [Op.iLike]: `%${q}%` } },
+        { company: { [Op.iLike]: `%${q}%` } },
+        { description: { [Op.iLike]: `%${q}%` } }
+      ];
+    }
+
+    if (location) where.location = { [Op.iLike]: `%${location}%` };
+    if (jobType) where.jobType = Array.isArray(jobType) ? { [Op.in]: jobType } : jobType;
+
+    const jobs = await Job.findAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit)
+    });
+
+    const jobsWithLogos = jobs.map(job => {
+      const jobJson = job.toJSON();
+      return {
+        ...jobJson,
+        companyLogo: getCompanyLogo(job.company),
+        salary: {
+          min: jobJson.salaryMin,
+          max: jobJson.salaryMax,
+          currency: jobJson.currency || 'INR'
+        }
+      };
+    });
+
+    res.json(jobsWithLogos);
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/jobs - Create new job
 router.post('/', maxJobsGuard, [
   body('jobTitle').notEmpty().withMessage('Job title is required'),
@@ -230,6 +321,7 @@ router.post('/', maxJobsGuard, [
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {
     const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'];
+    // Handle both array and string inputs
     const types = Array.isArray(val) ? val : [val];
     if (!types.length) throw new Error('Job type is required');
     if (!types.every(t => valid.includes(t))) throw new Error('Invalid job type');
@@ -266,9 +358,18 @@ router.post('/', maxJobsGuard, [
 
     const jobData = { ...req.body };
 
+    console.log('Raw jobData before processing:', JSON.stringify(jobData, null, 2));
+    
     // Normalize jobType - extract first value if array sent from frontend
     if (Array.isArray(jobData.jobType)) {
+      console.log('Converting jobType from array:', jobData.jobType, 'to string:', jobData.jobType[0]);
       jobData.jobType = jobData.jobType[0] || 'Full-time';
+    }
+    
+    // Ensure jobType is a valid string (not array format)
+    if (typeof jobData.jobType !== 'string') {
+      console.log('JobType is not string, setting default. Current type:', typeof jobData.jobType, 'Value:', jobData.jobType);
+      jobData.jobType = 'Full-time'; // Default fallback
     }
     
     // Flatten salary object if it exists
@@ -292,15 +393,52 @@ router.post('/', maxJobsGuard, [
       ? await generatePositionIdWithYear() 
       : await generatePositionIdWithYearFallback();
     
-    const job = await Job.create({
-      ...jobData,
+    // Ensure skills is properly formatted as array
+    if (jobData.skills) {
+      if (typeof jobData.skills === 'string') {
+        // If skills is a string, try to parse it or split it
+        try {
+          jobData.skills = JSON.parse(jobData.skills);
+        } catch {
+          jobData.skills = jobData.skills.split(',').map(s => s.trim());
+        }
+      } else if (!Array.isArray(jobData.skills)) {
+        jobData.skills = [];
+      }
+    } else {
+      jobData.skills = [];
+    }
+    
+    console.log('Skills before create:', jobData.skills, 'Type:', typeof jobData.skills, 'IsArray:', Array.isArray(jobData.skills));
+    console.log('JobType before create:', jobData.jobType, 'Type:', typeof jobData.jobType);
+    console.log('Full jobData object being sent to Job.create:', JSON.stringify(jobData, null, 2));
+    
+    // Explicitly construct the job creation object to avoid any spread issues
+    const jobCreateData = {
+      jobTitle: jobData.jobTitle,
+      company: jobData.company,
+      location: jobData.location,
+      jobType: jobData.jobType, // This should be a string now
+      workSetting: jobData.workSetting,
+      description: jobData.description,
+      requirements: jobData.requirements,
+      responsibilities: jobData.responsibilities,
+      skills: jobData.skills, // This should be an array
+      salaryMin: jobData.salaryMin,
+      salaryMax: jobData.salaryMax,
+      currency: jobData.currency,
+      experienceLevel: jobData.experienceLevel,
       employerId,
-      positionId: positionId, // Use the generated position ID
-      status: getJobStatus(), // 'approved' if autoApprove ON, else 'pending'
+      positionId: positionId,
+      status: getJobStatus(),
       employerEmail,
       postedBy: employerEmail,
       isActive: true
-    });
+    };
+    
+    console.log('Final jobCreateData:', JSON.stringify(jobCreateData, null, 2));
+    
+    const job = await Job.create(jobCreateData);
     
     console.log('Job created - Employer ID:', employerId, 'Position ID:', job.positionId, 'Job ID:', job.id);
     res.status(201).json(job);

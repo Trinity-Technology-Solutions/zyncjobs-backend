@@ -49,7 +49,7 @@ import employerCandidatesRoutes from './routes/employerCandidates.js';
 import adminSystemRoutes from './routes/adminSystem.js';
 import adminNotificationRoutes from './routes/adminNotifications.js';
 import adminVerificationsRoutes from './routes/adminVerifications.js';
-import { maintenanceGuard, registrationGuard, maxJobsGuard } from './middleware/settingsMiddleware.js';
+import { maintenanceGuard, registrationGuard, maxJobsGuard, getJobStatus } from './middleware/settingsMiddleware.js';
 import notificationRoutes from './routes/notifications.js';
 import messageRoutes from './routes/messages.js';
 import profileRoutes from './routes/profile.js';
@@ -1194,6 +1194,21 @@ app.get('/api/notifications/test/:employerEmail', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Notification test error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Test settings endpoint
+app.get('/api/test-settings', (req, res) => {
+  try {
+    const settingsPath = path.join(__dirname, 'data/adminSettings.json');
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    res.json({
+      settings,
+      jobAutoApprove: settings.jobAutoApprove,
+      getJobStatus: getJobStatus()
+    });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
