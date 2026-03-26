@@ -1,152 +1,141 @@
 import axios from 'axios';
 
-// Mistral AI Resume Parser for Profile Auto-Fill
 export class ResumeParserAI {
   constructor() {
     this.apiKey = process.env.OPENROUTER_API_KEY;
-    this.model = 'mistralai/mistral-7b-instruct';
+    this.model = 'openai/gpt-3.5-turbo';
   }
 
   async parseResumeToProfile(resumeText) {
-    const prompt = `Extract candidate profile information from this resume. Respond with ONLY valid JSON.
+    if (!this.apiKey) {
+      console.error('[RESUME_AI] OPENROUTER_API_KEY is not set');
+      return this.getFallbackParsing(resumeText);
+    }
 
-RESUME CONTENT:
-"${resumeText.substring(0, 2000)}"
+    const prompt = `You are a resume parser. Extract information from the resume text below and return ONLY a valid JSON object. No explanation, no markdown, no code blocks — just raw JSON.
 
-EXTRACT THESE FIELDS:
-- name: Full name of candidate
-- email: Email address
-- phone: Phone number
-- location: Current location/city
-- title: Current job title or desired position
-- experience: Years of experience (number)
-- skills: Array of technical skills
-- education: Highest education degree
-- summary: Brief professional summary (2-3 lines)
-- workExperience: Latest job experience
-- certifications: Any certifications mentioned
+RESUME TEXT:
+${resumeText.substring(0, 4000)}
 
-JSON FORMAT (respond with ONLY this JSON):
+Return this exact JSON structure (use empty string "" or empty array [] if not found):
 {
-  "name": "John Doe",
-  "email": "john@example.com", 
-  "phone": "+1234567890",
-  "location": "San Francisco, CA",
-  "title": "Software Engineer",
-  "experience": 5,
-  "skills": ["JavaScript", "React", "Node.js", "Python"],
-  "education": "Bachelor's in Computer Science",
-  "summary": "Experienced software engineer with 5+ years in full-stack development. Passionate about creating scalable web applications.",
-  "workExperience": "Senior Developer at Tech Corp (2020-2024)",
-  "certifications": ["AWS Certified", "Google Cloud Professional"]
+  "name": "candidate full name",
+  "email": "email address",
+  "phone": "phone number",
+  "location": "city or location",
+  "title": "current job title or desired role",
+  "summary": "professional summary 2-3 lines",
+  "skills": ["skill1", "skill2"],
+  "softSkills": ["soft skill1"],
+  "tools": ["tool1", "tool2"],
+  "workExperiences": [
+    {
+      "jobTitle": "job title",
+      "company": "company name",
+      "date": "date range e.g. 04/2023 - 05/2023",
+      "descriptions": ["what they did"]
+    }
+  ],
+  "educations": [
+    {
+      "degree": "degree name e.g. B.Tech Information Technology",
+      "school": "college or school name",
+      "date": "year range e.g. 2021-2025",
+      "grade": "CGPA or percentage"
+    }
+  ],
+  "projects": [
+    {
+      "name": "project name",
+      "description": "what the project does"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "certification name",
+      "provider": "provider e.g. Udemy, Coursera",
+      "date": "date"
+    }
+  ],
+  "competitions": ["competition name 1", "competition name 2"]
 }`;
 
     try {
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: this.model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 600
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.FRONTEND_URL,
-          'X-Title': 'ZyncJobs-Resume-Parser'
+      console.log('[RESUME_AI] Calling OpenRouter with model:', this.model);
+      const response = await axios.post(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          model: this.model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          max_tokens: 2000
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+            'X-Title': 'ZyncJobs-Resume-Parser'
+          },
+          timeout: 30000
         }
-      });
+      );
 
-      return this.parseAIResponse(response.data.choices[0].message.content);
+      const content = response.data?.choices?.[0]?.message?.content;
+      if (!content) {
+        console.error('[RESUME_AI] Empty response from OpenRouter:', JSON.stringify(response.data));
+        return this.getFallbackParsing(resumeText);
+      }
+
+      console.log('[RESUME_AI] Raw AI response:', content.substring(0, 300));
+      return this.parseAIResponse(content, resumeText);
     } catch (error) {
-      console.error('Mistral resume parsing error:', error.message);
+      console.error('[RESUME_AI] OpenRouter call failed:', error.response?.data || error.message);
       return this.getFallbackParsing(resumeText);
     }
   }
 
-  parseAIResponse(content) {
+  parseAIResponse(content, resumeText = '') {
     try {
-      const cleaned = content.trim().replace(/```json|```/g, '');
+      const cleaned = content.trim().replace(/```json|```/g, '').trim();
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-      
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return {
-          name: parsed.name || '',
-          email: parsed.email || '',
-          phone: parsed.phone || '',
-          location: parsed.location || '',
-          title: parsed.title || '',
-          experience: Number(parsed.experience) || 0,
-          skills: Array.isArray(parsed.skills) ? parsed.skills : [],
-          education: parsed.education || '',
-          summary: parsed.summary || '',
-          workExperience: parsed.workExperience || '',
-          certifications: Array.isArray(parsed.certifications) ? parsed.certifications : []
-        };
-      }
-      
-      throw new Error('No valid JSON found');
+      if (!jsonMatch) throw new Error('No JSON found in response');
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      console.log('[RESUME_AI] Parsed successfully:', parsed.name, parsed.email);
+
+      return {
+        name: parsed.name || '',
+        email: parsed.email || '',
+        phone: parsed.phone || '',
+        location: parsed.location || '',
+        title: parsed.title || '',
+        summary: parsed.summary || '',
+        skills: Array.isArray(parsed.skills) ? parsed.skills : [],
+        softSkills: Array.isArray(parsed.softSkills) ? parsed.softSkills : [],
+        tools: Array.isArray(parsed.tools) ? parsed.tools : [],
+        workExperiences: Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [],
+        educations: Array.isArray(parsed.educations) ? parsed.educations : [],
+        projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+        certifications: Array.isArray(parsed.certifications) ? parsed.certifications : [],
+        competitions: Array.isArray(parsed.competitions) ? parsed.competitions : [],
+      };
     } catch (error) {
-      return this.getFallbackParsing();
+      console.error('[RESUME_AI] Failed to parse AI JSON response:', error.message);
+      return this.getFallbackParsing(resumeText);
     }
   }
 
   getFallbackParsing(resumeText = '') {
-    // Only extract what's actually found in the resume
-    const lines = resumeText.split('\n').filter(line => line.trim());
-    
-    // Extract name (only if clearly identifiable)
-    let name = '';
-    const namePattern = /^[A-Z][a-z]+ [A-Z][a-z]+/;
-    for (const line of lines.slice(0, 5)) {
-      if (namePattern.test(line.trim()) && !line.includes('@') && !line.includes('http')) {
-        name = line.trim();
-        break;
-      }
-    }
-    
-    // Extract email (only if found)
+    console.warn('[RESUME_AI] Using fallback regex parsing');
     const emailMatch = resumeText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    const email = emailMatch ? emailMatch[0] : '';
-    
-    // Extract phone (only if found)
-    const phoneMatch = resumeText.match(/[\+]?[1-9]?[\d\s\-\(\)]{10,}/);
-    const phone = phoneMatch ? phoneMatch[0].replace(/\s+/g, '') : '';
-    
-    // Extract location (look for city, state patterns)
-    const locationMatch = resumeText.match(/([A-Z][a-z]+,\s*[A-Z]{2})|([A-Z][a-z]+\s+[A-Z][a-z]+,\s*[A-Z]{2})/i);
-    const location = locationMatch ? locationMatch[0] : '';
-    
-    // Extract skills (only if mentioned in resume)
-    const skillKeywords = ['JavaScript', 'Python', 'Java', 'React', 'Node.js', 'SQL', 'HTML', 'CSS', 'Git', 'AWS', 'Docker', 'Angular', 'Vue', 'PHP', 'C++', 'C#'];
-    const skills = skillKeywords.filter(skill => 
-      resumeText.toLowerCase().includes(skill.toLowerCase())
-    );
-    
-    // Extract experience years (only if mentioned)
-    const expMatch = resumeText.match(/(\d+)\+?\s*years?\s*(of\s*)?experience/i);
-    const experience = expMatch ? parseInt(expMatch[1]) : 0;
-    
-    // Extract education (look for degree patterns)
-    const educationMatch = resumeText.match(/(Bachelor|Master|PhD|B\.S\.|M\.S\.|B\.A\.|M\.A\.).*?(in|of)\s+([A-Za-z\s]+)/i);
-    const education = educationMatch ? educationMatch[0] : '';
-    
-    // Extract job title (look for common title patterns)
-    const titleMatch = resumeText.match(/(Software Engineer|Developer|Manager|Analyst|Designer|Consultant|Specialist)/i);
-    const title = titleMatch ? titleMatch[0] : '';
-    
+    const phoneMatch = resumeText.match(/[+]?[6-9]\d{9}/);
     return {
-      name: name || '',
-      email: email || '',
-      phone: phone || '',
-      location: location || '',
-      title: title || '',
-      experience: experience,
-      skills: skills,
-      education: education || '',
-      summary: '',
-      workExperience: '',
-      certifications: []
+      name: '', email: emailMatch?.[0] || '', phone: phoneMatch?.[0] || '',
+      location: '', title: '', summary: '',
+      skills: [], softSkills: [], tools: [],
+      workExperiences: [], educations: [],
+      projects: [], certifications: [], competitions: []
     };
   }
 }

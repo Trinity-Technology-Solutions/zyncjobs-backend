@@ -48,7 +48,11 @@ const Profile = sequelize.define('Profile', {
   birthday: DataTypes.DATE,
   gender: DataTypes.STRING,
   college: DataTypes.STRING,
-  degree: DataTypes.STRING
+  degree: DataTypes.STRING,
+  careerPreferences: DataTypes.TEXT,
+  educationCollege: DataTypes.TEXT,
+  educationClass12: DataTypes.TEXT,
+  educationClass10: DataTypes.TEXT
 }, {
   tableName: 'profiles',
   timestamps: true,
