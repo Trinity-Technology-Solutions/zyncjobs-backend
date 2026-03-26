@@ -6,19 +6,48 @@ export const advancedJobSearch = async (params = {}) => {
 
   const where = { isActive: true, status: 'approved' };
 
-  if (query) where.jobTitle = { [Op.iLike]: `%${query}%` };
+  if (query) {
+    where[Op.or] = [
+      { jobTitle: { [Op.iLike]: `%${query}%` } },
+      { company: { [Op.iLike]: `%${query}%` } },
+      { description: { [Op.iLike]: `%${query}%` } }
+    ];
+  }
   if (location) where.location = { [Op.iLike]: `%${location}%` };
   if (workSetting) where.workSetting = workSetting;
   if (experienceLevel) where.experienceLevel = experienceLevel;
   if (salaryMin) where.salaryMax = { [Op.gte]: salaryMin };
   if (salaryMax) where.salaryMin = { [Op.lte]: salaryMax };
-  if (jobType) where.jobType = { [Op.contains]: Array.isArray(jobType) ? jobType : [jobType] };
-  if (skills?.length) where.skills = { [Op.overlap]: Array.isArray(skills) ? skills : [skills] };
+  
+  // Fix jobType handling - it's now an ENUM, not an array
+  if (jobType) {
+    if (Array.isArray(jobType)) {
+      where.jobType = { [Op.in]: jobType };
+    } else {
+      where.jobType = jobType;
+    }
+  }
+  
+  // Skills is still an array
+  if (skills?.length) {
+    where.skills = { [Op.overlap]: Array.isArray(skills) ? skills : [skills] };
+  }
 
   const offset = (page - 1) * limit;
-  const { count, rows } = await Job.findAndCountAll({ where, limit, offset, order: [['createdAt', 'DESC']] });
+  
+  try {
+    const { count, rows } = await Job.findAndCountAll({ 
+      where, 
+      limit, 
+      offset, 
+      order: [['createdAt', 'DESC']] 
+    });
 
-  return { jobs: rows, total: count, page, totalPages: Math.ceil(count / limit) };
+    return { jobs: rows, total: count, page, totalPages: Math.ceil(count / limit) };
+  } catch (error) {
+    console.error('Advanced search error:', error);
+    throw error;
+  }
 };
 
 export const getSearchSuggestions = async (q, type = 'all') => {
