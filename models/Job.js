@@ -65,6 +65,10 @@ const Job = sequelize.define('Job', {
     type: DataTypes.ENUM('Entry', 'Mid', 'Senior', 'Lead'),
     defaultValue: 'Mid'
   },
+  jobCategory: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
   employerEmail: {
     type: DataTypes.STRING,
     allowNull: false
