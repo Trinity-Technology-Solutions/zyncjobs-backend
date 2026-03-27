@@ -341,7 +341,15 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
     const review = await generateAssessmentReview(assessment.skill, score, correctAnswers, questions.length, questions, answers);
 
     // Step 3: build UPDATE only with columns that exist
-    const hasCompletedAt = existingCols.includes('completedAt') || existingCols.includes('completedAt');
+    // Auto-add missing columns on QA/prod if they don't exist
+    if (!existingCols.includes('review')) {
+      try { await sequelize.query(`ALTER TABLE skill_assessments ADD COLUMN IF NOT EXISTS review JSONB`); existingCols.push('review'); } catch (e) { console.warn('Could not add review column:', e.message); }
+    }
+    if (!existingCols.includes('completedAt')) {
+      try { await sequelize.query(`ALTER TABLE skill_assessments ADD COLUMN IF NOT EXISTS "completedAt" TIMESTAMP`); existingCols.push('completedAt'); } catch (e) { console.warn('Could not add completedAt column:', e.message); }
+    }
+
+    const hasCompletedAt = existingCols.includes('completedAt');
     const hasStatus = existingCols.includes('status');
     const hasReview = existingCols.includes('review');
     const hasAnswers = existingCols.includes('answers');
