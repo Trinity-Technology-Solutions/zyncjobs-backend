@@ -428,6 +428,7 @@ router.post('/', maxJobsGuard, [
       salaryMax: jobData.salaryMax,
       currency: jobData.currency,
       experienceLevel: jobData.experienceLevel,
+      jobCategory: jobData.jobCategory || null,
       employerId,
       positionId: positionId,
       status: getJobStatus(),
@@ -532,6 +533,36 @@ router.delete('/:id/permanent', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
     res.json({ message: 'Job permanently deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/jobs/:id - Update job
+router.put('/:id', async (req, res) => {
+  try {
+    const job = await Job.findByPk(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const allowed = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
+      'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
+      'experienceLevel', 'jobCategory', 'applicationDeadline', 'isActive', 'status'];
+
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+
+    // Flatten salary object if sent
+    if (req.body.salary) {
+      updates.salaryMin = req.body.salary.min;
+      updates.salaryMax = req.body.salary.max;
+      if (req.body.salary.currency) updates.currency = req.body.salary.currency;
+    }
+
+    await job.update(updates);
+    const jobJson = job.toJSON();
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
