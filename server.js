@@ -191,7 +191,18 @@ export async function sendNotification(userId, type, title, message, link = null
   }
 }
 
-app.use(helmet());
+const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : [];
+const isQA = process.env.NODE_ENV === 'qa';
+
+app.use(helmet({
+  contentSecurityPolicy: isQA ? {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      'frame-ancestors': ["'self'", ...allowedOrigins],
+    },
+  } : undefined,
+  crossOriginResourcePolicy: isQA ? { policy: 'cross-origin' } : undefined,
+}));
 
 // Session configuration
 app.use(session({
@@ -250,15 +261,13 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.pdf')) {
       res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('X-Frame-Options', 'ALLOWALL');
     }
-    res.setHeader('Access-Control-Allow-Origin', '*');
   }
 }));
 
 // Serve public static assets (logos, images)
-app.use('/images', express.static(path.join(__dirname, 'public', 'images'), {
-  setHeaders: (res) => { res.setHeader('Access-Control-Allow-Origin', '*'); }
-}));
+app.use('/images', express.static(path.join(__dirname, 'public', 'images')));
 
 // Settings enforcement middleware
 app.use(maintenanceGuard);
