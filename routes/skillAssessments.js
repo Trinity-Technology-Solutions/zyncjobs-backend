@@ -131,74 +131,117 @@ Rules:
   return parseQuestions(content);
 };
 
-const generateAssessmentReview = async (skill, score, correctAnswers, totalQuestions) => {
+const generateAssessmentReview = async (skill, score, correctAnswers, totalQuestions, questions = [], answers = []) => {
   try {
-    if (!process.env.OPENROUTER_API_KEY) return getDefaultReview(skill, score);
+    if (!process.env.OPENROUTER_API_KEY) return getDefaultReview(skill, score, questions, answers);
 
-    const prompt = `Generate a professional assessment review for a candidate who scored ${score}% (${correctAnswers}/${totalQuestions} correct) on a ${skill} skill assessment.
+    // Build wrong question topics for context
+    const wrongTopics = questions
+      .map((q, i) => answers[i] !== q.correctAnswer ? q.question : null)
+      .filter(Boolean)
+      .slice(0, 5);
 
-Provide:
-1. Performance Summary (1-2 sentences)
-2. Strengths (2-3 bullet points)
-3. Areas for Improvement (2-3 bullet points)
-4. Recommendations (2-3 actionable steps)
+    const correctTopics = questions
+      .map((q, i) => answers[i] === q.correctAnswer ? q.question : null)
+      .filter(Boolean)
+      .slice(0, 3);
 
-Format as JSON:
+    const prompt = `Generate a professional skill assessment review for:
+- Skill: ${skill}
+- Score: ${score}% (${correctAnswers}/${totalQuestions} correct)
+- Questions answered correctly: ${correctTopics.join(' | ') || 'none'}
+- Questions answered incorrectly: ${wrongTopics.join(' | ') || 'none'}
+
+Based on the ACTUAL questions above, generate a personalized review.
+
+Return ONLY valid JSON (no markdown, no extra text):
 {
-  "summary": "...",
-  "strengths": ["...", "..."],
-  "improvements": ["...", "..."],
-  "recommendations": ["...", "..."],
-  "level": "Beginner|Intermediate|Advanced"
+  "summary": "2 sentences specific to their ${skill} performance and score",
+  "strengths": ["specific strength based on correct answers", "another specific strength"],
+  "improvements": ["specific area from wrong answers", "another specific improvement area"],
+  "recommendations": ["specific actionable step for ${skill}", "another specific step", "third step"],
+  "level": "${score >= 80 ? 'Advanced' : score >= 60 ? 'Intermediate' : 'Beginner'}"
 }`;
 
     const content = await callAI(prompt);
-    if (!content) return getDefaultReview(skill, score);
+    if (!content) return getDefaultReview(skill, score, questions, answers);
 
     const jsonMatch = content.match(/\{[\s\S]*\}/m);
-    if (!jsonMatch) return getDefaultReview(skill, score);
+    if (!jsonMatch) return getDefaultReview(skill, score, questions, answers);
 
-    return JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch[0]);
+    // Validate all required fields exist
+    if (!parsed.summary || !parsed.strengths || !parsed.improvements || !parsed.recommendations) {
+      return getDefaultReview(skill, score, questions, answers);
+    }
+    return parsed;
   } catch (error) {
     console.error('Review generation failed:', error.message);
-    return getDefaultReview(skill, score);
+    return getDefaultReview(skill, score, questions, answers);
   }
 };
 
-const getDefaultReview = (skill, score) => {
-  let level = 'Beginner';
-  let summary = '';
-  
+const getDefaultReview = (skill, score, questions = [], answers = []) => {
+  const level = score >= 80 ? 'Advanced' : score >= 60 ? 'Intermediate' : 'Beginner';
+  const correct = questions.filter((q, i) => answers[i] === q.correctAnswer);
+  const wrong = questions.filter((q, i) => answers[i] !== q.correctAnswer);
+
+  // Dynamic summary based on score
+  let summary;
   if (score >= 80) {
-    level = 'Advanced';
-    summary = `Excellent performance! You demonstrated strong proficiency in ${skill}.`;
+    summary = `Outstanding! You scored ${score}% on the ${skill} assessment, demonstrating advanced proficiency. You answered ${correct.length} out of ${questions.length || 10} questions correctly.`;
   } else if (score >= 60) {
-    level = 'Intermediate';
-    summary = `Good effort! You have solid understanding of ${skill} with room for improvement.`;
+    summary = `Good effort! You scored ${score}% on the ${skill} assessment, showing intermediate understanding. You got ${correct.length} out of ${questions.length || 10} correct — a solid foundation to build on.`;
   } else {
-    level = 'Beginner';
-    summary = `You're starting your journey in ${skill}. Keep practicing to improve your skills.`;
+    summary = `You scored ${score}% on the ${skill} assessment. You answered ${correct.length} out of ${questions.length || 10} correctly. This is a great starting point to identify gaps and improve.`;
   }
 
-  return {
-    summary,
-    strengths: [
-      'Completed the full assessment',
-      'Demonstrated foundational knowledge',
-      'Showed commitment to skill development'
-    ],
-    improvements: [
-      `Deepen your understanding of ${skill} core concepts`,
-      'Practice more hands-on projects',
-      'Study advanced topics in this area'
-    ],
-    recommendations: [
-      `Take online courses focused on ${skill}`,
-      'Build real-world projects to apply knowledge',
-      'Join communities and collaborate with others'
-    ],
-    level
-  };
+  // Dynamic strengths from correct questions
+  const strengths = correct.length > 0
+    ? [
+        `Correctly answered ${correct.length} question${correct.length > 1 ? 's' : ''} — showing real ${skill} knowledge`,
+        correct.length >= 2 ? `Strong grasp of: "${correct[0].question.substring(0, 60)}..."` : `Demonstrated understanding of core ${skill} concepts`,
+        score >= 60 ? `Above-average performance compared to typical ${skill} beginners` : `Completed the full assessment — showing commitment to learning`
+      ]
+    : [
+        `Completed the full ${skill} assessment`,
+        `Identified key areas that need focused study`,
+        `Took the first step toward ${skill} proficiency`
+      ];
+
+  // Dynamic improvements from wrong questions
+  const improvements = wrong.length > 0
+    ? [
+        `Review the concept behind: "${wrong[0].question.substring(0, 70)}..."`,
+        wrong.length >= 2 ? `Strengthen understanding of: "${wrong[1].question.substring(0, 70)}..."` : `Practice more ${skill} hands-on exercises`,
+        `Focus on the ${wrong.length} topic${wrong.length > 1 ? 's' : ''} you missed to close knowledge gaps`
+      ]
+    : [
+        `Explore advanced ${skill} patterns and edge cases`,
+        `Challenge yourself with real-world ${skill} projects`,
+        `Mentor others to solidify your ${skill} expertise`
+      ];
+
+  // Dynamic recommendations based on level
+  const recommendations = level === 'Advanced'
+    ? [
+        `Contribute to open-source ${skill} projects to showcase expertise`,
+        `Explore advanced ${skill} design patterns and architecture`,
+        `Consider getting a ${skill} certification to validate your skills`
+      ]
+    : level === 'Intermediate'
+    ? [
+        `Build 2-3 real projects using ${skill} to reinforce your knowledge`,
+        `Take a focused course on the ${skill} topics you missed`,
+        `Practice daily ${skill} coding challenges on platforms like LeetCode or HackerRank`
+      ]
+    : [
+        `Start with the official ${skill} documentation and beginner tutorials`,
+        `Complete a structured ${skill} course on freeCodeCamp, Coursera, or Udemy`,
+        `Build a small project using ${skill} to apply what you learn`
+      ];
+
+  return { summary, strengths, improvements, recommendations, level };
 };
 
 // Start assessment
@@ -295,7 +338,7 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
     });
 
     const score = questions.length > 0 ? Math.round((correctAnswers / questions.length) * 100) : 0;
-    const review = await generateAssessmentReview(assessment.skill, score, correctAnswers, questions.length);
+    const review = await generateAssessmentReview(assessment.skill, score, correctAnswers, questions.length, questions, answers);
 
     // Step 3: build UPDATE only with columns that exist
     const hasCompletedAt = existingCols.includes('completedAt') || existingCols.includes('completedAt');

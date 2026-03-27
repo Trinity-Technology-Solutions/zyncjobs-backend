@@ -75,11 +75,14 @@ router.post('/', authenticateToken, [
       candidateId: resolvedCandidateId,
       candidateName,
       candidateEmail,
+      candidatePhone: candidatePhone || '',
       employerId: safeEmployerId,
       employerEmail: job.employerEmail || job.postedBy || '',
       coverLetter: coverLetter || '',
       resumeUrl: resumeUrl || '',
-      status: 'pending'
+      isQuickApply,
+      status: 'pending',
+      employerConfirmedRejection: false
     });
 
     console.log('✅ Application created:', { id: application.id, jobId, candidateEmail });
@@ -265,7 +268,7 @@ router.get('/job/:jobId/count', async (req, res) => {
 
 // PUT /api/applications/:id/status - Update application status
 router.put('/:id/status', [
-  body('status').isIn(['pending', 'reviewed', 'shortlisted', 'interviewed', 'rejected', 'hired']).withMessage('Invalid status')
+  body('status').isIn(['pending', 'applied', 'reviewed', 'shortlisted', 'interviewed', 'rejected', 'hired']).withMessage('Invalid status')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -273,7 +276,7 @@ router.put('/:id/status', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { status } = req.body;
+    const { status, employerConfirmedRejection, note, updatedBy } = req.body;
     const application = await Application.findByPk(req.params.id);
     
     if (!application) {
@@ -281,27 +284,53 @@ router.put('/:id/status', [
     }
 
     const oldStatus = application.status;
-    await application.update({ status });
+
+    // Build update payload
+    const updatePayload = { status };
+
+    // If employer explicitly confirms rejection, set the flag
+    if (status === 'rejected' && employerConfirmedRejection === true) {
+      updatePayload.employerConfirmedRejection = true;
+    }
+
+    // If AI sets rejection (no employerConfirmedRejection flag), keep flag false
+    if (status === 'rejected' && !employerConfirmedRejection) {
+      updatePayload.employerConfirmedRejection = false;
+    }
+
+    // Append to timeline
+    const existingTimeline = application.timeline || [];
+    updatePayload.timeline = [
+      ...existingTimeline,
+      {
+        status,
+        date: new Date().toISOString(),
+        note: note || '',
+        updatedBy: updatedBy || 'system'
+      }
+    ];
+
+    await application.update(updatePayload);
 
     const job = await Job.findByPk(application.jobId);
 
     // Create notification for status change
     try {
       await NotificationService.createApplicationStatusNotification(application, status);
-      console.log('🔔 Status change notification created');
     } catch (notificationError) {
       console.error('⚠️ Status notification creation failed:', notificationError.message);
     }
 
-    // Send email notification
+    // Send rejection email ONLY when employer explicitly confirms rejection
     try {
-      if (status === 'rejected' && job) {
+      if (status === 'rejected' && employerConfirmedRejection === true && job) {
         await sendApplicationRejectionEmail(
           application.candidateEmail,
           application.candidateName,
           job.jobTitle || job.title,
           job.company
         );
+        console.log('📧 Rejection email sent to candidate (employer confirmed):', application.candidateEmail);
       } else if (['reviewed', 'shortlisted', 'hired'].includes(status) && job) {
         await sendApplicationStatusEmail(
           application.candidateEmail,
@@ -388,6 +417,25 @@ router.get('/', async (req, res) => {
       currentPage: pageNum,
       total: count
     });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/applications/:id/withdraw - Withdraw application
+router.put('/:id/withdraw', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const application = await Application.findByPk(req.params.id);
+    if (!application) return res.status(404).json({ error: 'Application not found' });
+
+    await application.update({
+      status: 'withdrawn',
+      withdrawnAt: new Date(),
+      withdrawalReason: reason || ''
+    });
+
+    res.json({ message: 'Application withdrawn successfully', application });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
