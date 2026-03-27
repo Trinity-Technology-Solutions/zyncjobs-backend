@@ -448,6 +448,50 @@ router.post('/', maxJobsGuard, [
   }
 });
 
+// PUT /api/jobs/:id - Update job
+router.put('/:id', async (req, res) => {
+  try {
+    const job = await Job.findByPk(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const data = { ...req.body };
+
+    // Normalize jobType
+    if (Array.isArray(data.jobType)) data.jobType = data.jobType[0] || 'Full-time';
+    if (!data.jobType) data.jobType = 'Full-time';
+
+    // Flatten salary object
+    if (data.salary) {
+      data.salaryMin = data.salary.min;
+      data.salaryMax = data.salary.max;
+      data.currency = data.salary.currency || 'INR';
+      delete data.salary;
+    }
+
+    // Normalize skills
+    if (data.skills) {
+      if (typeof data.skills === 'string') {
+        try { data.skills = JSON.parse(data.skills); } catch { data.skills = data.skills.split(',').map(s => s.trim()); }
+      } else if (!Array.isArray(data.skills)) {
+        data.skills = [];
+      }
+    }
+
+    const allowedFields = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
+      'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency', 'experienceLevel'];
+
+    const updateData = {};
+    allowedFields.forEach(field => { if (data[field] !== undefined) updateData[field] = data[field]; });
+
+    await job.update(updateData);
+    const jobJson = job.toJSON();
+    res.json({ ...jobJson, salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+  } catch (error) {
+    console.error('Error updating job:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/jobs/:id - Get single job (supports both UUID and positionId)
 router.get('/:id', async (req, res) => {
   try {
