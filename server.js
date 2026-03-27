@@ -191,17 +191,25 @@ export async function sendNotification(userId, type, title, message, link = null
   }
 }
 
-const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : [];
+const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
 const isQA = process.env.NODE_ENV === 'qa';
 
+// Derive API origin for frame-ancestors (e.g. https://qaapi.zyncjobs.com)
+const apiOrigin = process.env.BACKEND_URL
+  ? process.env.BACKEND_URL.trim().replace(/\/+$/, '')
+  : null;
+
 app.use(helmet({
-  contentSecurityPolicy: isQA ? {
+  contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      'frame-ancestors': ["'self'", ...allowedOrigins],
+      // Allow framing from frontend origins AND the API domain itself
+      'frame-ancestors': ["'self'", ...allowedOrigins, ...(apiOrigin ? [apiOrigin] : [])],
+      // Allow loading PDFs from the API domain
+      'frame-src': ["'self'", ...allowedOrigins, ...(apiOrigin ? [apiOrigin] : [])],
     },
-  } : undefined,
-  crossOriginResourcePolicy: isQA ? { policy: 'cross-origin' } : undefined,
+  },
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 
 // Session configuration
@@ -257,11 +265,24 @@ if (process.env.NODE_ENV === 'development') {
 app.use(express.urlencoded({ extended: true }));
 
 // Serve uploaded files with proper headers
-app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+app.use('/uploads', (req, res, next) => {
+  // Allow cross-origin access for resume files
+  const origin = req.headers.origin;
+  const allowed = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
+  if (origin && allowed.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(path.join(__dirname, 'uploads'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.pdf')) {
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('X-Frame-Options', 'ALLOWALL');
+      res.setHeader('Content-Disposition', 'inline');
+      // Remove frame restrictions for PDFs
+      res.removeHeader('X-Frame-Options');
     }
   }
 }));
