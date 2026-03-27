@@ -29,7 +29,23 @@ const Application = sequelize.define('Application', {
   coverLetter: DataTypes.TEXT,
   resumeUrl: DataTypes.STRING,
   aiScore: DataTypes.INTEGER,
-  aiAnalysis: DataTypes.JSONB
+  aiAnalysis: DataTypes.JSONB,
+  aiSuggestion: {
+    type: DataTypes.STRING(20),
+    allowNull: true
+  },
+  employerConfirmedRejection: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  candidatePhone: DataTypes.STRING,
+  isQuickApply: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  withdrawnAt: DataTypes.DATE,
+  withdrawalReason: DataTypes.STRING,
+  timeline: DataTypes.JSONB
 }, {
   tableName: 'applications',
   timestamps: true,

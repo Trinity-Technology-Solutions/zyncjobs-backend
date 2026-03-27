@@ -189,24 +189,18 @@ export const runAutoRejection = async (application, job, dryRun = false) => {
     if (!shouldReject) return { rejected: false, scores: scoreBreakdown };
 
     if (!dryRun) {
+      // AI only SUGGESTS rejection — does NOT auto-reject
+      // Set aiSuggestion flag so employer sees it in dashboard
+      // employerConfirmedRejection stays false until employer manually rejects
       await application.update({
-        status: 'rejected',
+        aiSuggestion: 'reject',
         aiScore: overallScore,
-        aiAnalysis: scoreBreakdown
+        aiAnalysis: scoreBreakdown,
+        employerConfirmedRejection: false
+        // status intentionally NOT changed — candidate stays 'pending'
       });
 
-      if (settings.sendFeedback) {
-        await sendApplicationRejectionEmail(
-          application.candidateEmail,
-          application.candidateName,
-          job.jobTitle || job.title,
-          job.company,
-          aiFeedback || null,
-          aiReasons
-        ).catch(e => console.error('Rejection email failed:', e.message));
-      }
-
-      console.log(`🤖 Auto-rejected application ${application.id} (score: ${overallScore})`);
+      console.log(`🤖 AI flagged application ${application.id} for rejection (score: ${overallScore}) — awaiting employer confirmation`);
     }
 
     return { rejected: true, scores: scoreBreakdown, dryRun };
