@@ -36,7 +36,7 @@ router.post('/forgot-password', async (req, res) => {
       expiresAt: new Date(Date.now() + 3600000) // 1 hour
     });
 
-    const frontendBase = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+    const frontendBase = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim().replace(/\/+$/, '');
     const resetLink = `${frontendBase}/reset-password/${resetToken}`;
 
     const mailOptions = {
