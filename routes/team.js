@@ -1,5 +1,9 @@
 import express from 'express';
 import TeamMember from '../models/TeamMember.js';
+import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const router = express.Router();
 
@@ -36,7 +40,75 @@ router.post('/', async (req, res) => {
       role: role || 'Recruiter',
       status: 'pending'
     });
-    res.status(201).json(member);
+
+    // Send invitation email - create transporter inside route to avoid module-level errors
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER || process.env.GMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD || process.env.GMAIL_PASSWORD
+      }
+    });
+
+    const rolePermissions = {
+      'Owner': 'Full access - Post Jobs, Manage Applications, Invite Members, Remove Members, Change Roles, View Analytics',
+      'Recruiter': 'Post Jobs & Manage Applications',
+      'Viewer': 'View Analytics only'
+    };
+
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
+        <div style="background-color: white; padding: 30px; border-radius: 8px; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333; margin-bottom: 20px;">Welcome to ZyncJobs Team!</h2>
+          
+          <p style="color: #666; font-size: 16px;">Hi ${memberName || memberEmail},</p>
+          
+          <p style="color: #666; font-size: 16px;">You have been invited to join the ZyncJobs team as a <strong>${role || 'Recruiter'}</strong>.</p>
+          
+          <p style="color: #666; font-size: 16px;">
+            <strong>Your Role Includes:</strong><br>
+            ${rolePermissions[role || 'Recruiter'] || 'Recruiter access'}
+          </p>
+          
+          <p style="color: #666; font-size: 16px;">
+            <strong>Invited by:</strong> ${employerId}
+          </p>
+          
+          <div style="background-color: #f9f9f9; padding: 20px; border-left: 4px solid #007bff; margin: 20px 0;">
+            <p style="color: #666; margin: 0;">
+              Accept this invitation and join the team! You'll be able to collaborate on job postings, manage applications, and more.
+            </p>
+          </div>
+          
+          <p style="color: #666; font-size: 14px; margin-top: 20px;">
+            If you have any questions, please reply to this email or contact your team administrator.
+          </p>
+          
+          <footer style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px; color: #999; font-size: 12px;">
+            <p>© 2026 ZyncJobs. All rights reserved.</p>
+          </footer>
+        </div>
+      </div>
+    `;
+
+    try {
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER || process.env.GMAIL_USER,
+        to: memberEmail,
+        subject: `You've been invited to join ZyncJobs Team as a ${role || 'Recruiter'}`,
+        html: emailHtml
+      });
+      console.log(`✅ Invitation email sent to ${memberEmail}`);
+    } catch (emailError) {
+      console.warn('⚠️ Email sending failed, but member was created:', emailError.message);
+      // Don't fail the API call if email fails, the member invitation is created
+    }
+
+    res.status(201).json({
+      ...member.toJSON(),
+      emailSent: true,
+      message: `Invitation created and email sent to ${memberEmail}`
+    });
   } catch (error) {
     console.error('Error inviting member:', error);
     res.status(500).json({ error: error.message });
