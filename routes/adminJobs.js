@@ -5,6 +5,19 @@ import { mistralDetector } from '../utils/mistralJobDetector.js';
 
 const router = express.Router();
 
+// Helper: normalize any array field
+function normalizeArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    if (val.startsWith('{') && val.endsWith('}')) {
+      return val.slice(1, -1).split(',').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean);
+    }
+    try { return JSON.parse(val); } catch { return val.split(',').map(s => s.trim()).filter(Boolean); }
+  }
+  return [];
+}
+
 // GET /api/admin/jobs/pending - Get pending jobs
 router.get('/pending', async (req, res) => {
   try {
@@ -218,6 +231,49 @@ router.post('/:jobId/analyze', async (req, res) => {
       issues: analysis.issues
     });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/admin/jobs/:jobId - Update job details
+router.put('/:jobId', async (req, res) => {
+  try {
+    const job = await Job.findByPk(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const allowed = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
+      'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
+      'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
+      'applicationDeadline', 'isActive', 'status'];
+
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+
+    if (req.body.salary) {
+      updates.salaryMin = req.body.salary.min;
+      updates.salaryMax = req.body.salary.max;
+      if (req.body.salary.currency) updates.currency = req.body.salary.currency;
+    }
+
+    if (updates.jobType && Array.isArray(updates.jobType)) updates.jobType = updates.jobType[0] || 'Full-time';
+    if (updates.jobType && typeof updates.jobType === 'string') {
+      const match = updates.jobType.match(/^\{"?([^"\}]+)"?\}$/);
+      if (match) updates.jobType = match[1];
+    }
+    const validExpLevels = ['Entry', 'Mid', 'Senior', 'Lead'];
+    if (updates.experienceLevel !== undefined && !validExpLevels.includes(updates.experienceLevel)) {
+      updates.experienceLevel = 'Mid';
+    }
+    if (updates.skills !== undefined) updates.skills = normalizeArray(updates.skills);
+    if (updates.languages !== undefined) updates.languages = normalizeArray(updates.languages);
+    if (updates.country) updates.country = updates.country.trim();
+
+    await job.update(updates);
+    res.json({ message: 'Job updated successfully', job: job.toJSON() });
+  } catch (error) {
+    console.error('Error updating job:', error);
     res.status(500).json({ error: error.message });
   }
 });
