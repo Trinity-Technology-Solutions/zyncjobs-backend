@@ -125,6 +125,20 @@ function getCompanyLogo(companyName) {
   return company ? company.logo : null;
 }
 
+// Helper: normalize any array field (handles string, JSON string, PG array literal, real array)
+function normalizeArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    // PostgreSQL array literal: {"English","Tamil"} or {English,Tamil}
+    if (val.startsWith('{') && val.endsWith('}')) {
+      return val.slice(1, -1).split(',').map(s => s.replace(/^"|"$/g, '').trim()).filter(Boolean);
+    }
+    try { return JSON.parse(val); } catch { return val.split(',').map(s => s.trim()).filter(Boolean); }
+  }
+  return [];
+}
+
 // GET /api/jobs - Get all jobs
 router.get('/', async (req, res) => {
   try {
@@ -359,17 +373,22 @@ router.post('/', maxJobsGuard, [
     const jobData = { ...req.body };
 
     console.log('Raw jobData before processing:', JSON.stringify(jobData, null, 2));
+    console.log('🔍 locationType:', jobData.locationType, '| languages:', jobData.languages, '| country:', jobData.country);
     
-    // Normalize jobType - extract first value if array sent from frontend
+    // Normalize jobType - handle array, string array literal {"Full-time"}, or plain string
     if (Array.isArray(jobData.jobType)) {
-      console.log('Converting jobType from array:', jobData.jobType, 'to string:', jobData.jobType[0]);
       jobData.jobType = jobData.jobType[0] || 'Full-time';
+    } else if (typeof jobData.jobType === 'string') {
+      // Strip PostgreSQL array literal format e.g. {"Full-time"} or {Full-time}
+      const match = jobData.jobType.match(/^\{"?([^"\}]+)"?\}$/);
+      if (match) jobData.jobType = match[1];
     }
-    
-    // Ensure jobType is a valid string (not array format)
-    if (typeof jobData.jobType !== 'string') {
-      console.log('JobType is not string, setting default. Current type:', typeof jobData.jobType, 'Value:', jobData.jobType);
-      jobData.jobType = 'Full-time'; // Default fallback
+    if (!jobData.jobType || typeof jobData.jobType !== 'string') jobData.jobType = 'Full-time';
+
+    // Normalize experienceLevel - default to 'Mid' if empty or invalid
+    const validExpLevels = ['Entry', 'Mid', 'Senior', 'Lead'];
+    if (!jobData.experienceLevel || !validExpLevels.includes(jobData.experienceLevel)) {
+      jobData.experienceLevel = 'Mid';
     }
     
     // Flatten salary object if it exists
@@ -393,21 +412,9 @@ router.post('/', maxJobsGuard, [
       ? await generatePositionIdWithYear() 
       : await generatePositionIdWithYearFallback();
     
-    // Ensure skills is properly formatted as array
-    if (jobData.skills) {
-      if (typeof jobData.skills === 'string') {
-        // If skills is a string, try to parse it or split it
-        try {
-          jobData.skills = JSON.parse(jobData.skills);
-        } catch {
-          jobData.skills = jobData.skills.split(',').map(s => s.trim());
-        }
-      } else if (!Array.isArray(jobData.skills)) {
-        jobData.skills = [];
-      }
-    } else {
-      jobData.skills = [];
-    }
+    // Ensure skills and languages are properly formatted as arrays
+    jobData.skills = normalizeArray(jobData.skills);
+    jobData.languages = normalizeArray(jobData.languages);
     
     console.log('Skills before create:', jobData.skills, 'Type:', typeof jobData.skills, 'IsArray:', Array.isArray(jobData.skills));
     console.log('JobType before create:', jobData.jobType, 'Type:', typeof jobData.jobType);
@@ -429,6 +436,9 @@ router.post('/', maxJobsGuard, [
       currency: jobData.currency,
       experienceLevel: jobData.experienceLevel,
       jobCategory: jobData.jobCategory || null,
+      experienceRange: jobData.experienceRange || null,
+      languages: normalizeArray(jobData.languages),
+      country: jobData.country || null,
       employerId,
       positionId: positionId,
       status: getJobStatus(),
@@ -446,50 +456,6 @@ router.post('/', maxJobsGuard, [
   } catch (error) {
     console.error('Error creating job:', error);
     res.status(400).json({ error: error.message });
-  }
-});
-
-// PUT /api/jobs/:id - Update job
-router.put('/:id', async (req, res) => {
-  try {
-    const job = await Job.findByPk(req.params.id);
-    if (!job) return res.status(404).json({ error: 'Job not found' });
-
-    const data = { ...req.body };
-
-    // Normalize jobType
-    if (Array.isArray(data.jobType)) data.jobType = data.jobType[0] || 'Full-time';
-    if (!data.jobType) data.jobType = 'Full-time';
-
-    // Flatten salary object
-    if (data.salary) {
-      data.salaryMin = data.salary.min;
-      data.salaryMax = data.salary.max;
-      data.currency = data.salary.currency || 'INR';
-      delete data.salary;
-    }
-
-    // Normalize skills
-    if (data.skills) {
-      if (typeof data.skills === 'string') {
-        try { data.skills = JSON.parse(data.skills); } catch { data.skills = data.skills.split(',').map(s => s.trim()); }
-      } else if (!Array.isArray(data.skills)) {
-        data.skills = [];
-      }
-    }
-
-    const allowedFields = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
-      'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency', 'experienceLevel'];
-
-    const updateData = {};
-    allowedFields.forEach(field => { if (data[field] !== undefined) updateData[field] = data[field]; });
-
-    await job.update(updateData);
-    const jobJson = job.toJSON();
-    res.json({ ...jobJson, salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
-  } catch (error) {
-    console.error('Error updating job:', error);
-    res.status(500).json({ error: error.message });
   }
 });
 
@@ -546,7 +512,8 @@ router.put('/:id', async (req, res) => {
 
     const allowed = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
       'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
-      'experienceLevel', 'jobCategory', 'applicationDeadline', 'isActive', 'status'];
+      'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
+      'applicationDeadline', 'isActive', 'status'];
 
     const updates = {};
     for (const key of allowed) {
@@ -559,6 +526,19 @@ router.put('/:id', async (req, res) => {
       updates.salaryMax = req.body.salary.max;
       if (req.body.salary.currency) updates.currency = req.body.salary.currency;
     }
+
+    if (updates.jobType) {
+      if (Array.isArray(updates.jobType)) updates.jobType = updates.jobType[0] || 'Full-time';
+      const match = typeof updates.jobType === 'string' && updates.jobType.match(/^\{"?([^"\}]+)"?\}$/);
+      if (match) updates.jobType = match[1];
+    }
+    const validExpLevels = ['Entry', 'Mid', 'Senior', 'Lead'];
+    if (updates.experienceLevel !== undefined && !validExpLevels.includes(updates.experienceLevel)) {
+      updates.experienceLevel = 'Mid';
+    }
+    if (updates.skills !== undefined) updates.skills = normalizeArray(updates.skills);
+    if (updates.languages !== undefined) updates.languages = normalizeArray(updates.languages);
+    if (updates.country) updates.country = updates.country.trim();
 
     await job.update(updates);
     const jobJson = job.toJSON();
