@@ -1,8 +1,59 @@
 import express from 'express';
 import { Op } from 'sequelize';
 import Message from '../models/Message.js';
+import User from '../models/User.js';
 
 const router = express.Router();
+
+// Get all messages for a candidate (supports candidateId query parameter)
+router.get('/', async (req, res) => {
+  try {
+    const { candidateId } = req.query;
+    
+    if (!candidateId) {
+      return res.status(400).json({ error: 'candidateId query parameter is required' });
+    }
+    
+    // Get all messages for this candidate with user details
+    const messages = await Message.findAll({
+      where: {
+        [Op.or]: [
+          { senderId: candidateId },
+          { receiverId: candidateId }
+        ]
+      },
+      order: [['createdAt', 'DESC']],
+      raw: false,
+      subQuery: false
+    });
+
+    // Enrich messages with sender and receiver details
+    const enrichedMessages = await Promise.all(
+      messages.map(async (msg) => {
+        const sender = await User.findByPk(msg.senderId, {
+          attributes: ['name', 'company', 'companyName', 'companyLogo', 'profilePicture', 'email']
+        });
+        const receiver = await User.findByPk(msg.receiverId, {
+          attributes: ['name', 'company', 'companyName', 'companyLogo', 'profilePicture', 'email']
+        });
+
+        return {
+          ...msg.toJSON(),
+          senderName: sender?.name || msg.senderId,
+          senderEmail: sender?.email,
+          companyName: sender?.companyName || sender?.company,
+          companyLogo: sender?.companyLogo,
+          receiverName: receiver?.name || msg.receiverId,
+          receiverEmail: receiver?.email
+        };
+      })
+    );
+
+    res.json(enrichedMessages);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Get conversations for user
 router.get('/conversations/:userId', async (req, res) => {
