@@ -67,6 +67,10 @@ const applyIndexes = async () => {
         ADD COLUMN IF NOT EXISTS "languages" VARCHAR(255)[],
         ADD COLUMN IF NOT EXISTS "experienceRange" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "country" VARCHAR(255);
+        ADD COLUMN IF NOT EXISTS "languages" VARCHAR(255)[] DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS "experienceRange" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "country" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "jobHeaderImage" VARCHAR(255);
     `);
     console.log('✅ jobs columns verified');
   } catch (e) {

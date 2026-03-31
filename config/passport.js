@@ -3,21 +3,17 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Op } from 'sequelize';
 import User from '../models/User.js';
 
-// Only configure Google OAuth if credentials are available
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "/api/auth/google/callback"
+    callbackURL: `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/google/callback`,
+    proxy: true
   }, async (accessToken, refreshToken, profile, done) => {
     try {
       const googleEmail = profile.emails[0].value;
-      const googleName = profile.displayName || profile.name?.givenName || googleEmail.split('@')[0];
       const googlePhoto = profile.photos?.[0]?.value || null;
 
-      console.log('👤 Google OAuth for:', googleEmail, '| Name:', googleName);
-
-      // 1. Check if user already exists by googleId OR email
       let user = await User.findOne({
         where: {
           [Op.or]: [
@@ -28,6 +24,30 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       });
 
       if (user) {
+        if (!user.googleId) {
+          await user.update({ googleId: profile.id, profilePicture: googlePhoto });
+        }
+        user.isNewUser = false;
+        return done(null, user);
+      }
+
+      user = await User.create({
+        googleId: profile.id,
+        name: profile.displayName,
+        email: googleEmail,
+        password: 'google-oauth-' + profile.id,
+        profilePicture: googlePhoto,
+        userType: 'candidate',
+        role: 'candidate',
+        isActive: true,
+        emailVerified: true
+      });
+
+      user.isNewUser = true;
+<<<<<<< HEAD
+      return done(null, user);
+=======
+      console.log('✅ New user created:', user.email);
         console.log('✅ Existing user found:', user.email, '| role:', user.role);
         // Link googleId and update photo if not set
         const updates = {};
@@ -52,18 +72,17 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
       console.log('✅ New Google user created:', user.email);
       done(null, user);
+>>>>>>> 512c558c8e0cb0a1b914473eacf01d139d4f89a2
     } catch (error) {
       console.error('❌ Google OAuth error:', error);
       done(error, null);
     }
   }));
 } else {
-  console.log('⚠️ Google OAuth not configured - missing credentials');
+  console.log('⚠️ Google OAuth not configured');
 }
 
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
+passport.serializeUser((user, done) => done(null, user.id));
 
 passport.deserializeUser(async (id, done) => {
   try {
