@@ -62,6 +62,10 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  googleId: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
   emailVerified: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
