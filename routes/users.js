@@ -7,6 +7,29 @@ import { Op } from 'sequelize';
 import { generateAccessToken, generateRefreshToken, verifyToken } from '../utils/jwt.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
 import { registrationGuard, emailVerificationGuard } from '../middleware/settingsMiddleware.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Load companies list once
+let companiesList = [];
+try {
+  companiesList = JSON.parse(readFileSync(join(__dirname, '../data/companies.json'), 'utf8'));
+} catch (e) {
+  console.warn('Could not load companies.json:', e.message);
+}
+
+// Check if email domain matches a known company
+const checkDomainVerification = (email) => {
+  const domain = email.split('@')[1]?.toLowerCase();
+  if (!domain) return { status: 'pending', matched: null };
+  const match = companiesList.find(c => c.domain && c.domain.toLowerCase() === domain);
+  return match
+    ? { status: 'verified', matched: match }
+    : { status: 'pending', matched: null };
+};
 
 const router = express.Router();
 
@@ -55,6 +78,18 @@ router.post('/register', registrationGuard, [
     }
 
     const hashedPassword = await bcrypt.hash(password, 8);
+
+    // Domain verification for employers
+    let verificationStatus = 'verified'; // candidates are auto-verified
+    let verificationNote = '';
+    if ((userType || 'candidate') === 'employer') {
+      const { status, matched } = checkDomainVerification(email);
+      verificationStatus = status;
+      verificationNote = matched
+        ? `Auto-verified: domain matches ${matched.name}`
+        : 'Pending admin review: unknown company domain';
+      console.log(`🔍 Employer domain check for ${email}: ${verificationStatus} - ${verificationNote}`);
+    }
     
     const user = await User.create({
       name: userName,
@@ -63,9 +98,12 @@ router.post('/register', registrationGuard, [
       role: userType || 'candidate',
       phone: phone || '',
       company: companyField,
+      companyName: companyName || companyField,
       companyLogo: companyLogo || '',
       companyWebsite: companyWebsite || '',
-      location: location || ''
+      location: location || '',
+      verificationStatus,
+      verificationNote
     });
     console.log('✅ User created successfully:', email);
 
@@ -94,12 +132,16 @@ router.post('/register', registrationGuard, [
       companyName: user.companyName || user.company,
       companyLogo: user.companyLogo,
       companyWebsite: user.companyWebsite,
-      location: user.location
+      location: user.location,
+      verificationStatus: user.verificationStatus
     };
 
     res.status(201).json({ 
-      message: 'User registered successfully',
+      message: user.verificationStatus === 'verified'
+        ? 'Account created and verified! You can now sign in.'
+        : 'Account created! Your account is pending admin verification. You will be notified once approved.',
       user: userResponse,
+      verificationStatus: user.verificationStatus,
       accessToken,
       refreshToken
     });
@@ -151,6 +193,11 @@ router.post('/login', async (req, res) => {
     // Check if account is active
     if (!user.isActive) {
       return res.status(403).json({ error: 'Account is inactive. Contact support.' });
+    }
+
+    // Block rejected employers
+    if (user.role === 'employer' && user.verificationStatus === 'rejected') {
+      return res.status(403).json({ error: 'Your employer account has been rejected. Please contact support.' });
     }
 
     // Email verification check
@@ -218,6 +265,7 @@ router.post('/login', async (req, res) => {
       companyLogo: user.companyLogo,
       companyWebsite: user.companyWebsite,
       location: user.location,
+      verificationStatus: user.verificationStatus || 'verified',
       profilePhoto: user.profilePicture || profileData.profilePhoto,
       ...profileData
     };
@@ -281,6 +329,62 @@ router.get('/', async (req, res) => {
     
     const users = await User.findAll({
       where,
+      attributes: { exclude: ['password'] }
+    });
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/users/:id/verify - Admin: approve or reject employer
+router.put('/:id/verify', async (req, res) => {
+  try {
+    const { status, note } = req.body;
+    if (!['verified', 'rejected', 'pending'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Use verified, rejected, or pending.' });
+    }
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await user.update({ verificationStatus: status, verificationNote: note || '' });
+
+    // Auto-add company to companies.json when admin approves
+    if (status === 'verified' && user.role === 'employer') {
+      try {
+        const companiesPath = join(__dirname, '../data/companies.json');
+        const companies = JSON.parse(readFileSync(companiesPath, 'utf8'));
+        const domain = user.email.split('@')[1]?.toLowerCase();
+        const alreadyExists = companies.some(c => c.domain?.toLowerCase() === domain);
+        if (!alreadyExists && domain) {
+          const newCompany = {
+            id: companies.length + 1,
+            name: user.companyName || user.company || domain,
+            domain,
+            logoUrl: user.companyLogo || `https://img.logo.dev/${domain}?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80`
+          };
+          companies.push(newCompany);
+          const { writeFileSync } = await import('fs');
+          writeFileSync(companiesPath, JSON.stringify(companies, null, 2));
+          console.log(`✅ Auto-added company to companies.json: ${newCompany.name} (${domain})`);
+          // Reload companies list in memory
+          companiesList = companies;
+        }
+      } catch (e) {
+        console.warn('Could not auto-add company to companies.json:', e.message);
+      }
+    }
+
+    res.json({ message: `Employer ${status}`, verificationStatus: status });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/users/pending-employers - Admin: list pending employers
+router.get('/pending-employers', async (req, res) => {
+  try {
+    const users = await User.findAll({
+      where: { role: 'employer', verificationStatus: 'pending' },
       attributes: { exclude: ['password'] }
     });
     res.json(users);
