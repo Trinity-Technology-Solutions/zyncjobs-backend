@@ -75,7 +75,8 @@ const Job = sequelize.define('Job', {
   },
   experienceRange: {
     type: DataTypes.STRING,
-    allowNull: true
+    allowNull: true,
+    comment: 'e.g. 2-5 years'
   },
   country: {
     type: DataTypes.STRING,

@@ -62,15 +62,9 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
-  verificationStatus: {
-    type: DataTypes.ENUM('pending', 'verified', 'rejected'),
-    defaultValue: 'pending',
-    comment: 'Employer verification status based on company domain check'
-  },
-  verificationNote: {
+  googleId: {
     type: DataTypes.STRING,
-    allowNull: true,
-    comment: 'Admin note for verification decision'
+    allowNull: true
   },
   emailVerified: {
     type: DataTypes.BOOLEAN,

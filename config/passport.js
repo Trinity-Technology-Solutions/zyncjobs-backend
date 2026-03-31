@@ -11,40 +11,46 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     callbackURL: "/api/auth/google/callback"
   }, async (accessToken, refreshToken, profile, done) => {
     try {
-      console.log('👤 Google OAuth callback for:', profile.emails[0].value);
-      
-      let user = await User.findOne({ 
+      const googleEmail = profile.emails[0].value;
+      const googleName = profile.displayName || profile.name?.givenName || googleEmail.split('@')[0];
+      const googlePhoto = profile.photos?.[0]?.value || null;
+
+      console.log('👤 Google OAuth for:', googleEmail, '| Name:', googleName);
+
+      // 1. Check if user already exists by googleId OR email
+      let user = await User.findOne({
         where: {
           [Op.or]: [
             { googleId: profile.id },
-            { email: profile.emails[0].value }
+            { email: { [Op.iLike]: googleEmail } }
           ]
         }
       });
-      
+
       if (user) {
-        console.log('✅ Existing user found:', user.email, 'current type:', user.userType);
-        // Update Google ID if user exists but doesn't have it
-        if (!user.googleId) {
-          user.googleId = profile.id;
-          user.profilePicture = profile.photos[0].value;
-          await user.save();
-        }
+        console.log('✅ Existing user found:', user.email, '| role:', user.role);
+        // Link googleId and update photo if not set
+        const updates = {};
+        if (!user.googleId) updates.googleId = profile.id;
+        if (!user.profilePicture && googlePhoto) updates.profilePicture = googlePhoto;
+        if (Object.keys(updates).length > 0) await user.update(updates);
         return done(null, user);
       }
-      
-      console.log('🆕 Creating new user (will be updated with correct type in callback)');
+
+      // 2. New user — create with Google profile data
+      console.log('🆕 Creating new Google user:', googleEmail);
       user = await User.create({
         googleId: profile.id,
-        name: profile.displayName,
-        email: profile.emails[0].value,
-        profilePicture: profile.photos[0].value,
-        userType: 'candidate', // Default, will be updated in callback
-        status: 'active',
-        isActive: true
+        name: googleName,
+        email: googleEmail,
+        password: 'google-oauth-' + profile.id, // placeholder, not used
+        profilePicture: googlePhoto,
+        role: 'candidate', // default, updated in callback route based on state
+        isActive: true,
+        emailVerified: true
       });
-      
-      console.log('✅ New user created:', user.email);
+
+      console.log('✅ New Google user created:', user.email);
       done(null, user);
     } catch (error) {
       console.error('❌ Google OAuth error:', error);
@@ -61,7 +67,7 @@ passport.serializeUser((user, done) => {
 
 passport.deserializeUser(async (id, done) => {
   try {
-    const user = await User.findById(id);
+    const user = await User.findByPk(id);
     done(null, user);
   } catch (error) {
     done(error, null);
