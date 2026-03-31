@@ -69,6 +69,18 @@ const Job = sequelize.define('Job', {
     type: DataTypes.STRING,
     allowNull: true
   },
+  languages: {
+    type: DataTypes.ARRAY(DataTypes.STRING),
+    defaultValue: []
+  },
+  experienceRange: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  country: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
   employerEmail: {
     type: DataTypes.STRING,
     allowNull: false
