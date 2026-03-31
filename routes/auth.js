@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import passport from '../config/passport.js';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
@@ -35,7 +35,7 @@ router.get('/google', (req, res, next) => {
   })(req, res, next);
 });
 
-router.get('/google/callback', 
+router.get('/google/callback',
   passport.authenticate('google', { session: false }),
   async (req, res) => {
     try {
@@ -68,7 +68,7 @@ router.get('/google/callback',
       console.log('🔗 Redirecting to:', redirectUrl);
       res.redirect(redirectUrl);
     } catch (error) {
-      console.error('❌ OAuth callback error:', error);
+      console.error('OAuth callback error:', error);
       res.redirect(`${process.env.FRONTEND_URL}/login?error=oauth_failed`);
     }
   }
