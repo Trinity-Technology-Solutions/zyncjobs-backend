@@ -39,6 +39,12 @@ router.get('/google/callback',
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
       const redirectUrl = `${frontendUrl}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}`;
       res.redirect(redirectUrl);
+      const userType = req.query.state || 'candidate';
+      const role = userType === 'employer' ? 'employer' : 'candidate';
+      if (req.user.role !== role) await req.user.update({ role });
+      const token = jwt.sign({ userId: req.user.id, userType: role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+      console.log('Google login:', req.user.email, 'as', role);
+      res.redirect(`${process.env.FRONTEND_URL}?token=${token}&type=${role}`);
     } catch (error) {
       console.error('❌ OAuth callback error:', error);
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
