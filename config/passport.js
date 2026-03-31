@@ -8,7 +8,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "/api/auth/google/callback"
+    callbackURL: `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/google/callback`,
+    proxy: true
   }, async (accessToken, refreshToken, profile, done) => {
     try {
       const googleEmail = profile.emails[0].value;
@@ -28,6 +29,29 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       });
 
       if (user) {
+        console.log('✅ Existing user found:', user.email, 'current type:', user.userType);
+        if (!user.googleId) {
+          user.googleId = profile.id;
+          user.profilePicture = profile.photos[0].value;
+          await user.save();
+        }
+        user.isNewUser = false;
+        return done(null, user);
+      }
+      
+      console.log('🆕 Creating new Google user');
+      user = await User.create({
+        googleId: profile.id,
+        name: profile.displayName,
+        email: profile.emails[0].value,
+        profilePicture: profile.photos[0].value,
+        userType: 'candidate',
+        status: 'active',
+        isActive: true
+      });
+      
+      user.isNewUser = true;
+      console.log('✅ New user created:', user.email);
         console.log('✅ Existing user found:', user.email, '| role:', user.role);
         // Link googleId and update photo if not set
         const updates = {};

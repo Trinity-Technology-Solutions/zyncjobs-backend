@@ -39,6 +39,34 @@ router.get('/google/callback',
   passport.authenticate('google', { session: false }),
   async (req, res) => {
     try {
+      console.log('✅ Google OAuth callback successful');
+      console.log('👤 User:', req.user.email);
+
+      const isNewUser = req.user.isNewUser === true;
+      const portalType = req.query.state || 'candidate';
+      console.log('🆔 Portal:', portalType, '| isNewUser:', isNewUser);
+
+      if (isNewUser) {
+        // New user — set role based on which portal they used
+        req.user.userType = portalType;
+        await req.user.save();
+        console.log('✅ New user role set to:', portalType);
+      } else {
+        // Existing user — NEVER overwrite their role, keep DB value
+        console.log('✅ Existing user, keeping DB role:', req.user.userType);
+      }
+
+      const token = jwt.sign(
+        { userId: req.user._id || req.user.id, userType: req.user.userType },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      console.log('✅ JWT token generated for:', req.user.email, 'as', req.user.userType);
+
+      const redirectUrl = `${process.env.FRONTEND_URL}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}`;
+      console.log('🔗 Redirecting to:', redirectUrl);
+      res.redirect(redirectUrl);
       const userType = req.query.state || 'candidate';
       const role = userType === 'employer' ? 'employer' : 'candidate';
       if (req.user.role !== role) await req.user.update({ role });
