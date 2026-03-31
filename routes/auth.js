@@ -41,45 +41,30 @@ router.get('/google/callback',
     try {
       console.log('✅ Google OAuth callback successful');
       console.log('👤 User:', req.user.email);
-      console.log('🔍 Full query params:', req.query);
-      console.log('🔍 Full request URL:', req.url);
-      
-      // Get userType from state parameter - Google returns it as 'state'
-      let userType = req.query.state || 'candidate';
-      console.log('🆔 UserType from state:', userType);
-      
-      // If state is not available, try to determine from referrer or default to candidate
-      if (!req.query.state) {
-        console.log('⚠️ No state parameter found, defaulting to candidate');
-        userType = 'candidate';
-      }
-      
-      console.log('🆔 Final userType:', userType);
-      console.log('👤 Current user type in DB:', req.user.userType);
-      
-      // Always update user type based on the OAuth route used
-      if (req.user.userType !== userType) {
-        console.log(`🔄 Updating userType from ${req.user.userType} to ${userType}`);
-        req.user.userType = userType;
+
+      const isNewUser = req.user.isNewUser === true;
+      const portalType = req.query.state || 'candidate';
+      console.log('🆔 Portal:', portalType, '| isNewUser:', isNewUser);
+
+      if (isNewUser) {
+        // New user — set role based on which portal they used
+        req.user.userType = portalType;
         await req.user.save();
-        console.log('✅ UserType updated in database');
+        console.log('✅ New user role set to:', portalType);
       } else {
-        console.log('✅ UserType already correct:', userType);
+        // Existing user — NEVER overwrite their role, keep DB value
+        console.log('✅ Existing user, keeping DB role:', req.user.userType);
       }
-      
+
       const token = jwt.sign(
-        { userId: req.user._id, userType: req.user.userType },
+        { userId: req.user._id || req.user.id, userType: req.user.userType },
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );
-      
+
       console.log('✅ JWT token generated for:', req.user.email, 'as', req.user.userType);
-      
-      // Redirect based on userType
-      const redirectUrl = userType === 'employer' 
-        ? `${process.env.FRONTEND_URL}?token=${token}&type=employer`
-        : `${process.env.FRONTEND_URL}?token=${token}&type=candidate`;
-        
+
+      const redirectUrl = `${process.env.FRONTEND_URL}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}`;
       console.log('🔗 Redirecting to:', redirectUrl);
       res.redirect(redirectUrl);
     } catch (error) {
