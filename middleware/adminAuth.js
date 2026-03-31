@@ -12,9 +12,9 @@ export const adminAuth = async (req, res, next) => {
     }
 
     const decoded = verifyToken(token);
-    const user = await User.findById(decoded.userId);
+    const user = await User.findOne({ where: { id: decoded.userId } });
     
-    if (!user || user.userType !== 'admin' || !user.isActive) {
+    if (!user || user.role !== 'admin' || !user.isActive) {
       logAdminAction('UNAUTHORIZED_ACCESS', { 
         ip: req.ip, 
         userAgent: req.get('User-Agent'),
