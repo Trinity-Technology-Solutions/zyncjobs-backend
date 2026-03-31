@@ -64,6 +64,9 @@ const applyIndexes = async () => {
     await sequelize.query(`
       ALTER TABLE jobs
         ADD COLUMN IF NOT EXISTS "jobCategory" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "languages" VARCHAR(255)[],
+        ADD COLUMN IF NOT EXISTS "experienceRange" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "country" VARCHAR(255);
         ADD COLUMN IF NOT EXISTS "languages" VARCHAR(255)[] DEFAULT '{}',
         ADD COLUMN IF NOT EXISTS "experienceRange" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "country" VARCHAR(255),
