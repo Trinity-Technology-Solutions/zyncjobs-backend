@@ -59,14 +59,18 @@ const applyIndexes = async () => {
     console.warn('⚠️  reviews migration warning:', e.message);
   }
 
-  // Add jobCategory column to jobs if missing
+  // Add missing columns to jobs if missing
   try {
     await sequelize.query(`
-      ALTER TABLE jobs ADD COLUMN IF NOT EXISTS "jobCategory" VARCHAR(255);
+      ALTER TABLE jobs
+        ADD COLUMN IF NOT EXISTS "jobCategory" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "languages" VARCHAR(255)[],
+        ADD COLUMN IF NOT EXISTS "experienceRange" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "country" VARCHAR(255);
     `);
-    console.log('✅ jobs.jobCategory column verified');
+    console.log('✅ jobs columns verified');
   } catch (e) {
-    console.warn('⚠️  jobs.jobCategory migration warning:', e.message);
+    console.warn('⚠️  jobs migration warning:', e.message);
   }
 
   for (const sql of INDEXES) {
