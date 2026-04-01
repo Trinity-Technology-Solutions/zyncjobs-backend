@@ -182,6 +182,11 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Your employer account has been rejected. Please contact support.' });
     }
 
+    // Block pending employers
+    if (user.role === 'employer' && user.verificationStatus === 'pending') {
+      return res.status(403).json({ error: 'Your account is pending admin verification. You will be notified once approved.' });
+    }
+
     // Email verification check
     if (emailVerificationGuard(user, res)) return;
     

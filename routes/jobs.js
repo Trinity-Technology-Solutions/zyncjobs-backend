@@ -41,12 +41,10 @@ router.get('/titles', (req, res) => {
 // GET /api/jobs/countries - Get all countries
 router.get('/countries', (req, res) => {
   try {
-    const locationsPath = path.join(__dirname, '../data/locations.json');
-    const rawData = fs.readFileSync(locationsPath, 'utf8');
-    const data = JSON.parse(rawData);
-    res.json({ countries: data.locations || [] });
+    const countriesPath = path.join(__dirname, '../data/countries.json');
+    const data = JSON.parse(fs.readFileSync(countriesPath, 'utf8'));
+    res.json({ countries: data.countries || [] });
   } catch (error) {
-    console.error('Error loading locations:', error);
     res.json({ countries: [] });
   }
 });

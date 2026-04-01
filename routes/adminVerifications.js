@@ -47,7 +47,7 @@ router.post('/:id/approve', ...adminGuard, async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    await user.update({ emailVerified: true, isActive: true });
+    await user.update({ emailVerified: true, isActive: true, verificationStatus: 'verified' });
     res.json({ message: 'Employer verified successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -59,7 +59,7 @@ router.post('/:id/reject', ...adminGuard, async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    await user.update({ emailVerified: false, isActive: false });
+    await user.update({ emailVerified: false, isActive: false, verificationStatus: 'rejected' });
     res.json({ message: 'Verification rejected' });
   } catch (error) {
     res.status(500).json({ error: error.message });
