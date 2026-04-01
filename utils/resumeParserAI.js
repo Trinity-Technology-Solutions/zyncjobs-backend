@@ -12,18 +12,28 @@ export class ResumeParserAI {
       return this.getFallbackParsing(resumeText);
     }
 
-    const prompt = `You are a resume parser. Extract information from the resume text below and return ONLY a valid JSON object. No explanation, no markdown, no code blocks — just raw JSON.
+    const prompt = `You are an expert resume parser. Extract ALL information accurately from the resume text below and return ONLY a valid JSON object. No explanation, no markdown, no code blocks — just raw JSON.
 
 RESUME TEXT:
-${resumeText.substring(0, 4000)}
+${resumeText.substring(0, 5000)}
+
+IMPORTANT RULES:
+- Extract the EXACT name, email, phone as written
+- For location: extract the city name only (e.g. "Chennai", "Bangalore", "Mumbai")
+- For country: infer from city/address (e.g. Chennai → "India", London → "United Kingdom", New York → "United States")
+- For title: use the most recent job title or the role they are applying for
+- For skills: extract ALL technical skills, programming languages, frameworks, tools mentioned
+- For workExperiences: extract ALL jobs with accurate dates
+- For educations: extract ALL degrees with school names and years
 
 Return this exact JSON structure (use empty string "" or empty array [] if not found):
 {
   "name": "candidate full name",
   "email": "email address",
-  "phone": "phone number",
-  "location": "city or location",
-  "title": "current job title or desired role",
+  "phone": "phone number with country code if present",
+  "location": "city name only",
+  "country": "country name inferred from city/address",
+  "title": "current or most recent job title",
   "summary": "professional summary 2-3 lines",
   "skills": ["skill1", "skill2"],
   "softSkills": ["soft skill1"],
@@ -109,6 +119,7 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
         email: parsed.email || '',
         phone: parsed.phone || '',
         location: parsed.location || '',
+        country: parsed.country || '',
         title: parsed.title || '',
         summary: parsed.summary || '',
         skills: Array.isArray(parsed.skills) ? parsed.skills : [],
@@ -132,7 +143,7 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
     const phoneMatch = resumeText.match(/[+]?[6-9]\d{9}/);
     return {
       name: '', email: emailMatch?.[0] || '', phone: phoneMatch?.[0] || '',
-      location: '', title: '', summary: '',
+      location: '', country: '', title: '', summary: '',
       skills: [], softSkills: [], tools: [],
       workExperiences: [], educations: [],
       projects: [], certifications: [], competitions: []
