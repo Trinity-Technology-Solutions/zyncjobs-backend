@@ -5,7 +5,7 @@
   "allowRegistrations": true,
   "requireEmailVerification": false,
   "jobAutoApprove": true,
-  "maxJobsPerEmployer": 10,
+  "maxJobsPerEmployer": 0,
   "emailFrom": "noreply@zyncjobs.com",
   "emailFromName": "ZyncJobs",
   "smtpHost": "smtp.gmail.com",

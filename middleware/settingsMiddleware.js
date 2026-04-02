@@ -67,25 +67,7 @@ export function getJobStatus() {
   return settings.jobAutoApprove ? 'approved' : 'pending';
 }
 
-// 5. Max Jobs Per Employer
+// 5. Max Jobs Per Employer — no limit, unlimited posting allowed
 export async function maxJobsGuard(req, res, next) {
-  const settings = getSettings();
-  const max = settings.maxJobsPerEmployer || 10;
-
-  try {
-    const { default: Job } = await import('../models/Job.js');
-    const employerEmail = req.body.employerEmail || req.headers['x-employer-email'];
-    if (!employerEmail) return next();
-
-    const count = await Job.count({ where: { employerEmail, isActive: true } });
-    if (count >= max) {
-      return res.status(403).json({
-        error: `Maximum job limit reached. You can post up to ${max} jobs.`,
-        limitReached: true
-      });
-    }
-    next();
-  } catch {
-    next();
-  }
+  next();
 }
