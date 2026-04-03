@@ -44,6 +44,52 @@ const INDEXES = [
 ];
 
 const applyIndexes = async () => {
+  // Create reviews table if not exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS reviews (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        "companyId" TEXT,
+        "companyName" VARCHAR(255),
+        rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        title VARCHAR(255),
+        review TEXT,
+        "reviewerName" VARCHAR(255),
+        "reviewerEmail" VARCHAR(255),
+        "reviewerRole" VARCHAR(255),
+        helpful INTEGER DEFAULT 0,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+    console.log('✅ reviews table ready');
+  } catch (e) {
+    console.warn('⚠️  reviews table warning:', e.message);
+  }
+
+  // Create companies table if not exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS companies (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL UNIQUE,
+        domain VARCHAR(255),
+        logo VARCHAR(255),
+        description TEXT,
+        industry VARCHAR(255),
+        size VARCHAR(255),
+        website VARCHAR(255),
+        location VARCHAR(255),
+        followers JSONB DEFAULT '[]',
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+    console.log('✅ companies table ready');
+  } catch (e) {
+    console.warn('⚠️  companies table warning:', e.message);
+  }
+
   // Migrate companyId column in reviews from UUID to TEXT if needed
   try {
     await sequelize.query(`
@@ -54,7 +100,6 @@ const applyIndexes = async () => {
         END IF;
       END $$;
     `);
-    console.log('✅ reviews.companyId migration applied');
   } catch (e) {
     console.warn('⚠️  reviews migration warning:', e.message);
   }

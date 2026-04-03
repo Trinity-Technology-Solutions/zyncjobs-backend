@@ -84,6 +84,8 @@ import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
 import Notification from './models/Notification.js';
 import Message from './models/Message.js';
+import Review from './models/Review.js';
+import Company from './models/Company.js';
 import { loadInitialData } from './scripts/loadInitialData.js';
 
 import { generateAccessToken, generateRefreshToken } from './utils/jwt.js';

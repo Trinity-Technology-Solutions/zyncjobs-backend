@@ -108,17 +108,24 @@ router.get('/search-appearances/:email', async (req, res) => {
   try {
     const { email } = req.params;
     const appearances = await Analytics.findAll({
-      where: {
-        email: { [Op.iLike]: `%${email}%` },
-        eventType: 'search_appearance'
-      },
+      where: { email: { [Op.iLike]: `%${email}%` }, eventType: 'search_appearance' },
       order: [['createdAt', 'DESC']],
-      limit: 10
+      limit: 20
     });
-    
-    res.json(appearances);
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const thisWeek = await Analytics.count({
+      where: { email: { [Op.iLike]: `%${email}%` }, eventType: 'search_appearance', createdAt: { [Op.gte]: weekAgo } }
+    });
+    const keywordMap = {};
+    appearances.forEach(a => {
+      const kw = a.metadata && (a.metadata.searchQuery || a.metadata.keyword);
+      if (kw) keywordMap[kw] = (keywordMap[kw] || 0) + 1;
+    });
+    const topKeywords = Object.entries(keywordMap).sort((a,b) => b[1]-a[1]).slice(0,10).map(([kw]) => kw);
+    res.json({ appearances, thisWeek, topKeywords });
   } catch (error) {
-    console.error('❌ Search appearances error:', error);
+    console.error('Search appearances error:', error);
     res.status(500).json({ error: error.message });
   }
 });

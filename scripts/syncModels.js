@@ -15,6 +15,9 @@ import '../models/SavedCandidate.js';
 import '../models/SavedRecommendedJob.js';
 import '../models/UserPreferences.js';
 import '../models/TeamMember.js';
+import '../models/Review.js';
+import '../models/Company.js';
+import '../models/ResumeVersion.js';
 
 const syncModels = async () => {
   try {
