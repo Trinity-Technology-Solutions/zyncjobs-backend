@@ -71,6 +71,7 @@ import jobTitlesRoutes from './routes/jobTitles.js';
 import resumeViewerRoutes from './routes/resumeViewer.js';
 import savedCandidatesRoutes from './routes/savedCandidates.js';
 import reviewRoutes from './routes/reviews.js';
+import matchRoutes from './routes/match.js';
 import savedRecommendedJobsRoutes from './routes/savedRecommendedJobs.js';
 import userPreferencesRoutes from './routes/userPreferences.js';
 import jobSessionRoutes from './routes/jobSession.js';
@@ -89,6 +90,7 @@ import { loadInitialData } from './scripts/loadInitialData.js';
 import { generateAccessToken, generateRefreshToken } from './utils/jwt.js';
 import { errorHandler, notFound } from './utils/errorHandler.js';
 import { validateEnv } from './utils/envValidator.js';
+import { getRedisStatus } from './services/redisService.js';
 
 
 import * as Sentry from '@sentry/node';
@@ -356,6 +358,7 @@ app.use('/api/meetings', meetingRoutes);
 app.use('/api/resume-viewer', resumeViewerRoutes);
 app.use('/api/saved-candidates', savedCandidatesRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/match', matchRoutes);
 app.use('/api/saved-recommended-jobs', savedRecommendedJobsRoutes);
 app.use('/api/user-preferences', userPreferencesRoutes);
 app.use('/api/job-session', jobSessionRoutes);
@@ -1090,7 +1093,8 @@ app.get('/api/health', (req, res) => {
     status: 'OK',
     message: 'Backend server is running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    redis: getRedisStatus()
   });
 });
 

@@ -94,6 +94,16 @@ const connectPostgreSQL = async () => {
   try {
     await sequelize.authenticate();
     console.log('✅ PostgreSQL Connected successfully');
+
+    // Auto-create companies table if it doesn't exist
+    try {
+      const { default: Company } = await import('../models/Company.js');
+      await Company.sync({ alter: true });
+      console.log('✅ companies table synced');
+    } catch (e) {
+      console.warn('⚠️  companies table sync warning:', e.message);
+    }
+
     await applyIndexes();
     return sequelize;
   } catch (error) {

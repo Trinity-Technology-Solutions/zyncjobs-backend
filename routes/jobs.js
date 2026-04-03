@@ -10,6 +10,8 @@ import { maxJobsGuard, getJobStatus } from '../middleware/settingsMiddleware.js'
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import vectorService from '../services/vectorService.js';
+import { withCache, cacheDelPattern } from '../services/redisService.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -141,41 +143,32 @@ function normalizeArray(val) {
 router.get('/', async (req, res) => {
   try {
     const { page = 1, limit = 10, location, jobType, search, sort } = req.query;
-    const where = { isActive: true, status: 'approved' };
+    const cacheKey = `jobs:list:${page}:${limit}:${location||''}:${jobType||''}:${search||''}:${sort||''}`;
 
-    if (location) where.location = { [Op.iLike]: `%${location}%` };
-    if (jobType) where.jobType = Array.isArray(jobType) ? { [Op.in]: jobType } : jobType;
-    if (search) {
-      where[Op.or] = [
-        { jobTitle: { [Op.iLike]: `%${search}%` } },
-        { company: { [Op.iLike]: `%${search}%` } },
-        { description: { [Op.iLike]: `%${search}%` } }
-      ];
-    }
+    const result = await withCache(cacheKey, async () => {
+      const where = { isActive: true, status: 'approved' };
+      if (location) where.location = { [Op.iLike]: `%${location}%` };
+      if (jobType) where.jobType = Array.isArray(jobType) ? { [Op.in]: jobType } : jobType;
+      if (search) {
+        where[Op.or] = [
+          { jobTitle: { [Op.iLike]: `%${search}%` } },
+          { company: { [Op.iLike]: `%${search}%` } },
+          { description: { [Op.iLike]: `%${search}%` } }
+        ];
+      }
+      const jobs = await Job.findAll({
+        where,
+        order: [['createdAt', 'DESC']],
+        limit: parseInt(limit),
+        offset: (parseInt(page) - 1) * parseInt(limit)
+      });
+      return jobs.map(job => {
+        const jobJson = job.toJSON();
+        return { ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
+      });
+    }, 120); // cache 2 minutes
 
-    const order = sort === 'newest' ? [['createdAt', 'DESC']] : [['createdAt', 'DESC']];
-
-    const jobs = await Job.findAll({
-      where,
-      order,
-      limit: parseInt(limit),
-      offset: (parseInt(page) - 1) * parseInt(limit)
-    });
-
-    const jobsWithLogos = jobs.map(job => {
-      const jobJson = job.toJSON();
-      return {
-        ...jobJson,
-        companyLogo: getCompanyLogo(job.company),
-        salary: {
-          min: jobJson.salaryMin,
-          max: jobJson.salaryMax,
-          currency: jobJson.currency || 'INR'
-        }
-      };
-    });
-
-    res.json(jobsWithLogos);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -448,7 +441,12 @@ router.post('/', maxJobsGuard, [
     console.log('Final jobCreateData:', JSON.stringify(jobCreateData, null, 2));
     
     const job = await Job.create(jobCreateData);
-    
+
+    // Index for semantic search (non-blocking)
+    vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
+    // Clear jobs list cache
+    cacheDelPattern('jobs:list:*').catch(() => {});
+
     console.log('Job created - Employer ID:', employerId, 'Position ID:', job.positionId, 'Job ID:', job.id);
     res.status(201).json(job);
   } catch (error) {
@@ -539,6 +537,10 @@ router.put('/:id', async (req, res) => {
     if (updates.country) updates.country = updates.country.trim();
 
     await job.update(updates);
+    // Re-index after update (non-blocking)
+    vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
+    // Clear jobs list cache
+    cacheDelPattern('jobs:list:*').catch(() => {});
     const jobJson = job.toJSON();
     res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
