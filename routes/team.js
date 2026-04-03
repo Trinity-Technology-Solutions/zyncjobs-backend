@@ -7,6 +7,16 @@ dotenv.config();
 
 const router = express.Router();
 
+const createTransporter = () => nodemailer.createTransport({
+  host: process.env.SMTP_SERVER,
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_EMAIL,
+    pass: process.env.SMTP_PASSWORD
+  }
+});
+
 // GET /api/team?employerId=email — get all team members
 router.get('/', async (req, res) => {
   try {
@@ -41,51 +51,41 @@ router.post('/', async (req, res) => {
       status: 'pending'
     });
 
-    // Send invitation email - create transporter inside route to avoid module-level errors
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER || process.env.GMAIL_USER,
-        pass: process.env.EMAIL_PASSWORD || process.env.GMAIL_PASSWORD
-      }
-    });
+    const transporter = createTransporter();
 
     const rolePermissions = {
-      'Owner': 'Full access - Post Jobs, Manage Applications, Invite Members, Remove Members, Change Roles, View Analytics',
+      'Owner': 'Full access — Post Jobs, Manage Applications, Invite Members, Remove Members, Change Roles, View Analytics',
       'Recruiter': 'Post Jobs & Manage Applications',
       'Viewer': 'View Analytics only'
     };
 
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
         <div style="background-color: white; padding: 30px; border-radius: 8px; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333; margin-bottom: 20px;">Welcome to ZyncJobs Team!</h2>
-          
-          <p style="color: #666; font-size: 16px;">Hi ${memberName || memberEmail},</p>
-          
-          <p style="color: #666; font-size: 16px;">You have been invited to join the ZyncJobs team as a <strong>${role || 'Recruiter'}</strong>.</p>
-          
-          <p style="color: #666; font-size: 16px;">
-            <strong>Your Role Includes:</strong><br>
-            ${rolePermissions[role || 'Recruiter'] || 'Recruiter access'}
-          </p>
-          
-          <p style="color: #666; font-size: 16px;">
-            <strong>Invited by:</strong> ${employerId}
-          </p>
-          
-          <div style="background-color: #f9f9f9; padding: 20px; border-left: 4px solid #007bff; margin: 20px 0;">
-            <p style="color: #666; margin: 0;">
-              Accept this invitation and join the team! You'll be able to collaborate on job postings, manage applications, and more.
-            </p>
+          <div style="background-color: #6366f1; padding: 24px 20px; text-align: center; border-radius: 6px 6px 0 0; margin: -30px -30px 24px;">
+            <h1 style="color: white; margin: 0; font-size: 24px;">ZyncJobs</h1>
           </div>
-          
-          <p style="color: #666; font-size: 14px; margin-top: 20px;">
-            If you have any questions, please reply to this email or contact your team administrator.
+          <h2 style="color: #333; margin-bottom: 16px;">You're invited to join a team!</h2>
+          <p style="color: #555; font-size: 15px;">Hi <strong>${memberName || memberEmail}</strong>,</p>
+          <p style="color: #555; font-size: 15px;">
+            <strong>${employerId}</strong> has invited you to join their ZyncJobs team as a <strong>${role || 'Recruiter'}</strong>.
           </p>
-          
-          <footer style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px; color: #999; font-size: 12px;">
-            <p>© 2026 ZyncJobs. All rights reserved.</p>
+          <div style="background-color: #f0f4ff; padding: 16px; border-left: 4px solid #6366f1; border-radius: 4px; margin: 20px 0;">
+            <p style="margin: 0; color: #444; font-size: 14px;"><strong>Your Role:</strong> ${role || 'Recruiter'}</p>
+            <p style="margin: 8px 0 0; color: #444; font-size: 14px;"><strong>Permissions:</strong> ${rolePermissions[role || 'Recruiter'] || 'Recruiter access'}</p>
+          </div>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${frontendUrl}/employer-login" style="background-color: #6366f1; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; font-size: 15px;">
+              Accept Invitation
+            </a>
+          </div>
+          <p style="color: #888; font-size: 13px;">
+            If you have any questions, reply to this email or contact <a href="mailto:${employerId}" style="color: #6366f1;">${employerId}</a>.
+          </p>
+          <footer style="border-top: 1px solid #eee; padding-top: 16px; margin-top: 20px; color: #aaa; font-size: 12px; text-align: center;">
+            &copy; 2026 ZyncJobs. All rights reserved.
           </footer>
         </div>
       </div>
@@ -93,7 +93,7 @@ router.post('/', async (req, res) => {
 
     try {
       await transporter.sendMail({
-        from: process.env.EMAIL_USER || process.env.GMAIL_USER,
+        from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
         to: memberEmail,
         subject: `You've been invited to join ZyncJobs Team as a ${role || 'Recruiter'}`,
         html: emailHtml

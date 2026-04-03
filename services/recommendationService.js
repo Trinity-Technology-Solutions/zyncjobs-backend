@@ -1,35 +1,44 @@
 import { Op } from 'sequelize';
 import Job from '../models/Job.js';
 import Profile from '../models/Profile.js';
+import vectorService from './vectorService.js';
 
 export const getSmartRecommendations = async (userId, limit = 10) => {
-  const profile = await Profile.findOne({ where: { userId } });
-  const where = { isActive: true, status: 'approved' };
+  try {
+    const profile = await Profile.findOne({ where: { userId } });
+    if (!profile) return getFallbackJobs(limit);
 
-  if (profile?.skills?.length) {
-    where.skills = { [Op.overlap]: profile.skills };
+    const queryText = vectorService.profileToText(profile.toJSON());
+    const matches = await vectorService.findSimilarJobs(queryText, limit);
+
+    if (matches.length >= 3) return matches;
+
+    // Fallback: skill overlap query
+    const where = { isActive: true, status: 'approved' };
+    if (profile.skills?.length) where.skills = { [Op.overlap]: profile.skills };
+    const jobs = await Job.findAll({ where, limit, order: [['createdAt', 'DESC']] });
+    return jobs.map(j => ({ ...j.toJSON(), matchScore: vectorService.getMatchScore(j.toJSON(), profile.toJSON()) }))
+               .sort((a, b) => b.matchScore - a.matchScore);
+  } catch (e) {
+    console.error('getSmartRecommendations error:', e.message);
+    return getFallbackJobs(limit);
   }
-
-  return Job.findAll({ where, limit, order: [['createdAt', 'DESC']] });
 };
 
 export const getSimilarJobs = async (jobId, limit = 5) => {
-  const job = await Job.findByPk(jobId);
-  if (!job) return [];
+  try {
+    const job = await Job.findByPk(jobId);
+    if (!job) return [];
 
-  return Job.findAll({
-    where: {
-      id: { [Op.ne]: jobId },
-      isActive: true,
-      status: 'approved',
-      [Op.or]: [
-        { jobTitle: { [Op.iLike]: `%${job.jobTitle}%` } },
-        { skills: { [Op.overlap]: job.skills || [] } }
-      ]
-    },
-    limit,
-    order: [['createdAt', 'DESC']]
-  });
+    const queryText = vectorService.jobToText(job.toJSON());
+    const similar = await vectorService.findSimilarJobs(queryText, limit + 1);
+
+    // Exclude the source job itself
+    return similar.filter(j => j.id !== jobId).slice(0, limit);
+  } catch (e) {
+    console.error('getSimilarJobs error:', e.message);
+    return [];
+  }
 };
 
 export const getTrendingJobs = async (limit = 10) => {
@@ -39,3 +48,34 @@ export const getTrendingJobs = async (limit = 10) => {
     order: [['views', 'DESC'], ['applicationsCount', 'DESC']]
   });
 };
+
+// Match a single job against a candidate profile
+export const getJobMatchDetails = async (jobId, userId) => {
+  try {
+    const [job, profile] = await Promise.all([
+      Job.findByPk(jobId),
+      Profile.findOne({ where: { userId } })
+    ]);
+    if (!job || !profile) return null;
+    return vectorService.explainMatch(job.toJSON(), profile.toJSON());
+  } catch (e) {
+    console.error('getJobMatchDetails error:', e.message);
+    return null;
+  }
+};
+
+// Get top candidate matches for a job (employer use)
+export const getTopCandidatesForJob = async (jobId, limit = 20) => {
+  try {
+    const job = await Job.findByPk(jobId);
+    if (!job) return [];
+    const queryText = vectorService.jobToText(job.toJSON());
+    return vectorService.findSimilarCandidates(queryText, limit);
+  } catch (e) {
+    console.error('getTopCandidatesForJob error:', e.message);
+    return [];
+  }
+};
+
+const getFallbackJobs = (limit) =>
+  Job.findAll({ where: { isActive: true, status: 'approved' }, limit, order: [['createdAt', 'DESC']] });

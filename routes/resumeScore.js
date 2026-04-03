@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import pdfTextExtractor from '../services/pdfTextExtractor.js';
+import { withCache, cacheGet, cacheSet } from '../services/redisService.js';
 
 const router = express.Router();
 
@@ -188,6 +189,11 @@ const callAI = async (prompt) => {
 };
 
 const getAIFeedback = async (resumeText, scores) => {
+  // Cache key based on first 200 chars of resume + scores
+  const cacheKey = `resume:feedback:${Buffer.from(resumeText.substring(0, 200)).toString('base64').substring(0, 40)}`;
+  const cached = await cacheGet(cacheKey);
+  if (cached) return cached;
+
   const prompt = `You are a resume coach. Based on these section scores for a resume, provide feedback.
 
 Scores: ${JSON.stringify(scores)}
@@ -211,7 +217,9 @@ Return ONLY valid JSON, no markdown:
     if (!content) return null;
     const jsonMatch = content.match(/\{[\s\S]*\}/m);
     if (!jsonMatch) return null;
-    return JSON.parse(jsonMatch[0]);
+    const result = JSON.parse(jsonMatch[0]);
+    await cacheSet(cacheKey, result, 3600); // cache 1 hour
+    return result;
   } catch { return null; }
 };
 

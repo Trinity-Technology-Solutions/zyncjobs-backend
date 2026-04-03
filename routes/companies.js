@@ -4,7 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { formatCompanyWithLogo } from '../utils/companyLogoService.js';
 import Company from '../models/Company.js';
-import { Op } from 'sequelize';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -67,11 +66,9 @@ router.get('/logo/:companyName', (req, res) => {
   }
 });
 
-// Helper: find or create company record in DB by id or name
+// Helper: find or create company record in DB by name
 const findOrCreateCompany = async (companyId) => {
-  let company = await Company.findOne({
-    where: { [Op.or]: [{ id: companyId }, { name: companyId }] }
-  }).catch(() => null);
+  let company = await Company.findOne({ where: { name: companyId } }).catch(() => null);
   if (!company) {
     company = await Company.create({ name: companyId, followers: [] }).catch(() => null);
   }

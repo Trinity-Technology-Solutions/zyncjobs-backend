@@ -23,7 +23,7 @@ const Application = sequelize.define('Application', {
   candidateName: DataTypes.STRING,
   employerEmail: DataTypes.STRING,
   status: {
-    type: DataTypes.ENUM('pending', 'reviewed', 'shortlisted', 'interviewed', 'rejected', 'hired'),
+    type: DataTypes.ENUM('pending', 'applied', 'reviewed', 'shortlisted', 'interviewed', 'rejected', 'hired', 'withdrawn'),
     defaultValue: 'pending'
   },
   coverLetter: DataTypes.TEXT,
