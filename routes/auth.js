@@ -60,7 +60,17 @@ router.get('/linkedin/employer', (req, res, next) => {
 
 router.get('/linkedin/callback',
   (req, res, next) => {
-    passport.authenticate('linkedin', { session: false, failureRedirect: `${process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173'}/login?error=linkedin_failed` })(req, res, next);
+    passport.authenticate('linkedin', {
+      session: false,
+      failWithError: true,
+    })(req, res, (err) => {
+      if (err) {
+        console.error('❌ LinkedIn authenticate error:', err.message || err);
+        const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
+        return res.redirect(`${frontendUrl}/login?error=linkedin_failed`);
+      }
+      next();
+    });
   },
   async (req, res) => {
     try {
