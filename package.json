@@ -49,6 +49,7 @@
     "nodemailer": "^8.0.1",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
+    "passport-linkedin-oauth2": "^2.0.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.18.0",
     "sequelize": "^6.37.7",
