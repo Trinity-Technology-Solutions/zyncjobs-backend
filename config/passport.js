@@ -1,6 +1,7 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { Strategy as LinkedInStrategy } from 'passport-linkedin-oauth2';
+import { Strategy as LinkedInStrategy } from 'passport-oauth2';
+import fetch from 'node-fetch';
 import { Op } from 'sequelize';
 import User from '../models/User.js';
 
@@ -57,42 +58,58 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // ── LinkedIn OAuth Strategy ────────────────────────────────────────────────────
 if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
-  passport.use(new LinkedInStrategy({
+  passport.use('linkedin', new LinkedInStrategy({
+    authorizationURL: 'https://www.linkedin.com/oauth/v2/authorization',
+    tokenURL: 'https://www.linkedin.com/oauth/v2/accessToken',
     clientID: process.env.LINKEDIN_CLIENT_ID,
     clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
     callbackURL: `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/linkedin/callback`,
-    scope: ['r_emailaddress', 'r_liteprofile'],
+    scope: ['openid', 'profile', 'email'],
     passReqToCallback: true,
-  }, async (req, accessToken, refreshToken, profile, done) => {
+  }, async (req, accessToken, refreshToken, params, done) => {
     try {
-      const email = profile.emails?.[0]?.value;
-      if (!email) return done(new Error('No email from LinkedIn'), null);
+      // Fetch user info from LinkedIn userinfo endpoint using access token
+      const userInfoRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
 
-      const photo = profile.photos?.[0]?.value || null;
+      if (!userInfoRes.ok) {
+        const errText = await userInfoRes.text();
+        console.error('❌ LinkedIn userinfo error:', userInfoRes.status, errText);
+        return done(new Error(`LinkedIn userinfo failed: ${userInfoRes.status}`), null);
+      }
+
+      const userInfo = await userInfoRes.json();
+      console.log('✅ LinkedIn userInfo:', JSON.stringify(userInfo));
+
+      const email = userInfo.email;
+      const name = userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim();
+      const photo = userInfo.picture || null;
+      const linkedinId = userInfo.sub;
       const portalType = req.query.state || 'candidate';
+
+      if (!email) return done(new Error('No email from LinkedIn'), null);
 
       let user = await User.findOne({
         where: {
           [Op.or]: [
-            { linkedinId: profile.id },
+            { linkedinId },
             { email: { [Op.iLike]: email } },
           ],
         },
       });
 
       if (user) {
-        if (!user.linkedinId) await user.update({ linkedinId: profile.id, profilePicture: photo || user.profilePicture });
+        if (!user.linkedinId) await user.update({ linkedinId, profilePicture: photo || user.profilePicture });
         user.isNewUser = false;
-        // Store LinkedIn access token on req for profile endpoint
-        req.linkedinAccessToken = accessToken;
         return done(null, user);
       }
 
       user = await User.create({
-        linkedinId: profile.id,
-        name: profile.displayName || `${profile.name?.givenName || ''} ${profile.name?.familyName || ''}`.trim(),
+        linkedinId,
+        name: name || email.split('@')[0],
         email,
-        password: 'linkedin-oauth-' + profile.id,
+        password: 'linkedin-oauth-' + linkedinId,
         profilePicture: photo,
         userType: portalType,
         role: portalType,
@@ -101,7 +118,6 @@ if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
       });
 
       user.isNewUser = true;
-      req.linkedinAccessToken = accessToken;
       done(null, user);
     } catch (error) {
       console.error('❌ LinkedIn OAuth error:', error);
