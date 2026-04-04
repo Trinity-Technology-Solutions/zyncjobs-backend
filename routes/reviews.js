@@ -87,4 +87,21 @@ router.get('/:companyId', async (req, res) => {
   }
 });
 
+// DELETE /api/reviews/:id - Delete a review (owner only)
+router.delete('/:id', async (req, res) => {
+  try {
+    const { reviewerEmail } = req.body;
+    const review = await Review.findByPk(req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    if (reviewerEmail && review.reviewerEmail !== reviewerEmail) {
+      return res.status(403).json({ error: 'Not authorized to delete this review' });
+    }
+    await review.destroy();
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting review:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

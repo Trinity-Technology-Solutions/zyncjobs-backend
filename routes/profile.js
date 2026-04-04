@@ -1,6 +1,7 @@
 import express from 'express';
 import User from '../models/User.js';
 import Profile from '../models/Profile.js';
+import vectorService from '../services/vectorService.js';
 
 const router = express.Router();
 
@@ -57,10 +58,17 @@ router.post('/save', async (req, res) => {
     // TEXT fields must be strings (not objects/arrays)
     const textFields = ['experience','education','certifications','employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','careerPreferences','educationCollege','educationClass12','educationClass10'];
     textFields.forEach(f => {
-      if (updateFields[f] !== undefined && typeof updateFields[f] !== 'string') {
-        updateFields[f] = JSON.stringify(updateFields[f]);
+      if (updateFields[f] !== undefined && updateFields[f] !== null) {
+        if (typeof updateFields[f] !== 'string') {
+          updateFields[f] = JSON.stringify(updateFields[f]);
+        }
       }
     });
+
+    // Also fix userId — if it's not a valid UUID, don't use it as userId
+    if (updateFields.userId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(updateFields.userId)) {
+      delete updateFields.userId;
+    }
 
     // Find existing profile and update, or create new one
     let profile = null;
@@ -84,25 +92,34 @@ router.post('/save', async (req, res) => {
     
     // Also update User collection with key fields (only if valid UUID)
     if (isValidUUID) {
-      const userUpdateData = {
-        name: profileData.name,
-        phone: profileData.phone,
-        location: profileData.location,
-        title: profileData.title,
-        skills: Array.isArray(profileData.skills) ? profileData.skills : (updateFields.skills || []),
-        profilePicture: profileData.profilePhoto
-      };
-      if (profileData.resumeUrl) userUpdateData.resumeUrl = profileData.resumeUrl;
-      // Sync companyName back to User table so job post form pre-fills correctly
-      if (profileData.companyName) {
-        userUpdateData.company = profileData.companyName;
-        userUpdateData.companyName = profileData.companyName;
+      try {
+        const userUpdateData = {};
+        if (profileData.name) userUpdateData.name = profileData.name;
+        if (profileData.phone) userUpdateData.phone = profileData.phone;
+        if (profileData.location) userUpdateData.location = profileData.location;
+        if (profileData.title) userUpdateData.title = profileData.title;
+        if (profileData.skills) userUpdateData.skills = Array.isArray(profileData.skills) ? profileData.skills : (updateFields.skills || []);
+        if (profileData.profilePhoto) userUpdateData.profilePicture = profileData.profilePhoto;
+        if (profileData.resumeUrl) userUpdateData.resumeUrl = profileData.resumeUrl;
+        if (profileData.companyName) {
+          userUpdateData.company = profileData.companyName;
+          userUpdateData.companyName = profileData.companyName;
+        }
+        if (Object.keys(userUpdateData).length > 0) {
+          await User.update(userUpdateData, { where: { id: userId } });
+          console.log('✅ User table also updated');
+        }
+      } catch (userUpdateErr) {
+        console.warn('⚠️ User table update skipped:', userUpdateErr.message);
       }
-      await User.update(userUpdateData, { where: { id: userId } });
-      console.log('✅ User table also updated');
     }
     
     res.json({ success: true, profile });
+
+    // Index profile for semantic matching (non-blocking, after response)
+    const indexId = isValidUUID ? userId : (profile.userId || profile.id);
+    if (indexId) vectorService.upsertResumeEmbedding(String(indexId), profile.toJSON()).catch(() => {});
+
   } catch (error) {
     console.error('❌ Profile save error:', error.message);
     console.error('❌ Error details:', error.errors?.map(e => e.message) || error.original?.message || error.stack?.split('\n')[0]);

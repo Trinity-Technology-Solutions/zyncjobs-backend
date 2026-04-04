@@ -11,6 +11,7 @@ import '../models/JobAlert.js';
 import '../models/Message.js';
 import '../models/SkillAssessment.js';
 import '../models/Resume.js';
+import '../models/ResumeVersion.js';
 import '../models/SavedCandidate.js';
 import '../models/SavedRecommendedJob.js';
 import '../models/UserPreferences.js';
@@ -18,6 +19,10 @@ import '../models/TeamMember.js';
 import '../models/Review.js';
 import '../models/Company.js';
 import '../models/ResumeVersion.js';
+import '../models/Company.js';
+import '../models/Review.js';
+import '../models/HeadlineAnalytics.js';
+import '../models/PasswordReset.js';
 
 const syncModels = async () => {
   try {
