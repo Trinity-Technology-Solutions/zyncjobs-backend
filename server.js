@@ -29,7 +29,7 @@ import resumeRoutes from './routes/resume.js';
 import resumeAttachRoutes from './routes/resumeAttach.js';
 import resumeModerationRoutes from './routes/resumeModeration.js';
 import analyticsRoutes from './routes/analytics.js';
-import analyticsTrackingRoutes from './routes/analyticsTracking.js';
+import analyticsTrackingRoutes, { setIo as setAnalyticsIo } from './routes/analyticsTracking.js';
 import adminJobsRoutes from './routes/adminJobs.js';
 import companyRoutes from './routes/companies.js';
 import companySearchRoutes from './routes/companySearch.js';
@@ -134,6 +134,9 @@ connectDB().then(() => {
   console.error('❌ Database connection failed:', err);
   process.exit(1);
 });
+
+// Wire Socket.io to analytics tracking for real-time updates
+setAnalyticsIo(io);
 
 // Socket.io connection
 const userSockets = new Map();
