@@ -83,20 +83,110 @@ router.get('/profile/:email', async (req, res) => {
   }
 });
 
-// GET /api/analytics/recruiter-actions/:email - Get detailed recruiter actions
+// GET /api/analytics/recruiter-actions/:email - Get detailed recruiter actions with filter
 router.get('/recruiter-actions/:email', async (req, res) => {
   try {
     const { email } = req.params;
+    const { filter } = req.query; // 'all', 'profile_viewed', 'contact_viewed', 'nvite_sent'
+
+    const where = {
+      email: { [Op.iLike]: `%${email}%` },
+      eventType: 'recruiter_action'
+    };
+
+    if (filter && filter !== 'all') {
+      where.metadata = { action: filter };
+    }
+
     const actions = await Analytics.findAll({
-      where: {
-        email: { [Op.iLike]: `%${email}%` },
-        eventType: 'recruiter_action'
-      },
+      where,
       order: [['createdAt', 'DESC']],
-      limit: 10
+      limit: 50
     });
-    
-    res.json(actions);
+
+    // Group counts by action type
+    const allActions = await Analytics.findAll({
+      where: { email: { [Op.iLike]: `%${email}%` }, eventType: 'recruiter_action' },
+      order: [['createdAt', 'DESC']]
+    });
+
+    const counts = { all: allActions.length, profile_viewed: 0, contact_viewed: 0, nvite_sent: 0 };
+    allActions.forEach(a => {
+      const act = a.metadata?.action;
+      if (act && counts[act] !== undefined) counts[act]++;
+    });
+
+    // Enrich with recruiter info from User + Profile models
+    const User = (await import('../models/User.js')).default;
+    const Profile = (await import('../models/Profile.js')).default;
+
+    const enriched = await Promise.all(actions.map(async (a) => {
+      const meta = a.metadata || {};
+      let recruiterUser = null;
+      let recruiterProfile = null;
+
+      // Try to find by recruiterId (UUID)
+      if (meta.recruiterId) {
+        recruiterUser = await User.findOne({
+          where: { id: meta.recruiterId },
+          attributes: ['id', 'name', 'title', 'company', 'companyName', 'location', 'profilePicture', 'skills', 'email']
+        }).catch(() => null);
+      }
+
+      // Fallback: try by recruiterEmail from metadata
+      if (!recruiterUser && meta.recruiterEmail) {
+        recruiterUser = await User.findOne({
+          where: { email: { [Op.iLike]: meta.recruiterEmail } },
+          attributes: ['id', 'name', 'title', 'company', 'companyName', 'location', 'profilePicture', 'skills', 'email']
+        }).catch(() => null);
+      }
+
+      // Also fetch their Profile for richer data
+      if (recruiterUser?.email) {
+        recruiterProfile = await Profile.findOne({
+          where: { email: recruiterUser.email },
+          attributes: ['companyName', 'company', 'location', 'title', 'profilePhoto']
+        }).catch(() => null);
+      }
+
+      // Build recruiter object — prefer Profile > User > metadata > email domain
+      const name = recruiterUser?.name || meta.recruiterName || 'Recruiter';
+      const title = recruiterProfile?.title || recruiterProfile?.roleTitle || recruiterUser?.title || meta.recruiterTitle || 'HR';
+      
+      // Company: try every possible source
+      let company = recruiterProfile?.companyName ||
+                    recruiterUser?.companyName || recruiterUser?.company ||
+                    meta.company || '';
+      
+      // Last resort: derive company from email domain
+      if (!company && recruiterUser?.email) {
+        const domain = recruiterUser.email.split('@')[1];
+        if (domain && !['gmail.com','yahoo.com','outlook.com','hotmail.com'].includes(domain)) {
+          company = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
+        }
+      }
+
+      const location = recruiterProfile?.location || recruiterUser?.location || meta.location || '';
+      const profilePicture = recruiterProfile?.profilePhoto || recruiterUser?.profilePicture || meta.profilePicture || null;
+      const skills = recruiterUser?.skills || [];
+
+      return {
+        id: a.id,
+        action: meta.action || 'profile_viewed',
+        createdAt: a.createdAt,
+        recruiter: {
+          id: recruiterUser?.id || null,
+          name,
+          title,
+          company,
+          location,
+          profilePicture,
+          skills
+        }
+      };
+    }));
+
+    res.json({ actions: enriched, counts });
   } catch (error) {
     console.error('❌ Recruiter actions error:', error);
     res.status(500).json({ error: error.message });
