@@ -1,16 +1,17 @@
 /**
- * Vector Service — In-database semantic matching using TF-IDF + cosine similarity
- * No external vector DB needed. Works entirely with PostgreSQL JSONB.
- *
- * How it works:
- *  1. Text → tokenize → term frequency map (sparse vector)
- *  2. Vectors stored as JSONB in job_embeddings / resume_embeddings tables
- *  3. Cosine similarity computed in JS across stored vectors
- *  4. Returns ranked results with match scores
+ * Enhanced Vector Service — Production-grade semantic matching
+ * Features:
+ *  - TF-IDF + cosine similarity
+ *  - Skill graph with 10,000+ skills
+ *  - Role graph with job title relationships
+ *  - 6-factor weighted scoring
+ *  - Skill embeddings and synonyms
  */
 
 import { sequelize } from '../config/postgresql.js';
 import Job from '../models/Job.js';
+import skillGraph from './skillGraph.js';
+import roleGraph from './roleGraph.js';
 
 // ─── TABLE BOOTSTRAP ─────────────────────────────────────────────────────────
 
@@ -263,52 +264,134 @@ const indexAllJobs = async () => {
   }
 };
 
-// ─── MATCH SCORE BETWEEN ONE JOB AND ONE PROFILE ────────────────────────────
+// ─── MATCH SCORE BETWEEN ONE JOB AND ONE PROFILE (6-FACTOR WEIGHTED) ───────
 
 const getMatchScore = (jobData, profileData) => {
+  // Factor 1: Text similarity (TF-IDF cosine) - 30%
   const jobVec = buildVector(jobToText(jobData));
   const profileVec = buildVector(profileToText(profileData));
-  const score = cosineSimilarity(jobVec, profileVec);
+  const textScore = cosineSimilarity(jobVec, profileVec) * 0.30;
 
-  // Skill overlap bonus
-  const jobSkills = (jobData.skills || []).map(s => s.toLowerCase());
-  const profileSkills = (profileData.skills || []).map(s => s.toLowerCase());
-  const overlap = jobSkills.filter(s => profileSkills.includes(s)).length;
-  const skillBonus = jobSkills.length > 0 ? (overlap / jobSkills.length) * 0.3 : 0;
+  // Factor 2: Skill overlap with graph - 35%
+  const jobSkills = (jobData.skills || []).map(s => skillGraph.normalizeSkill(s));
+  const profileSkills = (profileData.skills || []).map(s => skillGraph.normalizeSkill(s));
+  
+  let skillScore = 0;
+  if (jobSkills.length > 0) {
+    let totalSimilarity = 0;
+    for (const jobSkill of jobSkills) {
+      let maxSim = 0;
+      for (const profileSkill of profileSkills) {
+        const sim = skillGraph.getSkillSimilarity(jobSkill, profileSkill);
+        if (sim > maxSim) maxSim = sim;
+      }
+      totalSimilarity += maxSim;
+    }
+    skillScore = (totalSimilarity / jobSkills.length) * 0.35;
+  }
 
-  return Math.min(100, Math.round((score + skillBonus) * 100));
+  // Factor 3: Role similarity - 15%
+  const jobTitle = jobData.jobTitle || jobData.title || '';
+  const profileTitle = profileData.title || '';
+  const roleScore = roleGraph.getRoleSimilarity(jobTitle, profileTitle) * 0.15;
+
+  // Factor 4: Experience level match - 10%
+  const candidateYears = parseInt(profileData.yearsExperience) || 0;
+  const expScore = roleGraph.matchesSeniority(candidateYears, jobTitle) ? 0.10 : 0.05;
+
+  // Factor 5: Location match - 5%
+  let locationScore = 0;
+  if (jobData.location && profileData.location) {
+    const jobLoc = jobData.location.toLowerCase();
+    const profLoc = profileData.location.toLowerCase();
+    if (jobLoc.includes(profLoc) || profLoc.includes(jobLoc) || jobLoc.includes('remote')) {
+      locationScore = 0.05;
+    }
+  }
+
+  // Factor 6: Education match - 5%
+  let educationScore = 0;
+  if (jobData.educationLevel && profileData.education) {
+    const jobEdu = jobData.educationLevel.toLowerCase();
+    const profEdu = String(profileData.education).toLowerCase();
+    if (profEdu.includes(jobEdu) || profEdu.includes('bachelor') || profEdu.includes('master')) {
+      educationScore = 0.05;
+    }
+  }
+
+  // Total weighted score (0-1)
+  const totalScore = textScore + skillScore + roleScore + expScore + locationScore + educationScore;
+  return Math.min(100, Math.round(totalScore * 100));
 };
 
-// ─── EXPLAIN MATCH ───────────────────────────────────────────────────────────
+// ─── EXPLAIN MATCH (DETAILED BREAKDOWN) ──────────────────────────────────────
 
 const explainMatch = (jobData, profileData) => {
-  const jobSkills = (jobData.skills || []).map(s => s.toLowerCase());
-  const profileSkills = (profileData.skills || []).map(s => s.toLowerCase());
-  const matched = jobSkills.filter(s => profileSkills.includes(s));
-  const missing = jobSkills.filter(s => !profileSkills.includes(s));
+  // Normalize skills
+  const jobSkills = (jobData.skills || []).map(s => skillGraph.normalizeSkill(s));
+  const profileSkills = (profileData.skills || []).map(s => skillGraph.normalizeSkill(s));
+  
+  // Find matched skills (exact + similar)
+  const matched = [];
+  const missing = [];
+  
+  for (const jobSkill of jobSkills) {
+    let found = false;
+    for (const profileSkill of profileSkills) {
+      const sim = skillGraph.getSkillSimilarity(jobSkill, profileSkill);
+      if (sim >= 0.8) {
+        matched.push(jobSkill);
+        found = true;
+        break;
+      }
+    }
+    if (!found) missing.push(jobSkill);
+  }
 
+  // Calculate overall score
   const score = getMatchScore(jobData, profileData);
+
+  // Role match
+  const jobTitle = jobData.jobTitle || jobData.title || '';
+  const profileTitle = profileData.title || '';
+  const roleSimilarity = roleGraph.getRoleSimilarity(jobTitle, profileTitle);
+
+  // Experience match
+  const candidateYears = parseInt(profileData.yearsExperience) || 0;
+  const seniorityMatch = roleGraph.matchesSeniority(candidateYears, jobTitle);
+
+  // Location match
+  const locationMatch = jobData.location && profileData.location
+    ? jobData.location.toLowerCase().includes(profileData.location.toLowerCase()) ||
+      profileData.location.toLowerCase().includes(jobData.location.toLowerCase()) ||
+      jobData.location.toLowerCase().includes('remote')
+    : null;
 
   return {
     score,
-    matchedSkills: matched,
+    matchedSkills: matched.slice(0, 10),
     missingSkills: missing.slice(0, 5),
-    locationMatch: jobData.location && profileData.location
-      ? jobData.location.toLowerCase().includes(profileData.location.toLowerCase()) ||
-        profileData.location.toLowerCase().includes(jobData.location.toLowerCase())
-      : null,
-    experienceMatch: jobData.experienceLevel && profileData.yearsExperience
-      ? (() => {
-          const years = parseInt(profileData.yearsExperience) || 0;
-          const level = jobData.experienceLevel;
-          if (level === 'Entry' && years <= 2) return true;
-          if (level === 'Mid' && years >= 2 && years <= 5) return true;
-          if (level === 'Senior' && years >= 5) return true;
-          if (level === 'Lead' && years >= 7) return true;
-          return false;
-        })()
-      : null,
-    verdict: score >= 70 ? 'Strong Match' : score >= 45 ? 'Good Match' : score >= 25 ? 'Partial Match' : 'Low Match'
+    relatedSkills: matched.length > 0 ? skillGraph.getRelatedSkills(matched[0]).slice(0, 5) : [],
+    roleMatch: {
+      similarity: Math.round(roleSimilarity * 100),
+      jobTitle,
+      profileTitle,
+      relatedRoles: roleGraph.getRelatedRoles(jobTitle).slice(0, 3)
+    },
+    experienceMatch: {
+      matches: seniorityMatch,
+      candidateYears,
+      requiredLevel: roleGraph.extractSeniority(jobTitle).name
+    },
+    locationMatch,
+    verdict: score >= 70 ? 'Strong Match' : score >= 50 ? 'Good Match' : score >= 30 ? 'Partial Match' : 'Low Match',
+    factors: {
+      textSimilarity: Math.round(cosineSimilarity(buildVector(jobToText(jobData)), buildVector(profileToText(profileData))) * 100),
+      skillMatch: matched.length > 0 ? Math.round((matched.length / jobSkills.length) * 100) : 0,
+      roleMatch: Math.round(roleSimilarity * 100),
+      experienceMatch: seniorityMatch ? 100 : 50,
+      locationMatch: locationMatch ? 100 : 0
+    }
   };
 };
 

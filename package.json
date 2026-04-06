@@ -51,6 +51,7 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-oauth2": "^1.8.0",
     "pdf-parse": "^1.1.1",
+    "pdfkit": "^0.18.0",
     "pg": "^8.18.0",
     "sequelize": "^6.37.7",
     "socket.io": "^4.8.3",
