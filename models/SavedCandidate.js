@@ -13,7 +13,8 @@ const SavedCandidate = sequelize.define('SavedCandidate', {
     references: {
       model: 'users',
       key: 'id'
-    }
+    },
+    onDelete: 'CASCADE'
   },
   employerEmail: {
     type: DataTypes.STRING,
@@ -26,7 +27,8 @@ const SavedCandidate = sequelize.define('SavedCandidate', {
     references: {
       model: 'users',
       key: 'id'
-    }
+    },
+    onDelete: 'CASCADE'
   },
   // Candidate details (denormalized for performance)
   candidateName: {
