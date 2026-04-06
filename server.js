@@ -80,6 +80,7 @@ import ogTagsRoutes from './routes/ogTags.js';
 import socialShareRoutes from './routes/socialShare.js';
 import teamRoutes from './routes/team.js';
 import aiRejectionSettingsRoutes from './routes/aiRejectionSettings.js';
+import resumeBuilderRoutes from './routes/resumeBuilder.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
@@ -373,6 +374,7 @@ app.use('/api/social', socialShareRoutes);
 app.use('/api/ai-rejection-settings/preview', aiRejectionSettingsRoutes);
 app.use('/api/ai-rejection-settings/bulk-reject', aiRejectionSettingsRoutes);
 app.use('/api/ai-rejection-settings', aiRejectionSettingsRoutes);
+app.use('/api/resume-builder', resumeBuilderRoutes);
 app.use('/', ogTagsRoutes);
 
 // Resume parser with AI

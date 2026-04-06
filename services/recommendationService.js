@@ -77,5 +77,7 @@ export const getTopCandidatesForJob = async (jobId, limit = 20) => {
   }
 };
 
-const getFallbackJobs = (limit) =>
-  Job.findAll({ where: { isActive: true, status: 'approved' }, limit, order: [['createdAt', 'DESC']] });
+const getFallbackJobs = async (limit) => {
+  const jobs = await Job.findAll({ where: { isActive: true, status: 'approved' }, limit, order: [['createdAt', 'DESC']] });
+  return jobs.map(j => ({ ...j.toJSON(), matchScore: 0 }));
+};
