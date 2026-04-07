@@ -4,7 +4,7 @@ export const generateAccessToken = (userId) => {
   return jwt.sign(
     { userId, type: 'access' },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '5m' }
+    { expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '7d' }
   );
 };
 
