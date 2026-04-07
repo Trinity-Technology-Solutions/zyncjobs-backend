@@ -57,8 +57,13 @@ router.post('/register', registrationGuard, [
     });
     
     if (existingUser) {
-      console.log('❌ User already exists:', email);
-      return res.status(400).json({ error: 'User already exists with this email' });
+      // If account was previously deleted (isActive=false), wipe it and allow fresh registration
+      if (!existingUser.isActive) {
+        await User.destroy({ where: { id: existingUser.id } });
+      } else {
+        console.log('❌ User already exists:', email);
+        return res.status(400).json({ error: 'User already exists with this email' });
+      }
     }
 
     const hashedPassword = await bcrypt.hash(password, 8);
@@ -174,7 +179,7 @@ router.post('/login', async (req, res) => {
     
     // Check if account is active
     if (!user.isActive) {
-      return res.status(403).json({ error: 'Account is inactive. Contact support.' });
+      return res.status(403).json({ error: 'This account has been deleted. Please register again.' });
     }
 
     // Block rejected employers
@@ -537,7 +542,7 @@ router.delete('/cleanup/:email', async (req, res) => {
   }
 });
 
-// DELETE /api/users/:id - Delete user account
+// DELETE /api/users/:id - Delete user account and ALL related data
 router.delete('/:id', async (req, res) => {
   try {
     const identifier = decodeURIComponent(req.params.id || '').trim();
@@ -547,14 +552,9 @@ router.delete('/:id', async (req, res) => {
     }
     
     let user;
-    
-    // Check if identifier is an email (contains @) or UUID
     if (identifier.includes('@')) {
-      user = await User.findOne({ 
-        where: { email: { [Op.iLike]: identifier } }
-      });
+      user = await User.findOne({ where: { email: { [Op.iLike]: identifier } } });
     } else {
-      // Validate UUID format before querying
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(identifier)) {
         return res.status(400).json({ error: 'Invalid user identifier format' });
@@ -565,21 +565,51 @@ router.delete('/:id', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    const userId = user.id;
+    const userEmail = user.email;
+    const deletedData = { userId, email: userEmail, tables: [] };
+
+    // Helper: safely destroy from a model by condition
+    const safeDestroy = async (modelPath, condition, label) => {
+      try {
+        const Model = (await import(modelPath)).default;
+        const count = await Model.destroy({ where: condition });
+        if (count > 0) deletedData.tables.push(`${label}(${count})`);
+      } catch (e) {
+        console.warn(`⚠️ Could not delete from ${label}:`, e.message);
+      }
+    };
+
+    // Delete all related data
+    await safeDestroy('../models/Application.js',  { [Op.or]: [{ candidateEmail: userEmail }, { userId }] }, 'Applications');
+    await safeDestroy('../models/Job.js',           { [Op.or]: [{ postedBy: userEmail }, { employerEmail: userEmail }, { userId }] }, 'Jobs');
+    await safeDestroy('../models/Profile.js',       { [Op.or]: [{ userId }, { email: userEmail }] }, 'Profile');
+    await safeDestroy('../models/Resume.js',        { [Op.or]: [{ userId }, { email: userEmail }] }, 'Resume');
+    await safeDestroy('../models/ResumeVersion.js', { userId }, 'ResumeVersions');
+    await safeDestroy('../models/Interview.js',     { [Op.or]: [{ candidateEmail: userEmail }, { employerEmail: userEmail }, { userId }] }, 'Interviews');
+    await safeDestroy('../models/Message.js',       { [Op.or]: [{ senderId: userId }, { receiverId: userId }] }, 'Messages');
+    await safeDestroy('../models/Notification.js',  { [Op.or]: [{ userId }, { email: userEmail }] }, 'Notifications');
+    await safeDestroy('../models/JobAlert.js',      { [Op.or]: [{ userId }, { email: userEmail }] }, 'JobAlerts');
+    await safeDestroy('../models/SavedCandidate.js',{ [Op.or]: [{ employerId: userId }, { employerEmail: userEmail }, { candidateId: userId }] }, 'SavedCandidates');
+    await safeDestroy('../models/Review.js',        { [Op.or]: [{ userId }, { reviewerEmail: userEmail }] }, 'Reviews');
+    await safeDestroy('../models/Analytics.js',     { [Op.or]: [{ userId }, { email: userEmail }] }, 'Analytics');
+    await safeDestroy('../models/TeamMember.js',    { [Op.or]: [{ employerId: userEmail }, { memberEmail: userEmail }] }, 'TeamMembers');
+    await safeDestroy('../models/SkillAssessment.js', { userId }, 'SkillAssessments');
+    await safeDestroy('../models/PasswordReset.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'PasswordResets');
+
+    // Finally delete the user
+    await User.destroy({ where: { id: userId } });
     
-    // Delete from User table
-    const deletedUsers = await User.destroy({ where: { id: user.id } });
-    
+    console.log(`✅ Account fully deleted: ${userEmail}`, deletedData.tables);
     res.json({ 
-      message: 'Account deleted successfully', 
-      email: user.email,
-      deletedRecords: deletedUsers
+      message: 'Account and all associated data deleted successfully',
+      email: userEmail,
+      deletedData: deletedData.tables
     });
   } catch (error) {
     console.error('❌ Delete account error:', error);
-    res.status(500).json({ 
-      error: error.message,
-      details: 'Check server logs for more information'
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
