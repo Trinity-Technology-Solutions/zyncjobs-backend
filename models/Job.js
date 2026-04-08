@@ -114,8 +114,11 @@ const Job = sequelize.define('Job', {
     { fields: ['jobType'] },
     { fields: ['employerEmail'] },
     { fields: ['isActive'] },
+    { fields: ['status'] },
     { fields: ['employerId'] },
-    { fields: ['positionId'], unique: true }
+    { fields: ['positionId'], unique: true },
+    { fields: ['isActive', 'status'] },
+    { fields: ['createdAt'] }
   ]
 });
 

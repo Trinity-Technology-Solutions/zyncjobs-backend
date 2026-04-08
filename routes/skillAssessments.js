@@ -4,53 +4,17 @@ import { sequelize } from '../config/postgresql.js';
 import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
-const FREE_MODELS = [
-  'google/gemma-3-4b-it:free',
-  'google/gemma-3-12b-it:free',
-  'mistralai/mistral-small-3.1-24b-instruct:free',
-  'qwen/qwen3-4b:free',
-  'meta-llama/llama-3.2-3b-instruct:free'
-];
+import { callAI as callOpenRouter } from '../services/openRouterService.js';
 
 const callAI = async (prompt) => {
-  for (const model of FREE_MODELS) {
-    try {
-      console.log(`🤖 Trying model: ${model}`);
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20000); // 20s per model
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-          'X-Title': 'ZyncJobs'
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 3000,
-          temperature: 0.7
-        })
-      });
-      clearTimeout(timeout);
-      if (!response.ok) {
-        const err = await response.text();
-        console.warn(`Model ${model} failed (${response.status}):`, err.substring(0, 100));
-        continue;
-      }
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || '';
-      if (content) {
-        console.log(`✅ Got response from ${model}`);
-        return content;
-      }
-    } catch (e) {
-      console.warn(`Model ${model} error:`, e.message);
-    }
-  }
-  return null;
+  try {
+    return await callOpenRouter({
+      feature: 'skill-assessment',
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 3000,
+      temperature: 0.7,
+    });
+  } catch { return null; }
 };
 
 const parseQuestions = (content) => {

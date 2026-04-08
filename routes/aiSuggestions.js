@@ -1,5 +1,6 @@
 import express from 'express';
 import mistralService from '../services/mistralService.js';
+import { callAI } from '../services/openRouterService.js';
 
 const router = express.Router();
 
@@ -73,50 +74,22 @@ router.post('/career-coach', async (req, res) => {
       return res.status(503).json({ error: 'AI service not configured' });
     }
 
-    const MODELS = [
-      'google/gemma-3-4b-it:free',
-      'google/gemma-3-12b-it:free',
-      'mistralai/mistral-small-3.1-24b-instruct:free',
-      'qwen/qwen3-4b:free',
-      'meta-llama/llama-3.2-3b-instruct:free',
-    ];
+    // Detect feature from systemPrompt to use correct model
+    const isRecruiter = systemPrompt && systemPrompt.includes('Recruiter');
+    const feature = isRecruiter ? 'ai-recruiter' : 'career-coach';
 
     let reply = '';
-    for (const model of MODELS) {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 20000);
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          signal: controller.signal,
-          headers: {
-            'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-            'X-Title': 'ZyncJobs-CareerCoach'
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt || 'You are a helpful AI career coach.' },
-              ...messages
-            ],
-            max_tokens: 700,
-            temperature: 0.7
-          })
-        });
-        clearTimeout(timeout);
-        if (response.ok) {
-          const data = await response.json();
-          reply = data.choices?.[0]?.message?.content || '';
-          if (reply) break;
-        } else {
-          const err = await response.text();
-          console.warn(`Model ${model} failed (${response.status}):`, err.substring(0, 100));
-        }
-      } catch (e) {
-        console.warn(`Model ${model} error:`, e.message);
-      }
+    try {
+      reply = await callAI({
+        feature,
+        messages: [
+          { role: 'system', content: systemPrompt || 'You are a helpful AI career coach.' },
+          ...messages
+        ],
+        maxTokens: 700,
+      });
+    } catch (e) {
+      console.warn('callAI failed:', e.message);
     }
 
     if (!reply) {

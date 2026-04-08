@@ -25,7 +25,12 @@ const ResumeVersion = sequelize.define('ResumeVersion', {
   }
 }, {
   tableName: 'resume_versions',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['resumeId'] },
+    { fields: ['userId', 'isActive'] }
+  ]
 });
 
 export default ResumeVersion;

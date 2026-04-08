@@ -29,7 +29,14 @@ const Message = sequelize.define('Message', {
   }
 }, {
   tableName: 'messages',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['conversationId'] },
+    { fields: ['senderId'] },
+    { fields: ['receiverId'] },
+    { fields: ['read'] },
+    { fields: ['conversationId', 'createdAt'] }
+  ]
 });
 
 export default Message;

@@ -53,7 +53,10 @@ const Application = sequelize.define('Application', {
     { fields: ['jobId'] },
     { fields: ['candidateId'] },
     { fields: ['candidateEmail'] },
-    { fields: ['status'] }
+    { fields: ['employerEmail'] },
+    { fields: ['status'] },
+    { fields: ['employerEmail', 'status'] },
+    { fields: ['candidateEmail', 'status'] }
   ]
 });
 

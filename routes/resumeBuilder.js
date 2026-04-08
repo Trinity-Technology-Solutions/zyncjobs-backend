@@ -1,52 +1,22 @@
 import express from 'express';
-import fetch from 'node-fetch';
+import { callAI as callOpenRouter } from '../services/openRouterService.js';
 
 const router = express.Router();
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODELS = [
+// Models that don't support system role — merge into user message
+const NO_SYSTEM_ROLE = [
   'google/gemma-3-4b-it:free',
-  'mistralai/mistral-7b-instruct:free',
-  'meta-llama/llama-3.2-3b-instruct:free',
+  'google/gemma-3-12b-it:free',
+  'google/gemma-3-27b-it:free',
 ];
 
 async function callAI(prompt, systemMsg = 'You are a professional resume writer.', maxTokens = 1200) {
-  if (!process.env.OPENROUTER_API_KEY) throw new Error('AI service not configured');
-
-  for (const model of MODELS) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 25000);
-      const res = await fetch(OPENROUTER_URL, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-          'X-Title': 'ZyncJobs-ResumeBuilder',
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: 'system', content: systemMsg },
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.7,
-          max_tokens: maxTokens,
-        }),
-      });
-      clearTimeout(timeout);
-      if (res.ok) {
-        const data = await res.json();
-        const content = data.choices?.[0]?.message?.content;
-        if (content) return content;
-      }
-    } catch (e) {
-      console.warn(`Model ${model} failed:`, e.message);
-    }
-  }
-  throw new Error('All AI models failed. Try again.');
+  const primaryModel = 'openai/gpt-oss-20b:free';
+  const useSystem = !NO_SYSTEM_ROLE.includes(primaryModel);
+  const messages = useSystem
+    ? [{ role: 'system', content: systemMsg }, { role: 'user', content: prompt }]
+    : [{ role: 'user', content: `${systemMsg}\n\n${prompt}` }];
+  return callOpenRouter({ feature: 'resume-builder', messages, maxTokens, temperature: 0.7 });
 }
 
 // ─── (A) AI Resume Generator ─────────────────────────────────────────────────
@@ -146,32 +116,57 @@ router.post('/suggest-bullets', async (req, res) => {
     const { text, jobTitle } = req.body;
     if (!text) return res.status(400).json({ error: 'text is required' });
 
+    const role = jobTitle || 'professional';
     const prompt = `You are a resume writing expert.
-Improve this resume bullet point for a ${jobTitle || 'professional'} role.
-Original: "${text}"
+Improve this resume bullet point for a ${role} role.
+Original bullet: ${text}
 
-Return ONLY valid JSON:
+Provide 2 improved versions. Return ONLY a valid JSON object like this:
 {
   "suggestions": [
     {
-      "original": "${text}",
-      "improved": "stronger version with action verb and metric",
-      "reason": "why this is better (ATS, impact, clarity)"
+      "original": "the original bullet text",
+      "improved": "stronger version with action verb and quantified metric",
+      "reason": "brief reason why this is better"
     },
     {
-      "original": "${text}",
+      "original": "the original bullet text",
       "improved": "alternative stronger version",
-      "reason": "alternative improvement reason"
+      "reason": "brief alternative reason"
     }
   ]
-}`;
+}
+Do not include markdown, code blocks, or any text outside the JSON.`;
 
-    const raw = await callAI(prompt, 'You are a resume writing expert. Return only valid JSON.', 400);
+    const raw = await callAI(prompt, 'You are a resume writing expert. Return only valid JSON with no markdown.', 500);
     const cleaned = raw.replace(/```json|```/g, '').trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(500).json({ error: 'AI returned invalid format' });
 
-    res.json(JSON.parse(jsonMatch[0]));
+    if (!jsonMatch) {
+      // Fallback: return a basic suggestion so the UI doesn't break
+      return res.json({
+        suggestions: [{
+          original: text,
+          improved: text,
+          reason: 'AI could not generate a suggestion at this time. Try again.'
+        }]
+      });
+    }
+
+    let result;
+    try {
+      result = JSON.parse(jsonMatch[0]);
+    } catch {
+      return res.json({
+        suggestions: [{
+          original: text,
+          improved: text,
+          reason: 'AI returned an unparseable response. Try again.'
+        }]
+      });
+    }
+
+    res.json(result);
   } catch (err) {
     console.error('suggest-bullets error:', err.message);
     res.status(500).json({ error: err.message });

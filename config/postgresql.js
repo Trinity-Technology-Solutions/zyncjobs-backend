@@ -37,10 +37,51 @@ const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_applications_jobId ON applications ("jobId")`,
   `CREATE INDEX IF NOT EXISTS idx_applications_candidateId ON applications ("candidateId")`,
   `CREATE INDEX IF NOT EXISTS idx_applications_candidateEmail ON applications ("candidateEmail")`,
+  `CREATE INDEX IF NOT EXISTS idx_applications_employerEmail ON applications ("employerEmail")`,
   `CREATE INDEX IF NOT EXISTS idx_applications_status ON applications (status)`,
+  `CREATE INDEX IF NOT EXISTS idx_applications_employerEmail_status ON applications ("employerEmail", status)`,
+  `CREATE INDEX IF NOT EXISTS idx_applications_candidateEmail_status ON applications ("candidateEmail", status)`,
   // jobs
   `CREATE INDEX IF NOT EXISTS idx_jobs_isActive ON jobs ("isActive")`,
+  `CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs (status)`,
+  `CREATE INDEX IF NOT EXISTS idx_jobs_isActive_status ON jobs ("isActive", status)`,
   `CREATE INDEX IF NOT EXISTS idx_jobs_employerEmail ON jobs ("employerEmail")`,
+  `CREATE INDEX IF NOT EXISTS idx_jobs_createdAt ON jobs ("createdAt")`,
+  // interviews
+  `CREATE INDEX IF NOT EXISTS idx_interviews_candidateEmail ON interviews ("candidateEmail")`,
+  `CREATE INDEX IF NOT EXISTS idx_interviews_employerEmail ON interviews ("employerEmail")`,
+  `CREATE INDEX IF NOT EXISTS idx_interviews_status ON interviews (status)`,
+  `CREATE INDEX IF NOT EXISTS idx_interviews_scheduledDate ON interviews ("scheduledDate")`,
+  `CREATE INDEX IF NOT EXISTS idx_interviews_candidateEmail_status ON interviews ("candidateEmail", status)`,
+  // messages
+  `CREATE INDEX IF NOT EXISTS idx_messages_conversationId ON messages ("conversationId")`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_senderId ON messages ("senderId")`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_receiverId ON messages ("receiverId")`,
+  `CREATE INDEX IF NOT EXISTS idx_messages_conversationId_createdAt ON messages ("conversationId", "createdAt")`,
+  // analytics
+  `CREATE INDEX IF NOT EXISTS idx_analytics_email ON analytics (email)`,
+  `CREATE INDEX IF NOT EXISTS idx_analytics_userId ON analytics ("userId")`,
+  `CREATE INDEX IF NOT EXISTS idx_analytics_eventType ON analytics ("eventType")`,
+  `CREATE INDEX IF NOT EXISTS idx_analytics_email_eventType ON analytics (email, "eventType")`,
+  // job_alerts
+  `CREATE INDEX IF NOT EXISTS idx_job_alerts_userId ON job_alerts ("userId")`,
+  `CREATE INDEX IF NOT EXISTS idx_job_alerts_email ON job_alerts (email)`,
+  `CREATE INDEX IF NOT EXISTS idx_job_alerts_isActive ON job_alerts ("isActive")`,
+  `CREATE INDEX IF NOT EXISTS idx_job_alerts_email_isActive ON job_alerts (email, "isActive")`,
+  // resumes
+  `CREATE INDEX IF NOT EXISTS idx_resumes_userId ON resumes ("userId")`,
+  `CREATE INDEX IF NOT EXISTS idx_resumes_email ON resumes (email)`,
+  // resume_versions
+  `CREATE INDEX IF NOT EXISTS idx_resume_versions_userId ON resume_versions ("userId")`,
+  `CREATE INDEX IF NOT EXISTS idx_resume_versions_resumeId ON resume_versions ("resumeId")`,
+  // search_analytics
+  `CREATE INDEX IF NOT EXISTS idx_search_analytics_userId ON search_analytics ("userId")`,
+  `CREATE INDEX IF NOT EXISTS idx_search_analytics_email ON search_analytics (email)`,
+  // team_members
+  `CREATE INDEX IF NOT EXISTS idx_team_members_employerId ON team_members ("employerId")`,
+  // reviews
+  `CREATE INDEX IF NOT EXISTS idx_reviews_companyId ON reviews ("companyId")`,
+  `CREATE INDEX IF NOT EXISTS idx_reviews_companyName ON reviews ("companyName")`,
 ];
 
 const applyIndexes = async () => {
@@ -109,9 +150,6 @@ const applyIndexes = async () => {
     await sequelize.query(`
       ALTER TABLE jobs
         ADD COLUMN IF NOT EXISTS "jobCategory" VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS "languages" VARCHAR(255)[],
-        ADD COLUMN IF NOT EXISTS "experienceRange" VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS "country" VARCHAR(255);
         ADD COLUMN IF NOT EXISTS "languages" VARCHAR(255)[] DEFAULT '{}',
         ADD COLUMN IF NOT EXISTS "experienceRange" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "country" VARCHAR(255),
