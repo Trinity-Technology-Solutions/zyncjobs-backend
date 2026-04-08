@@ -120,12 +120,14 @@ router.post('/career-coach', async (req, res) => {
     }
 
     if (!reply) {
-      // Fallback: rule-based career coach response
+      // Only use keyword fallback for casual career chat (no systemPrompt override)
+      // If systemPrompt is provided it means it's a structured task (mock interview, roadmap etc)
+      if (systemPrompt && systemPrompt !== 'You are ZyncJobs AI Career Coach — a friendly, expert career advisor. Give concise, actionable advice on career planning, resume writing, interview prep, skill gaps, salary negotiation, and job search. Keep responses clear and encouraging. Use bullet points. Max 3-4 short paragraphs.') {
+        return res.status(503).json({ error: 'AI service temporarily unavailable. Please try again.' });
+      }
       const lastMsg = messages[messages.length - 1]?.content?.toLowerCase() || '';
       if (lastMsg.includes('resume') || lastMsg.includes('cv')) {
         reply = 'For a strong resume: tailor it to each job description, use action verbs, quantify achievements (e.g. "increased sales by 30%"), keep it to 1-2 pages, and ensure ATS-friendly formatting with standard section headings.';
-      } else if (lastMsg.includes('interview')) {
-        reply = 'To ace interviews: research the company thoroughly, prepare STAR-method answers for behavioral questions, practice common technical questions for your role, prepare 3-5 questions to ask the interviewer, and follow up with a thank-you email within 24 hours.';
       } else if (lastMsg.includes('salary') || lastMsg.includes('negotiat')) {
         reply = 'For salary negotiation: research market rates on Glassdoor/LinkedIn, wait for the employer to give a number first, counter with a range where your target is the bottom, and always negotiate — most employers expect it.';
       } else if (lastMsg.includes('skill') || lastMsg.includes('learn')) {

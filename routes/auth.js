@@ -39,6 +39,7 @@ router.get('/google/callback',
 
       const token = jwt.sign(
         { userId: req.user.id, userType: userRole },
+        { userId: req.user.id, userType: req.user.userType || req.user.role, type: 'access' },
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );
@@ -90,7 +91,7 @@ router.get('/linkedin/callback',
       }
 
       const token = jwt.sign(
-        { userId: req.user.id, userType: req.user.userType || req.user.role, linkedinAccessToken: req.linkedinAccessToken },
+        { userId: req.user.id, userType: req.user.userType || req.user.role, linkedinAccessToken: req.linkedinAccessToken, type: 'access' },
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );
