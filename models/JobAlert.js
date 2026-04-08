@@ -33,7 +33,13 @@ const JobAlert = sequelize.define('JobAlert', {
   lastSent: DataTypes.DATE
 }, {
   tableName: 'job_alerts',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['email'] },
+    { fields: ['isActive'] },
+    { fields: ['email', 'isActive'] }
+  ]
 });
 
 export default JobAlert;

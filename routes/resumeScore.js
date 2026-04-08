@@ -158,34 +158,17 @@ const ruleBasedScore = (resumeText, jobDescription = '') => {
 
 // ─── AI FEEDBACK (qualitative only, not scores) ──────────────────────────────
 
+import { callAI as callOpenRouter } from '../services/openRouterService.js';
+
 const callAI = async (prompt) => {
-  const models = [
-    'google/gemma-3-4b-it:free',
-    'mistralai/mistral-small-3.1-24b-instruct:free',
-    'meta-llama/llama-3.2-3b-instruct:free'
-  ];
-  for (const model of models) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 25000);
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST', signal: controller.signal,
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-          'X-Title': 'ZyncJobs'
-        },
-        body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 1200, temperature: 0.4 })
-      });
-      clearTimeout(timeout);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content || '';
-      if (content) return content;
-    } catch { continue; }
-  }
-  return null;
+  try {
+    return await callOpenRouter({
+      feature: 'resume-score',
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 1200,
+      temperature: 0.4,
+    });
+  } catch { return null; }
 };
 
 const getAIFeedback = async (resumeText, scores) => {

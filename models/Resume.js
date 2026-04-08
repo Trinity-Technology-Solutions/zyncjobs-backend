@@ -27,7 +27,13 @@ const Resume = sequelize.define('Resume', {
   }
 }, {
   tableName: 'resumes',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['email'] },
+    { fields: ['status'] },
+    { fields: ['isActive'] }
+  ]
 });
 
 export default Resume;

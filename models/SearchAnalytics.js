@@ -16,7 +16,12 @@ const SearchAnalytics = sequelize.define('SearchAnalytics', {
   clickedJobId: DataTypes.UUID
 }, {
   tableName: 'search_analytics',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['userId'] },
+    { fields: ['email'] },
+    { fields: ['createdAt'] }
+  ]
 });
 
 export default SearchAnalytics;

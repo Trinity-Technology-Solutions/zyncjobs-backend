@@ -16,7 +16,14 @@ const Analytics = sequelize.define('Analytics', {
   metadata: DataTypes.JSONB
 }, {
   tableName: 'analytics',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['email'] },
+    { fields: ['userId'] },
+    { fields: ['eventType'] },
+    { fields: ['email', 'eventType'] },
+    { fields: ['createdAt'] }
+  ]
 });
 
 export default Analytics;

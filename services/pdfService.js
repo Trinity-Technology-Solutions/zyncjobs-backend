@@ -1,13 +1,11 @@
 import PDFDocument from 'pdfkit';
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
-
 const COLORS = {
-  heading:  '#1a1a2e',
-  accent:   '#2563eb',
-  body:     '#374151',
-  muted:    '#6b7280',
-  line:     '#e5e7eb',
+  heading: '#1a1a2e',
+  accent:  '#2563eb',
+  body:    '#374151',
+  muted:   '#6b7280',
+  line:    '#e5e7eb',
 };
 
 const FONTS = {
@@ -17,7 +15,7 @@ const FONTS = {
 };
 
 const MARGIN = 50;
-const PAGE_W = 595.28; // A4
+const PAGE_W = 595.28;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 
 function sectionHeader(doc, title) {
@@ -31,160 +29,221 @@ function sectionHeader(doc, title) {
 }
 
 function checkNewPage(doc, neededHeight = 60) {
-  if (doc.y + neededHeight > doc.page.height - MARGIN) {
-    doc.addPage();
-  }
+  if (doc.y + neededHeight > doc.page.height - MARGIN) doc.addPage();
 }
 
-// ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
+/**
+ * Normalise the two possible resume shapes:
+ *  A) ResumeStore shape  — { personalInfo:{}, summary, experience:[{title,company,duration,bullets:[]}], education:[{degree,institution,duration,grade}], skills:[] }
+ *  B) Profile/flat shape — { name, email, phone, location, profileSummary, employment:{}, educationCollege:{}, skills:[], certifications:{} }
+ */
+function normalise(raw) {
+  // Shape A: has personalInfo object
+  if (raw.personalInfo) {
+    const p = raw.personalInfo;
+    return {
+      name:      p.name      || '',
+      email:     p.email     || '',
+      phone:     p.phone     || '',
+      location:  p.location  || '',
+      linkedin:  p.linkedin  || '',
+      portfolio: p.portfolio || '',
+      summary:   raw.summary || '',
+      skills:    Array.isArray(raw.skills) ? raw.skills : [],
+      experience: (Array.isArray(raw.experience) ? raw.experience : []).map(e => ({
+        title:    e.title    || e.designation || '',
+        company:  e.company  || e.companyName || '',
+        duration: e.duration || buildDuration(e),
+        bullets:  Array.isArray(e.bullets) ? e.bullets.filter(b => b && b.trim()) : [],
+        description: e.description || '',
+      })),
+      education: (Array.isArray(raw.education) ? raw.education : []).map(e => ({
+        degree:      e.degree      || '',
+        institution: e.institution || e.college || '',
+        duration:    e.duration    || (e.passingYear ? `Graduated ${e.passingYear}` : ''),
+        grade:       e.grade       || e.percentage || '',
+      })),
+      certifications: (Array.isArray(raw.certifications) ? raw.certifications : []).map(c => ({
+        name:     c.certificationName || c.name || (typeof c === 'string' ? c : ''),
+        validity: c.startMonth ? `${c.startMonth} ${c.startYear || ''} – ${c.noExpiry ? 'No Expiry' : `${c.endMonth || ''} ${c.endYear || ''}`}` : '',
+      })).filter(c => c.name),
+    };
+  }
+
+  // Shape B: flat profile object
+  const emp = raw.employment || {};
+  const edu = raw.educationCollege || {};
+  const cert = raw.certifications || {};
+
+  const experience = [];
+  if (emp.companyName || emp.designation) {
+    experience.push({
+      title:    emp.designation  || '',
+      company:  emp.companyName  || '',
+      duration: buildDuration(emp),
+      bullets:  emp.description ? [emp.description] : [],
+      description: '',
+    });
+  }
+
+  const education = [];
+  if (edu.degree || edu.college) {
+    education.push({
+      degree:      edu.degree      || '',
+      institution: edu.college     || '',
+      duration:    edu.passingYear ? `Graduated ${edu.passingYear}` : '',
+      grade:       edu.percentage  || '',
+    });
+  }
+
+  const certifications = [];
+  if (cert.certificationName) {
+    certifications.push({
+      name: cert.certificationName,
+      validity: cert.startMonth ? `${cert.startMonth} ${cert.startYear || ''} – ${cert.noExpiry ? 'No Expiry' : `${cert.endMonth || ''} ${cert.endYear || ''}`}` : '',
+    });
+  }
+
+  return {
+    name:      raw.name      || '',
+    email:     raw.email     || '',
+    phone:     raw.phone     || '',
+    location:  raw.location  || '',
+    linkedin:  raw.linkedin  || '',
+    portfolio: raw.portfolio || '',
+    summary:   raw.profileSummary || raw.summary || '',
+    skills:    Array.isArray(raw.skills) ? raw.skills : [],
+    experience,
+    education,
+    certifications,
+  };
+}
+
+function buildDuration(e) {
+  if (!e.startMonth && !e.startYear) return '';
+  const start = [e.startMonth, e.startYear].filter(Boolean).join(' ');
+  const end = e.currentlyWorking ? 'Present' : [e.endMonth, e.endYear].filter(Boolean).join(' ');
+  return end ? `${start} – ${end}` : start;
+}
 
 const pdfService = {
   /**
    * Generates a professional ATS-friendly resume PDF.
-   * @param {object} resumeData  — shape from useResumeStore / ResumeBuilderAPI
+   * Accepts both ResumeStore shape and flat profile shape.
+   * @param {object} resumeData
    * @returns {Promise<Buffer>}
    */
   generateResumePDF: (resumeData) => {
     return new Promise((resolve, reject) => {
       try {
+        const d = normalise(resumeData);
         const doc = new PDFDocument({ size: 'A4', margin: MARGIN, bufferPages: true });
         const chunks = [];
-        doc.on('data', (c) => chunks.push(c));
+        doc.on('data', c => chunks.push(c));
         doc.on('end', () => resolve(Buffer.concat(chunks)));
         doc.on('error', reject);
 
-        const p = resumeData.personalInfo || resumeData;
-        const name        = p.name        || resumeData.name        || 'Candidate';
-        const email       = p.email       || resumeData.email       || '';
-        const phone       = p.phone       || resumeData.phone       || '';
-        const location    = p.location    || resumeData.location    || '';
-        const linkedin    = p.linkedin    || resumeData.linkedin    || '';
-        const portfolio   = p.portfolio   || resumeData.portfolio   || '';
-        const summary     = resumeData.summary     || resumeData.profileSummary || '';
-        const skills      = Array.isArray(resumeData.skills) ? resumeData.skills : [];
-        const experience  = Array.isArray(resumeData.experience)  ? resumeData.experience  : [];
-        const education   = Array.isArray(resumeData.education)   ? resumeData.education   : [];
-        const certifications = Array.isArray(resumeData.certifications) ? resumeData.certifications : [];
-
-        // ── NAME ──────────────────────────────────────────────────────────────
+        // ── NAME ─────────────────────────────────────────────────────────────
         doc.font(FONTS.bold).fontSize(22).fillColor(COLORS.heading)
-           .text(name, MARGIN, MARGIN, { width: CONTENT_W });
+           .text(d.name || 'Candidate', MARGIN, MARGIN, { width: CONTENT_W });
 
-        // ── CONTACT LINE ──────────────────────────────────────────────────────
-        const contactParts = [email, phone, location].filter(Boolean);
-        if (contactParts.length) {
+        // ── CONTACT ──────────────────────────────────────────────────────────
+        const contact = [d.email, d.phone, d.location].filter(Boolean);
+        if (contact.length) {
           doc.moveDown(0.2);
           doc.font(FONTS.normal).fontSize(9).fillColor(COLORS.body)
-             .text(contactParts.join('  •  '), MARGIN, doc.y, { width: CONTENT_W });
+             .text(contact.join('  •  '), MARGIN, doc.y, { width: CONTENT_W });
         }
-        if (linkedin || portfolio) {
+        const links = [d.linkedin, d.portfolio].filter(Boolean);
+        if (links.length) {
           doc.moveDown(0.1);
           doc.font(FONTS.normal).fontSize(9).fillColor(COLORS.accent)
-             .text([linkedin, portfolio].filter(Boolean).join('  •  '), MARGIN, doc.y, { width: CONTENT_W });
+             .text(links.join('  •  '), MARGIN, doc.y, { width: CONTENT_W });
         }
 
-        // ── DIVIDER ───────────────────────────────────────────────────────────
+        // ── ACCENT DIVIDER ────────────────────────────────────────────────────
         doc.moveDown(0.5);
         doc.moveTo(MARGIN, doc.y).lineTo(MARGIN + CONTENT_W, doc.y)
            .strokeColor(COLORS.accent).lineWidth(2).stroke();
         doc.moveDown(0.5);
 
         // ── SUMMARY ───────────────────────────────────────────────────────────
-        if (summary) {
+        if (d.summary) {
           sectionHeader(doc, 'Summary');
           doc.font(FONTS.normal).fontSize(10).fillColor(COLORS.body)
-             .text(summary, MARGIN, doc.y, { width: CONTENT_W, lineGap: 2 });
+             .text(d.summary, MARGIN, doc.y, { width: CONTENT_W, lineGap: 2 });
           doc.moveDown(0.5);
         }
 
         // ── SKILLS ────────────────────────────────────────────────────────────
-        if (skills.length) {
+        if (d.skills.length) {
           sectionHeader(doc, 'Skills');
           doc.font(FONTS.normal).fontSize(10).fillColor(COLORS.body)
-             .text(skills.join('  •  '), MARGIN, doc.y, { width: CONTENT_W, lineGap: 2 });
+             .text(d.skills.join('  •  '), MARGIN, doc.y, { width: CONTENT_W, lineGap: 2 });
           doc.moveDown(0.5);
         }
 
         // ── EXPERIENCE ────────────────────────────────────────────────────────
-        if (experience.length) {
+        if (d.experience.length) {
           sectionHeader(doc, 'Experience');
-          experience.forEach((exp) => {
+          d.experience.forEach(exp => {
             checkNewPage(doc, 80);
-            const title   = exp.title       || exp.designation  || '';
-            const company = exp.company     || exp.companyName  || '';
-            const duration = exp.duration   || (exp.startMonth ? `${exp.startMonth} ${exp.startYear || ''} – ${exp.currentlyWorking ? 'Present' : `${exp.endMonth || ''} ${exp.endYear || ''}`}` : '');
-            const bullets  = Array.isArray(exp.bullets) ? exp.bullets.filter(Boolean) : [];
-            const desc     = exp.description || '';
-
-            // Title + duration on same line
             const titleY = doc.y;
             doc.font(FONTS.bold).fontSize(10.5).fillColor(COLORS.heading)
-               .text(title, MARGIN, titleY, { width: CONTENT_W * 0.65, continued: false });
-            if (duration) {
+               .text(exp.title, MARGIN, titleY, { width: CONTENT_W * 0.65, continued: false });
+            if (exp.duration) {
               doc.font(FONTS.normal).fontSize(9).fillColor(COLORS.muted)
-                 .text(duration, MARGIN + CONTENT_W * 0.65, titleY, { width: CONTENT_W * 0.35, align: 'right' });
+                 .text(exp.duration, MARGIN + CONTENT_W * 0.65, titleY, { width: CONTENT_W * 0.35, align: 'right' });
             }
-            if (company) {
+            if (exp.company) {
               doc.font(FONTS.oblique).fontSize(9.5).fillColor(COLORS.accent)
-                 .text(company, MARGIN, doc.y, { width: CONTENT_W });
+                 .text(exp.company, MARGIN, doc.y, { width: CONTENT_W });
             }
             doc.moveDown(0.2);
-
-            if (bullets.length) {
-              bullets.forEach((b) => {
-                checkNewPage(doc, 20);
-                doc.font(FONTS.normal).fontSize(9.5).fillColor(COLORS.body)
-                   .text(`• ${b}`, MARGIN + 10, doc.y, { width: CONTENT_W - 10, lineGap: 1.5 });
-              });
-            } else if (desc) {
+            const lines = exp.bullets.length ? exp.bullets : (exp.description ? [exp.description] : []);
+            lines.forEach(b => {
+              checkNewPage(doc, 20);
               doc.font(FONTS.normal).fontSize(9.5).fillColor(COLORS.body)
-                 .text(desc, MARGIN + 10, doc.y, { width: CONTENT_W - 10, lineGap: 1.5 });
-            }
+                 .text(`• ${b}`, MARGIN + 10, doc.y, { width: CONTENT_W - 10, lineGap: 1.5 });
+            });
             doc.moveDown(0.5);
           });
         }
 
         // ── EDUCATION ─────────────────────────────────────────────────────────
-        if (education.length) {
+        if (d.education.length) {
           sectionHeader(doc, 'Education');
-          education.forEach((edu) => {
+          d.education.forEach(edu => {
             checkNewPage(doc, 50);
-            const degree      = edu.degree      || '';
-            const institution = edu.institution || edu.college || edu.educationCollege?.college || '';
-            const duration    = edu.duration    || (edu.passingYear ? `Graduated ${edu.passingYear}` : '');
-            const grade       = edu.grade       || edu.percentage || '';
-
             const eduY = doc.y;
             doc.font(FONTS.bold).fontSize(10.5).fillColor(COLORS.heading)
-               .text(degree, MARGIN, eduY, { width: CONTENT_W * 0.7 });
-            if (duration) {
+               .text(edu.degree, MARGIN, eduY, { width: CONTENT_W * 0.7 });
+            if (edu.duration) {
               doc.font(FONTS.normal).fontSize(9).fillColor(COLORS.muted)
-                 .text(duration, MARGIN + CONTENT_W * 0.65, eduY, { width: CONTENT_W * 0.35, align: 'right' });
+                 .text(edu.duration, MARGIN + CONTENT_W * 0.65, eduY, { width: CONTENT_W * 0.35, align: 'right' });
             }
-            if (institution) {
+            if (edu.institution) {
               doc.font(FONTS.oblique).fontSize(9.5).fillColor(COLORS.accent)
-                 .text(institution, MARGIN, doc.y, { width: CONTENT_W });
+                 .text(edu.institution, MARGIN, doc.y, { width: CONTENT_W });
             }
-            if (grade) {
+            if (edu.grade) {
               doc.font(FONTS.normal).fontSize(9).fillColor(COLORS.muted)
-                 .text(`Grade: ${grade}`, MARGIN, doc.y, { width: CONTENT_W });
+                 .text(`Grade: ${edu.grade}`, MARGIN, doc.y, { width: CONTENT_W });
             }
             doc.moveDown(0.5);
           });
         }
 
         // ── CERTIFICATIONS ────────────────────────────────────────────────────
-        if (certifications.length) {
+        if (d.certifications.length) {
           sectionHeader(doc, 'Certifications');
-          certifications.forEach((cert) => {
+          d.certifications.forEach(cert => {
             checkNewPage(doc, 30);
-            const certName = cert.certificationName || cert.name || (typeof cert === 'string' ? cert : '');
-            const validity = cert.startMonth ? `${cert.startMonth} ${cert.startYear || ''} – ${cert.noExpiry ? 'No Expiry' : `${cert.endMonth || ''} ${cert.endYear || ''}`}` : '';
             doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.heading)
-               .text(`• ${certName}`, MARGIN, doc.y, { width: CONTENT_W });
-            if (validity) {
+               .text(`• ${cert.name}`, MARGIN, doc.y, { width: CONTENT_W });
+            if (cert.validity) {
               doc.font(FONTS.normal).fontSize(9).fillColor(COLORS.muted)
-                 .text(validity, MARGIN + 10, doc.y, { width: CONTENT_W });
+                 .text(cert.validity, MARGIN + 10, doc.y, { width: CONTENT_W });
             }
             doc.moveDown(0.3);
           });

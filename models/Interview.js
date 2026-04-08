@@ -56,7 +56,17 @@ const Interview = sequelize.define('Interview', {
   interviewer: DataTypes.STRING
 }, {
   tableName: 'interviews',
-  timestamps: true
+  timestamps: true,
+  indexes: [
+    { fields: ['candidateEmail'] },
+    { fields: ['employerEmail'] },
+    { fields: ['candidateId'] },
+    { fields: ['employerId'] },
+    { fields: ['applicationId'] },
+    { fields: ['status'] },
+    { fields: ['scheduledDate'] },
+    { fields: ['candidateEmail', 'status'] }
+  ]
 });
 
 export default Interview;
