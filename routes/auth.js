@@ -7,39 +7,46 @@ const router = express.Router();
 
 // ── Google OAuth ──────────────────────────────────────────────────────────────
 router.get('/google/candidate', (req, res, next) => {
-  passport.authenticate('google', { scope: ['profile', 'email'], state: 'candidate' })(req, res, next);
+  passport.authenticate('google', { scope: ['profile', 'email'], state: 'candidate', prompt: 'select_account' })(req, res, next);
 });
 
 router.get('/google/employer', (req, res, next) => {
-  passport.authenticate('google', { scope: ['profile', 'email'], state: 'employer' })(req, res, next);
+  passport.authenticate('google', { scope: ['profile', 'email'], state: 'employer', prompt: 'select_account' })(req, res, next);
 });
 
 router.get('/google', (req, res, next) => {
   const state = req.query.userType || 'candidate';
-  passport.authenticate('google', { scope: ['profile', 'email'], state })(req, res, next);
+  passport.authenticate('google', { scope: ['profile', 'email'], state, prompt: 'select_account' })(req, res, next);
 });
 
 router.get('/google/callback',
-  passport.authenticate('google', { session: false }),
+  (req, res, next) => {
+    // Log the raw callback params to diagnose AuthorizationError
+    if (req.query.error) {
+      console.error('❌ Google OAuth error param:', req.query.error, req.query.error_description);
+      const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
+      return res.redirect(`${frontendUrl}/login?error=${req.query.error}`);
+    }
+    passport.authenticate('google', { session: false })(req, res, next);
+  },
   async (req, res) => {
     try {
       const isNewUser = req.user.isNewUser === true;
       const portalType = req.query.state || 'candidate';
 
-      if (isNewUser) {
-        req.user.userType = portalType;
-        req.user.role = portalType;
-        await req.user.save();
-      }
+      // Always use the role stored on the user (set correctly in passport.js)
+      const userRole = req.user.role || req.user.userType || portalType;
 
       const token = jwt.sign(
+        { userId: req.user.id, userType: userRole },
         { userId: req.user.id, userType: req.user.userType || req.user.role, type: 'access' },
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );
 
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
-      const redirectUrl = `${frontendUrl}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}`;
+      // Pass the actual account role back so TokenHandler can detect portal mismatch
+      const redirectUrl = `${frontendUrl}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}&accountRole=${userRole}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error('❌ OAuth callback error:', error);

@@ -10,11 +10,14 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     callbackURL: `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/google/callback`,
-    proxy: true
-  }, async (accessToken, refreshToken, profile, done) => {
+    proxy: true,
+    passReqToCallback: true
+  }, async (req, accessToken, refreshToken, profile, done) => {
     try {
       const googleEmail = profile.emails[0].value;
       const googlePhoto = profile.photos?.[0]?.value || null;
+      // Read portal type from OAuth state param (set by /google/candidate or /google/employer routes)
+      const portalType = req.query.state || 'candidate';
 
       let user = await User.findOne({
         where: {
@@ -26,6 +29,24 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       });
 
       if (user) {
+        // If account was deleted (isActive=false), destroy it fully and create fresh
+        if (!user.isActive) {
+          await user.destroy();
+          const newUser = await User.create({
+            googleId: profile.id,
+            name: profile.displayName,
+            email: googleEmail,
+            password: 'google-oauth-' + profile.id,
+            profilePicture: googlePhoto,
+            userType: portalType,
+            role: portalType,
+            isActive: true,
+            emailVerified: true,
+          });
+          newUser.isNewUser = true;
+          return done(null, newUser);
+        }
+        // Update googleId and photo if missing
         if (!user.googleId) {
           await user.update({ googleId: profile.id, profilePicture: googlePhoto });
         }
@@ -33,14 +54,15 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         return done(null, user);
       }
 
+      // New user — create with the correct portal role
       user = await User.create({
         googleId: profile.id,
         name: profile.displayName,
         email: googleEmail,
         password: 'google-oauth-' + profile.id,
         profilePicture: googlePhoto,
-        userType: 'candidate',
-        role: 'candidate',
+        userType: portalType,
+        role: portalType,
         isActive: true,
         emailVerified: true
       });
@@ -100,6 +122,23 @@ if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
       });
 
       if (user) {
+        // If account was deleted (isActive=false), destroy it fully and create fresh
+        if (!user.isActive) {
+          await user.destroy();
+          const newUser = await User.create({
+            linkedinId,
+            name: name || email.split('@')[0],
+            email,
+            password: 'linkedin-oauth-' + linkedinId,
+            profilePicture: photo,
+            userType: portalType,
+            role: portalType,
+            isActive: true,
+            emailVerified: true,
+          });
+          newUser.isNewUser = true;
+          return done(null, newUser);
+        }
         if (!user.linkedinId) await user.update({ linkedinId, profilePicture: photo || user.profilePicture });
         user.isNewUser = false;
         return done(null, user);
