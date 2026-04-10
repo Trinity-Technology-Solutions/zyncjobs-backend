@@ -40,6 +40,34 @@ router.get('/titles', (req, res) => {
   }
 });
 
+// GET /api/jobs/categories - Get job categories with counts
+router.get('/categories', async (req, res) => {
+  try {
+    const { sequelize } = await import('../config/postgresql.js');
+    const categories = await Job.findAll({
+      attributes: [
+        'jobCategory',
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+      ],
+      where: {
+        isActive: true,
+        status: 'approved',
+        jobCategory: { [Op.ne]: null }
+      },
+      group: ['jobCategory'],
+      raw: true
+    });
+    
+    res.json(categories.map(c => ({
+      category: c.jobCategory,
+      count: parseInt(c.count) || 0
+    })));
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/jobs/countries - Get all countries
 router.get('/countries', (req, res) => {
   try {
