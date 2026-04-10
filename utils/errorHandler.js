@@ -3,6 +3,11 @@ export const asyncHandler = (fn) => (req, res, next) => {
 };
 
 export const errorHandler = (err, req, res, next) => {
+  // Handle malformed JSON body (body-parser SyntaxError)
+  if (err.type === 'entity.parse.failed' || err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ success: false, error: 'Invalid JSON in request body' });
+  }
+
   let error = { ...err };
   error.message = err.message;
 
