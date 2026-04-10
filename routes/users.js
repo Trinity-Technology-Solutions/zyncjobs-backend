@@ -407,6 +407,16 @@ router.get('/by-email/:email', async (req, res) => {
   }
 });
 
+// GET /api/users/login - Redirect to proper endpoint
+router.get('/login', (req, res) => {
+  res.status(405).json({ error: 'Use POST method for login', endpoint: 'POST /api/users/login' });
+});
+
+// GET /api/users/register - Redirect to proper endpoint  
+router.get('/register', (req, res) => {
+  res.status(405).json({ error: 'Use POST method for registration', endpoint: 'POST /api/users/register' });
+});
+
 // GET /api/users/check/:email - Check if user exists
 router.get('/check/:email', async (req, res) => {
   try {
