@@ -15,8 +15,6 @@ router.get('/', async (req, res) => {
   try {
     const { employerId, employerEmail } = req.query;
     
-    console.log('📅 Fetching interviews for:', { employerId, employerEmail });
-    
     const where = {};
     if (employerId && employerId !== '') where.employerId = employerId;
     if (employerEmail && employerEmail !== '') where.employerEmail = employerEmail;
@@ -24,6 +22,8 @@ router.get('/', async (req, res) => {
     if (Object.keys(where).length === 0) {
       return res.json([]);
     }
+
+    console.log('📅 Fetching interviews for:', { employerId, employerEmail });
     
     const interviews = await Interview.findAll({
       where,
