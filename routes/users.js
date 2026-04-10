@@ -449,9 +449,13 @@ router.get('/:id', async (req, res) => {
   try {
     const userId = req.params.id;
     
+    // Log the request for debugging
+    console.log('🔍 GET /api/users/:id called with:', userId);
+    
     // Validate UUID format
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(userId)) {
+      console.log('❌ Invalid UUID format:', userId);
       return res.status(400).json({ error: 'Invalid user ID format' });
     }
     
