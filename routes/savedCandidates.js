@@ -4,6 +4,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import SavedCandidate from '../models/SavedCandidate.js';
 import User from '../models/User.js';
+import Profile from '../models/Profile.js';
 
 const router = express.Router();
 
@@ -41,9 +42,22 @@ router.get('/', authenticateToken, requireRole(['employer']), async (req, res) =
       offset: parseInt(offset),
       order: [['savedAt', 'DESC']]
     });
-    
+
+    // Enrich with live profilePhoto from Profile table
+    const emails = rows.map(r => r.candidateEmail).filter(Boolean);
+    const profiles = emails.length
+      ? await Profile.findAll({ where: { email: { [Op.in]: emails } }, attributes: ['email', 'profilePhoto'] })
+      : [];
+    const photoMap = {};
+    profiles.forEach(p => { if (p.profilePhoto) photoMap[p.email] = p.profilePhoto; });
+
+    const enriched = rows.map(r => ({
+      ...r.toJSON(),
+      candidateProfilePicture: photoMap[r.candidateEmail] || r.candidateProfilePicture || ''
+    }));
+
     res.json({
-      savedCandidates: rows,
+      savedCandidates: enriched,
       total: count,
       page: parseInt(page),
       totalPages: Math.ceil(count / limit)
@@ -57,7 +71,7 @@ router.get('/', authenticateToken, requireRole(['employer']), async (req, res) =
 // POST /api/saved-candidates - Save a candidate
 router.post('/', authenticateToken, requireRole(['employer']), async (req, res) => {
   try {
-    const { candidateId, fullName, name, title, jobTitle, location, email, skills, experience, profilePhoto, companyName: reqCompanyName, companyLogo: reqCompanyLogo, notes, tags } = req.body;
+    const { candidateId, fullName, name, title, jobTitle, location, email, skills, experience, profilePhoto, companyName: reqCompanyName, companyLogo: reqCompanyLogo, notes, tags, appliedJobTitle, appliedJobId } = req.body;
 
     if (!candidateId) {
       return res.status(400).json({ error: 'Candidate ID is required' });
@@ -133,6 +147,8 @@ router.post('/', authenticateToken, requireRole(['employer']), async (req, res) 
       candidateProfilePicture: candidateData.profilePicture,
       companyName: reqCompanyName || req.user.companyName || '',
       companyLogo: reqCompanyLogo || req.user.companyLogo || '',
+      appliedJobTitle: appliedJobTitle || '',
+      appliedJobId: appliedJobId || null,
       notes: notes || '',
       tags: tags || []
     });

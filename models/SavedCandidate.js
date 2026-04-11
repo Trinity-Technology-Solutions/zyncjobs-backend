@@ -59,6 +59,8 @@ const SavedCandidate = sequelize.define('SavedCandidate', {
   // Company details
   companyName: DataTypes.STRING,
   companyLogo: DataTypes.STRING,
+  appliedJobTitle: DataTypes.STRING,
+  appliedJobId: DataTypes.UUID,
   // Additional metadata
   notes: DataTypes.TEXT, // Employer's private notes about the candidate
   tags: {
