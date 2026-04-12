@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import User from '../models/User.js';
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
+import GdprConsent from '../models/GdprConsent.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 
@@ -112,3 +113,60 @@ router.delete('/:id', ...adminGuard, async (req, res) => {
 });
 
 export default router;
+
+// GET /api/admin/users/gdpr/stats — GDPR overview stats for admin dashboard
+router.get('/gdpr/stats', ...adminGuard, async (req, res) => {
+  try {
+    const now = new Date();
+    const sixMonthsAgo  = new Date(now - 180 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now - 30  * 24 * 60 * 60 * 1000);
+
+    const [total, consentGiven, inactive6m, reminded, deleted, recentDeleted] = await Promise.all([
+      GdprConsent.count(),
+      GdprConsent.count({ where: { consentTypes: { [Op.contains]: ['terms'] } } }),
+      GdprConsent.count({ where: { lastActiveAt: { [Op.lt]: sixMonthsAgo }, resumeStatus: 'active' } }),
+      GdprConsent.count({ where: { resumeStatus: 'reminded' } }),
+      GdprConsent.count({ where: { resumeStatus: 'deleted' } }),
+      GdprConsent.count({ where: { resumeStatus: 'deleted', updatedAt: { [Op.gte]: thirtyDaysAgo } } }),
+    ]);
+
+    res.json({ total, consentGiven, inactive6m, reminded, deleted, recentDeleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/users/gdpr/records — paginated consent records
+router.get('/gdpr/records', ...adminGuard, async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status } = req.query;
+    const where = {};
+    if (status) where.resumeStatus = status;
+
+    const { rows, count } = await GdprConsent.findAndCountAll({
+      where,
+      order: [['lastActiveAt', 'ASC']],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit)
+    });
+
+    // Enrich with user name/email
+    const userIds = rows.map(r => r.userId);
+    const users = await User.findAll({
+      where: { id: { [Op.in]: userIds } },
+      attributes: ['id', 'name', 'email']
+    });
+    const userMap = {};
+    users.forEach(u => { userMap[u.id] = u; });
+
+    const enriched = rows.map(r => ({
+      ...r.toJSON(),
+      userName:  userMap[r.userId]?.name  || '—',
+      userEmail: userMap[r.userId]?.email || r.userId,
+    }));
+
+    res.json({ records: enriched, total: count, pages: Math.ceil(count / limit) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

@@ -80,10 +80,14 @@ import ogTagsRoutes from './routes/ogTags.js';
 import socialShareRoutes from './routes/socialShare.js';
 import teamRoutes from './routes/team.js';
 import aiRejectionSettingsRoutes from './routes/aiRejectionSettings.js';
+import credentialingRoutes from './routes/credentialing.js';
+import salaryInsightsRoutes from './routes/salaryInsights.js';
 import resumeBuilderRoutes from './routes/resumeBuilder.js';
+import gdprRoutes from './routes/gdpr.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
+import gdprRetentionScheduler from './services/gdprRetentionScheduler.js';
 import Notification from './models/Notification.js';
 import Message from './models/Message.js';
 import Review from './models/Review.js';
@@ -130,6 +134,10 @@ connectDB().then(() => {
   // Start notification scheduler
   if (process.env.ENABLE_NOTIFICATION_SCHEDULER !== 'false') {
     notificationScheduler.start();
+  }
+  // Start GDPR retention scheduler
+  if (process.env.ENABLE_GDPR_SCHEDULER !== 'false') {
+    gdprRetentionScheduler.start();
   }
 }).catch(err => {
   console.error('❌ Database connection failed:', err);
@@ -374,7 +382,10 @@ app.use('/api/social', socialShareRoutes);
 app.use('/api/ai-rejection-settings/preview', aiRejectionSettingsRoutes);
 app.use('/api/ai-rejection-settings/bulk-reject', aiRejectionSettingsRoutes);
 app.use('/api/ai-rejection-settings', aiRejectionSettingsRoutes);
+app.use('/api/credentialing', credentialingRoutes);
+app.use('/api/salary-insights', salaryInsightsRoutes);
 app.use('/api/resume-builder', resumeBuilderRoutes);
+app.use('/api/gdpr', gdprRoutes);
 app.use('/', ogTagsRoutes);
 
 // Resume parser with AI
@@ -1279,6 +1290,7 @@ process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully...');
   jobAlertScheduler.stop();
   notificationScheduler.stop();
+  gdprRetentionScheduler.stop();
   httpServer.close(() => {
     console.log('Server closed');
     process.exit(0);

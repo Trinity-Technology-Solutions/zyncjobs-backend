@@ -6,6 +6,7 @@ import Job from '../models/Job.js';
 import User from '../models/User.js';
 import Resume from '../models/Resume.js';
 import { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendEmployerApplicationEmail } from '../services/emailService.js';
+import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import NotificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { runAutoRejection } from './aiRejectionSettings.js';
@@ -154,6 +155,8 @@ router.post('/', authenticateToken, [
       message: 'Application submitted successfully!',
       application 
     });
+    // GDPR: track activity on job apply
+    updateLastActive(req.user.id).catch(() => {});
   } catch (error) {
     console.error('❌ Application error:', error);
     res.status(500).json({ error: error.message });

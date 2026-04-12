@@ -23,6 +23,7 @@ import '../models/Company.js';
 import '../models/Review.js';
 import '../models/HeadlineAnalytics.js';
 import '../models/PasswordReset.js';
+import '../models/Credentialing.js';
 
 const syncModels = async () => {
   try {

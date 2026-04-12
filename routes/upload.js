@@ -6,6 +6,7 @@ import fs from 'fs';
 import { v2 as cloudinary } from 'cloudinary';
 import Resume from '../models/Resume.js';
 import User from '../models/User.js';
+import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -129,6 +130,8 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
       });
       await User.update({ resumeUrl: fileUrl }, { where: { id: resolvedUserId } });
       console.log(`✅ Resume saved to DB for user ${resolvedUserId}`);
+      // GDPR: track activity on resume upload
+      updateLastActive(resolvedUserId).catch(() => {});
     }
 
     res.json({

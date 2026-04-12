@@ -387,6 +387,49 @@ export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, comp
 
 export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendJobAlertEmail, sendWelcomeEmail, sendFollowUpReminderEmail, sendEmployerApplicationEmail };
 
+// Send GDPR inactivity reminder email (Step 4)
+export const sendGdprInactivityReminderEmail = async (userEmail, userName) => {
+  try {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const mailOptions = {
+      from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
+      to: userEmail,
+      subject: 'Your ZyncJobs resume — action required',
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+          <div style="background:#2563eb;padding:24px 20px;text-align:center;">
+            <h1 style="color:white;margin:0;">ZyncJobs</h1>
+          </div>
+          <div style="padding:32px 30px;background:white;">
+            <h2 style="color:#111;">Hi ${userName || 'there'},</h2>
+            <p style="color:#444;line-height:1.7;">Your resume has been inactive on ZyncJobs for a while.</p>
+            <p style="color:#444;line-height:1.7;">We keep resumes to help you get job opportunities, but we also respect your data privacy.</p>
+            <h3 style="color:#111;">What you can do:</h3>
+            <ul style="color:#444;line-height:2;">
+              <li><a href="${frontendUrl}/dashboard" style="color:#2563eb;">Login to keep your resume active</a></li>
+              <li><a href="${frontendUrl}/resume-builder" style="color:#2563eb;">Update your resume</a></li>
+              <li><a href="${frontendUrl}/privacy-settings" style="color:#2563eb;">Delete your resume anytime</a></li>
+            </ul>
+            <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:16px;margin:24px 0;">
+              <p style="margin:0;color:#92400e;font-size:14px;">⚠️ If there is no activity in the next <strong>30 days</strong>, your resume will be automatically removed.</p>
+            </div>
+            <p style="color:#666;font-size:13px;">To manage your privacy settings, visit <a href="${frontendUrl}/privacy-settings" style="color:#2563eb;">Privacy Settings</a>.</p>
+          </div>
+          <div style="background:#f1f1f1;padding:16px;text-align:center;">
+            <p style="color:#888;margin:0;font-size:12px;">© 2025 ZyncJobs. All rights reserved. · <a href="mailto:privacy@zyncjobs.com" style="color:#888;">privacy@zyncjobs.com</a></p>
+          </div>
+        </div>
+      `
+    };
+    await transporter.sendMail(mailOptions);
+    console.log('✅ GDPR inactivity reminder sent to:', userEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ GDPR reminder email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // Send interview scheduled email to candidate
 export const sendInterviewScheduledEmail = async (candidateEmail, candidateName, jobTitle, company, interviewDetails) => {
   try {

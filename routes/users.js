@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import { Op } from 'sequelize';
 import { generateAccessToken, generateRefreshToken, verifyToken } from '../utils/jwt.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
+import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import { registrationGuard, emailVerificationGuard } from '../middleware/settingsMiddleware.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -268,6 +269,8 @@ router.post('/login', async (req, res) => {
     });
 
     console.log('✅ Login successful for:', email);
+    // GDPR: update activity timestamp
+    updateLastActive(user.id).catch(() => {});
     res.json({ 
       message: 'Login successful',
       user: userResponse,

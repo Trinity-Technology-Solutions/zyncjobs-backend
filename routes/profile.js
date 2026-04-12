@@ -34,7 +34,8 @@ router.post('/save', async (req, res) => {
       'internships','languages','awards','clubsCommittees','competitiveExams',
       'academicAchievements','companyName','roleTitle','salary','jobType',
       'gender','birthday','college','degree',
-      'careerPreferences','educationCollege','educationClass12','educationClass10'
+      'careerPreferences','educationCollege','educationClass12','educationClass10',
+      'openToWork','visibilityStatus','profileVisibility'
     ];
     fieldMap.forEach(f => { if (profileData[f] !== undefined) updateFields[f] = profileData[f]; });
     if (isValidUUID) updateFields.userId = userId;

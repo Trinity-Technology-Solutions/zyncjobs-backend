@@ -38,8 +38,7 @@ router.get('/google/callback',
       const userRole = req.user.role || req.user.userType || portalType;
 
       const token = jwt.sign(
-        { userId: req.user.id, userType: userRole },
-        { userId: req.user.id, userType: req.user.userType || req.user.role, type: 'access' },
+        { userId: req.user.id, userType: userRole, type: 'access' },
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );

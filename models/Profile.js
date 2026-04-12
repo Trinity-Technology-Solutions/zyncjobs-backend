@@ -52,7 +52,19 @@ const Profile = sequelize.define('Profile', {
   careerPreferences: DataTypes.TEXT,
   educationCollege: DataTypes.TEXT,
   educationClass12: DataTypes.TEXT,
-  educationClass10: DataTypes.TEXT
+  educationClass10: DataTypes.TEXT,
+  openToWork: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  visibilityStatus: {
+    type: DataTypes.ENUM('actively-looking', 'passively-looking', 'not-looking'),
+    defaultValue: 'passively-looking'
+  },
+  profileVisibility: {
+    type: DataTypes.ENUM('public', 'recruiters-only', 'private'),
+    defaultValue: 'public'
+  }
 }, {
   tableName: 'profiles',
   timestamps: true,
