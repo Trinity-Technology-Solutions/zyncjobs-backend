@@ -96,6 +96,11 @@ const Job = sequelize.define('Job', {
     type: DataTypes.ENUM('pending', 'approved', 'rejected'),
     defaultValue: 'approved'
   },
+  slug: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true
+  },
   views: {
     type: DataTypes.INTEGER,
     defaultValue: 0
@@ -118,7 +123,8 @@ const Job = sequelize.define('Job', {
     { fields: ['employerId'] },
     { fields: ['positionId'], unique: true },
     { fields: ['isActive', 'status'] },
-    { fields: ['createdAt'] }
+    { fields: ['createdAt'] },
+    { fields: ['slug'] }
   ]
 });
 

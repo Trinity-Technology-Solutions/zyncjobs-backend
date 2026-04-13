@@ -4,7 +4,8 @@ import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import User from '../models/User.js';
 import { Op } from 'sequelize';
-import { generateAccessToken, generateRefreshToken, verifyToken } from '../utils/jwt.js';
+import { generateAccessToken, generateRefreshToken, verifyToken, verifyRefreshToken } from '../utils/jwt.js';
+import { authenticateToken } from '../middleware/auth.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import { registrationGuard, emailVerificationGuard } from '../middleware/settingsMiddleware.js';
@@ -274,8 +275,8 @@ router.post('/login', async (req, res) => {
     res.json({ 
       message: 'Login successful',
       user: userResponse,
-      accessToken,
-      refreshToken // Also send in response for flexibility
+      accessToken
+      // refreshToken sent via httpOnly cookie only
     });
   } catch (error) {
     console.error('❌ Login error:', error);
@@ -292,8 +293,7 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Refresh token required' });
     }
 
-    // Verify refresh token
-    const decoded = verifyToken(oldRefreshToken);
+    const decoded = verifyRefreshToken(oldRefreshToken);
     const user = await User.findByPk(decoded.userId);
 
     if (!user || !user.isActive) {
@@ -313,8 +313,8 @@ router.post('/refresh', async (req, res) => {
     });
 
     res.json({ 
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken
+      accessToken: newAccessToken
+      // newRefreshToken sent via httpOnly cookie only
     });
   } catch (error) {
     res.status(403).json({ error: 'Invalid or expired refresh token' });
@@ -361,7 +361,7 @@ router.get('/stats/counts', async (req, res) => {
 });
 
 // GET /api/users/pending-employers - Admin: list pending employers
-router.get('/pending-employers', async (req, res) => {
+router.get('/pending-employers', authenticateToken, async (req, res) => {
   try {
     const users = await User.findAll({
       where: { role: 'employer', verificationStatus: 'pending' },
@@ -495,7 +495,7 @@ router.get('/', async (req, res) => {
 });
 
 // PUT /api/users/:id/verify - Admin: approve or reject employer
-router.put('/:id/verify', async (req, res) => {
+router.put('/:id/verify', authenticateToken, async (req, res) => {
   try {
     const { status, note } = req.body;
     if (!['verified', 'rejected', 'pending'].includes(status)) {
@@ -549,8 +549,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/users/cleanup/:email - Delete user by email
-router.delete('/cleanup/:email', async (req, res) => {
+// DELETE /api/users/cleanup/:email - Admin only
+router.delete('/cleanup/:email', authenticateToken, async (req, res) => {
   try {
     const { email } = req.params;
     const deletedCount = await User.destroy({ 

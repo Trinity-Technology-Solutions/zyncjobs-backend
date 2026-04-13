@@ -2,6 +2,7 @@ import express from 'express';
 import passport from '../config/passport.js';
 import jwt from 'jsonwebtoken';
 import fetch from 'node-fetch';
+import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
 
 const router = express.Router();
 
@@ -37,14 +38,17 @@ router.get('/google/callback',
       // Always use the role stored on the user (set correctly in passport.js)
       const userRole = req.user.role || req.user.userType || portalType;
 
-      const token = jwt.sign(
-        { userId: req.user.id, userType: userRole, type: 'access' },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      const token = generateAccessToken(req.user.id);
+      const refreshToken = generateRefreshToken(req.user.id);
 
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
-      // Pass the actual account role back so TokenHandler can detect portal mismatch
+      // Set httpOnly refresh token cookie
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
       const redirectUrl = `${frontendUrl}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}&accountRole=${userRole}`;
       res.redirect(redirectUrl);
     } catch (error) {
@@ -89,13 +93,16 @@ router.get('/linkedin/callback',
         await req.user.save();
       }
 
-      const token = jwt.sign(
-        { userId: req.user.id, userType: req.user.userType || req.user.role, linkedinAccessToken: req.linkedinAccessToken, type: 'access' },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      const token = generateAccessToken(req.user.id);
+      const refreshToken = generateRefreshToken(req.user.id);
 
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
       res.redirect(`${frontendUrl}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}&linkedin=1`);
     } catch (error) {
       console.error('❌ LinkedIn callback error:', error);
