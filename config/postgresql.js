@@ -145,6 +145,35 @@ const applyIndexes = async () => {
     console.warn('⚠️  reviews migration warning:', e.message);
   }
 
+  // Create gdpr_consents table if not exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS gdpr_consents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        "userId" VARCHAR(255) NOT NULL UNIQUE,
+        "consentTypes" TEXT[] DEFAULT '{}',
+        "consentDate" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        "storeResume" BOOLEAN DEFAULT true,
+        "allowEmployerView" BOOLEAN DEFAULT true,
+        "receiveJobAlerts" BOOLEAN DEFAULT true,
+        "allowAIRecommendations" BOOLEAN DEFAULT true,
+        "cookieNecessary" BOOLEAN DEFAULT true,
+        "cookieAnalytics" BOOLEAN DEFAULT false,
+        "cookieMarketing" BOOLEAN DEFAULT false,
+        "cookieConsentDate" TIMESTAMP WITH TIME ZONE,
+        "lastActiveAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        "resumeUploadedAt" TIMESTAMP WITH TIME ZONE,
+        "resumeStatus" VARCHAR(20) DEFAULT 'active' CHECK ("resumeStatus" IN ('active', 'reminded', 'deleted')),
+        "reminderSentAt" TIMESTAMP WITH TIME ZONE,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+    console.log('✅ gdpr_consents table ready');
+  } catch (e) {
+    console.warn('⚠️  gdpr_consents table warning:', e.message);
+  }
+
   // Add missing columns to jobs if missing
   try {
     await sequelize.query(`

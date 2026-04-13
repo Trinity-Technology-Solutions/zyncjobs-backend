@@ -42,26 +42,29 @@ router.get('/titles', (req, res) => {
 
 // GET /api/jobs/categories - Get job categories with counts
 router.get('/categories', async (req, res) => {
+  const categoryKeywords = [
+    { name: 'Software Development', terms: ['software developer', 'software engineer', 'software architect', 'frontend developer', 'backend developer', 'full stack developer', 'full stack engineer', 'web developer', 'web engineer', 'react developer', 'node developer', 'java developer', 'python developer', 'php developer', 'ruby developer', 'golang developer', 'typescript developer', 'javascript developer', 'application developer', 'application engineer'] },
+    { name: 'Data Science & AI', terms: ['data scientist', 'machine learning', 'ai engineer', 'data analyst', 'data engineer', 'artificial intelligence', 'deep learning', 'nlp engineer', 'data science', 'ml engineer', 'business intelligence', 'analytics engineer', 'ai researcher'] },
+    { name: 'Mobile Development', terms: ['mobile developer', 'ios developer', 'android developer', 'react native', 'flutter developer', 'mobile app', 'swift developer', 'kotlin developer', 'mobile engineer'] },
+    { name: 'Cybersecurity', terms: ['cybersecurity', 'security analyst', 'security engineer', 'penetration tester', 'information security', 'cyber security', 'soc analyst', 'ethical hacker', 'security architect', 'network security'] },
+    { name: 'Cloud Engineering', terms: ['cloud engineer', 'cloud architect', 'aws engineer', 'azure engineer', 'gcp engineer', 'cloud developer', 'solutions architect', 'site reliability engineer', 'sre engineer', 'platform engineer', 'cloud administrator'] },
+    { name: 'DevOps & Infrastructure', terms: ['devops', 'infrastructure engineer', 'kubernetes engineer', 'docker engineer', 'ci/cd engineer', 'system administrator', 'sysadmin', 'network engineer', 'linux administrator', 'build engineer', 'release engineer', 'devops engineer'] },
+    { name: 'Product Management', terms: ['product manager', 'product owner', 'business analyst', 'project manager', 'scrum master', 'program manager', 'product lead', 'agile coach', 'delivery manager'] },
+    { name: 'UI/UX Design', terms: ['ui designer', 'ux designer', 'graphic designer', 'web designer', 'product designer', 'visual designer', 'interaction designer', 'ui/ux designer', 'ux researcher', 'design lead', 'creative designer'] }
+  ];
+
   try {
-    const { sequelize } = await import('../config/postgresql.js');
-    const categories = await Job.findAll({
-      attributes: [
-        'jobCategory',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-      ],
-      where: {
-        isActive: true,
-        status: 'approved',
-        jobCategory: { [Op.ne]: null }
-      },
-      group: ['jobCategory'],
-      raw: true
-    });
-    
-    res.json(categories.map(c => ({
-      category: c.jobCategory,
-      count: parseInt(c.count) || 0
-    })));
+    const results = await Promise.all(categoryKeywords.map(async (cat) => {
+      const count = await Job.count({
+        where: {
+          isActive: true,
+          status: 'approved',
+          [Op.or]: cat.terms.map(term => ({ jobTitle: { [Op.iLike]: `%${term}%` } }))
+        }
+      });
+      return { category: cat.name, count };
+    }));
+    res.json(results);
   } catch (error) {
     console.error('Error fetching categories:', error);
     res.status(500).json({ error: error.message });
