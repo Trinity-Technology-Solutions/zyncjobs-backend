@@ -27,6 +27,18 @@ try {
   console.error('Error loading companies data:', error);
 }
 
+// GET /api/jobs/slug/:slug - Get job by SEO slug
+router.get('/slug/:slug', async (req, res) => {
+  try {
+    const job = await Job.findOne({ where: { slug: req.params.slug, isActive: true } });
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    const jobJson = job.toJSON();
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/jobs/titles - Get all job titles
 router.get('/titles', (req, res) => {
   try {
@@ -81,6 +93,19 @@ router.get('/countries', (req, res) => {
     res.json({ countries: [] });
   }
 });
+
+// Generate SEO-friendly slug
+function generateSlug(jobTitle, company, id) {
+  const base = `${jobTitle}-at-${company}`
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .substring(0, 80);
+  const suffix = id ? String(id).slice(-6) : Math.random().toString(36).slice(-6);
+  return `${base}-${suffix}`;
+}
 
 // Helper function to generate job code
 function generateJobCode(jobTitle, company) {
@@ -156,6 +181,70 @@ function getCompanyLogo(companyName) {
   return company ? company.logo : null;
 }
 
+// Helper function to auto-assign category from job title
+function getCategoryFromTitle(jobTitle) {
+  const title = jobTitle.toLowerCase();
+  
+  if (title.includes('software') || title.includes('developer') || title.includes('engineer') || 
+      title.includes('programmer') || title.includes('frontend') || title.includes('backend') || 
+      title.includes('fullstack') || title.includes('full stack')) {
+    return 'Software Development';
+  }
+  
+  if (title.includes('data') || title.includes('analyst') || title.includes('scientist') || 
+      title.includes('analytics') || title.includes('bi ')) {
+    return 'Data Science & Analytics';
+  }
+  
+  if (title.includes('devops') || title.includes('cloud') || title.includes('infrastructure') || 
+      title.includes('sre') || title.includes('system')) {
+    return 'DevOps & Cloud';
+  }
+  
+  if (title.includes('designer') || title.includes('ui') || title.includes('ux') || 
+      title.includes('graphic') || title.includes('product design')) {
+    return 'Design';
+  }
+  
+  if (title.includes('marketing') || title.includes('digital') || title.includes('seo') || 
+      title.includes('content') || title.includes('social media')) {
+    return 'Marketing';
+  }
+  
+  if (title.includes('sales') || title.includes('business development') || title.includes('account')) {
+    return 'Sales';
+  }
+  
+  if (title.includes('hr') || title.includes('human resource') || title.includes('recruiter') || 
+      title.includes('talent')) {
+    return 'Human Resources';
+  }
+  
+  if (title.includes('finance') || title.includes('accounting') || title.includes('accountant')) {
+    return 'Finance & Accounting';
+  }
+  
+  if (title.includes('project') || title.includes('manager') || title.includes('scrum') || 
+      title.includes('product manager') || title.includes('program')) {
+    return 'Project Management';
+  }
+  
+  if (title.includes('qa') || title.includes('quality') || title.includes('test') || 
+      title.includes('automation')) {
+    return 'Quality Assurance';
+  }
+  
+  if (title.includes('security') || title.includes('cyber')) {
+    return 'Cybersecurity';
+  }
+  
+  if (title.includes('support') || title.includes('customer success') || title.includes('help desk')) {
+    return 'Customer Support';
+  }
+  
+  return 'Other';
+}
+
 // Helper: normalize any array field (handles string, JSON string, PG array literal, real array)
 function normalizeArray(val) {
   if (!val) return [];
@@ -174,33 +263,41 @@ function normalizeArray(val) {
 router.get('/', async (req, res) => {
   try {
     const { page = 1, limit = 10, location, jobType, search, sort } = req.query;
-    const cacheKey = `jobs:list:${page}:${limit}:${location||''}:${jobType||''}:${search||''}:${sort||''}`;
-
-    const result = await withCache(cacheKey, async () => {
-      const where = { isActive: true, status: 'approved' };
-      if (location) where.location = { [Op.iLike]: `%${location}%` };
-      if (jobType) where.jobType = Array.isArray(jobType) ? { [Op.in]: jobType } : jobType;
-      if (search) {
-        where[Op.or] = [
-          { jobTitle: { [Op.iLike]: `%${search}%` } },
-          { company: { [Op.iLike]: `%${search}%` } },
-          { description: { [Op.iLike]: `%${search}%` } }
-        ];
-      }
-      const jobs = await Job.findAll({
-        where,
-        order: [['createdAt', 'DESC']],
-        limit: parseInt(limit),
-        offset: (parseInt(page) - 1) * parseInt(limit)
-      });
-      return jobs.map(job => {
-        const jobJson = job.toJSON();
-        return { ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
-      });
-    }, 120); // cache 2 minutes
+    
+    const where = { isActive: true, status: 'approved' };
+    if (location) where.location = { [Op.iLike]: `%${location}%` };
+    if (jobType) where.jobType = Array.isArray(jobType) ? { [Op.in]: jobType } : jobType;
+    if (search) {
+      where[Op.or] = [
+        { jobTitle: { [Op.iLike]: `%${search}%` } },
+        { company: { [Op.iLike]: `%${search}%` } },
+        { description: { [Op.iLike]: `%${search}%` } }
+      ];
+    }
+    
+    const jobs = await Job.findAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: (parseInt(page) - 1) * parseInt(limit)
+    });
+    
+    const result = jobs.map(job => {
+      const jobJson = job.toJSON();
+      return { 
+        ...jobJson, 
+        companyLogo: getCompanyLogo(job.company), 
+        salary: { 
+          min: jobJson.salaryMin, 
+          max: jobJson.salaryMax, 
+          currency: jobJson.currency || 'INR' 
+        } 
+      };
+    });
 
     res.json(result);
   } catch (error) {
+    console.error('Error fetching jobs:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -442,6 +539,9 @@ router.post('/', maxJobsGuard, [
     console.log('JobType before create:', jobData.jobType, 'Type:', typeof jobData.jobType);
     console.log('Full jobData object being sent to Job.create:', JSON.stringify(jobData, null, 2));
     
+    // Auto-assign category if not provided
+    const autoCategory = jobData.jobCategory || getCategoryFromTitle(jobData.jobTitle);
+    
     // Explicitly construct the job creation object to avoid any spread issues
     const jobCreateData = {
       jobTitle: jobData.jobTitle,
@@ -457,7 +557,7 @@ router.post('/', maxJobsGuard, [
       salaryMax: jobData.salaryMax,
       currency: jobData.currency,
       experienceLevel: jobData.experienceLevel,
-      jobCategory: jobData.jobCategory || null,
+      jobCategory: autoCategory,
       experienceRange: jobData.experienceRange || null,
       languages: normalizeArray(jobData.languages),
       country: jobData.country || null,
@@ -472,11 +572,12 @@ router.post('/', maxJobsGuard, [
     console.log('Final jobCreateData:', JSON.stringify(jobCreateData, null, 2));
     
     const job = await Job.create(jobCreateData);
+    // Generate and save slug after creation (needs the UUID)
+    const slug = generateSlug(job.jobTitle, job.company, job.id);
+    await job.update({ slug });
 
     // Index for semantic search (non-blocking)
     vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
-    // Clear jobs list cache
-    cacheDelPattern('jobs:list:*').catch(() => {});
 
     console.log('Job created - Employer ID:', employerId, 'Position ID:', job.positionId, 'Job ID:', job.id);
     res.status(201).json(job);
@@ -570,8 +671,6 @@ router.put('/:id', async (req, res) => {
     await job.update(updates);
     // Re-index after update (non-blocking)
     vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
-    // Clear jobs list cache
-    cacheDelPattern('jobs:list:*').catch(() => {});
     const jobJson = job.toJSON();
     res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {

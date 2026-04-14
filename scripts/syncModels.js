@@ -24,6 +24,7 @@ import '../models/Review.js';
 import '../models/HeadlineAnalytics.js';
 import '../models/PasswordReset.js';
 import '../models/Credentialing.js';
+import '../models/GdprConsent.js';
 
 const syncModels = async () => {
   try {

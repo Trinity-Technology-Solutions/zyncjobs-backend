@@ -40,6 +40,18 @@ function getCompanyDomain(companyName) {
   return null;
 }
 
+// GET /jobs/:slug - SEO slug OG tags
+router.get('/jobs/:slug', async (req, res) => {
+  try {
+    const job = await Job.findOne({ where: { slug: req.params.slug } });
+    if (!job) return res.redirect(`${process.env.FRONTEND_URL}/job-listings`);
+    const jobUrl = `${process.env.FRONTEND_URL}/jobs/${job.slug}`;
+    res.redirect(301, jobUrl);
+  } catch (error) {
+    res.redirect(`${process.env.FRONTEND_URL}/job-listings`);
+  }
+});
+
 // GET /job-detail?id=xxx - Dynamic OG tags for job details
 router.get('/job-detail', async (req, res) => {
   try {
@@ -72,7 +84,10 @@ router.get('/job-detail', async (req, res) => {
       ? descriptionParts.join(' • ')
       : (job.description || `Job opportunity at ${job.company}`).substring(0, 160);
     const ogImage = getOgImage(job);
-    const jobUrl = `${process.env.FRONTEND_URL}/job-detail?id=${job._id || job.id}`;
+    const jobUrl = job.slug
+      ? `${process.env.FRONTEND_URL}/jobs/${job.slug}`
+      : `${process.env.FRONTEND_URL}/job-detail?id=${job.id}`;
+    const redirectUrl = jobUrl;
 
     const html = `
 <!DOCTYPE html>
@@ -103,11 +118,11 @@ router.get('/job-detail', async (req, res) => {
     
     <!-- Redirect to frontend -->
     <script>
-        window.location.href = "${jobUrl}";
+        window.location.href = "${redirectUrl}";
     </script>
     
     <!-- Fallback for non-JS -->
-    <meta http-equiv="refresh" content="0; url=${jobUrl}">
+    <meta http-equiv="refresh" content="0; url=${redirectUrl}">
 </head>
 <body>
     <div style="text-align: center; padding: 50px; font-family: Arial, sans-serif;">

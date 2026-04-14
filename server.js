@@ -73,6 +73,7 @@ import savedCandidatesRoutes from './routes/savedCandidates.js';
 import reviewRoutes from './routes/reviews.js';
 import matchRoutes from './routes/match.js';
 import savedRecommendedJobsRoutes from './routes/savedRecommendedJobs.js';
+import savedJobsRoutes from './routes/savedJobs.js';
 import userPreferencesRoutes from './routes/userPreferences.js';
 import jobSessionRoutes from './routes/jobSession.js';
 import employerRoutes from './routes/employers.js';
@@ -98,6 +99,7 @@ import { generateAccessToken, generateRefreshToken } from './utils/jwt.js';
 import { errorHandler, notFound } from './utils/errorHandler.js';
 import { validateEnv } from './utils/envValidator.js';
 import { getRedisStatus } from './services/redisService.js';
+import { sanitizeInput } from './middleware/sanitize.js';
 
 
 import * as Sentry from '@sentry/node';
@@ -231,13 +233,13 @@ app.use(helmet({
 
 // Session configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  secret: process.env.SESSION_SECRET || (() => { throw new Error('SESSION_SECRET env var is required'); })(),
   resave: false,
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'qa',
     sameSite: process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'qa' ? 'none' : 'lax',
-    maxAge: 10 * 60 * 1000 // 10 mins — only needed for OAuth handshake
+    maxAge: 10 * 60 * 1000
   }
 }));
 
@@ -269,7 +271,9 @@ const loginLimiter = rateLimit({
 });
 
 app.use('/api/users/login', loginLimiter);
+app.use('/api/users/register', loginLimiter);
 app.use(limiter);
+app.use(sanitizeInput);
 app.use(cors({
   origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [].filter(Boolean),
   credentials: true
@@ -374,6 +378,7 @@ app.use('/api/saved-candidates', savedCandidatesRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/match', matchRoutes);
 app.use('/api/saved-recommended-jobs', savedRecommendedJobsRoutes);
+app.use('/api/saved-jobs', savedJobsRoutes);
 app.use('/api/user-preferences', userPreferencesRoutes);
 app.use('/api/job-session', jobSessionRoutes);
 app.use('/api/employers', employerRoutes);
