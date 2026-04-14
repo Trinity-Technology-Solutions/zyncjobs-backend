@@ -13,7 +13,9 @@
     "db:create": "node scripts/createDatabase.js",
     "db:sync": "node scripts/syncModels.js",
     "db:seed": "node scripts/loadInitialData.js",
-    "db:clear": "node scripts/clearAllData.js"
+    "db:clear": "node scripts/clearAllData.js",
+    "db:fix-qa": "node scripts/fixQADatabase.js",
+    "db:add-columns": "node scripts/addMissingJobColumns.js"
   },
   "keywords": [
     "job-portal",
