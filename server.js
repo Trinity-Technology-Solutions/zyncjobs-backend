@@ -105,7 +105,7 @@ import { sanitizeInput } from './middleware/sanitize.js';
 
 import * as Sentry from '@sentry/node';
 
-dotenv.config();
+dotenv.config({ path: process.env.NODE_ENV === 'qa' ? '.env.qa' : '.env' });
 validateEnv();
 
 const __filename = fileURLToPath(import.meta.url);
