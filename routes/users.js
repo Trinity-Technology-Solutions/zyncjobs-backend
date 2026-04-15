@@ -242,7 +242,6 @@ router.post('/login', async (req, res) => {
 
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
-    const decoded = verifyToken(refreshToken);
 
     const resolvedCompany = user.companyName || user.company || '';
     const userResponse = {
