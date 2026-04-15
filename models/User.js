@@ -74,7 +74,12 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   },
-  lastLogin: DataTypes.DATE
+  lastLogin: DataTypes.DATE,
+  verificationStatus: {
+    type: DataTypes.ENUM('pending', 'verified', 'rejected'),
+    defaultValue: 'pending',
+    allowNull: true
+  }
 }, {
   tableName: 'users',
   timestamps: true,

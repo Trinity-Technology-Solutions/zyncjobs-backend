@@ -160,6 +160,25 @@ const applyIndexes = async () => {
     console.warn('⚠️  jobs migration warning:', e.message);
   }
 
+  // Add verificationStatus column to users if missing
+  try {
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='verificationStatus') THEN
+          CREATE TYPE verification_status_enum AS ENUM ('pending', 'verified', 'rejected');
+          ALTER TABLE users ADD COLUMN "verificationStatus" verification_status_enum DEFAULT 'pending';
+        END IF;
+      END $$;
+    `);
+    await sequelize.query(`
+      UPDATE users SET "verificationStatus" = 'verified'
+      WHERE role = 'employer' AND "emailVerified" = true AND "verificationStatus" IS NULL;
+    `);
+    console.log('✅ users.verificationStatus column verified');
+  } catch (e) {
+    console.warn('⚠️  users verificationStatus migration warning:', e.message);
+  }
+
   for (const sql of INDEXES) {
     try {
       await sequelize.query(sql);
