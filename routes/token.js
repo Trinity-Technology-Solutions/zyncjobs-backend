@@ -18,6 +18,7 @@ router.post('/refresh', async (req, res) => {
     res.json({
       accessToken: generateAccessToken(user.id),
       refreshToken: generateRefreshToken(user.id),
+      user: { id: user.id, role: user.role, userType: user.role },
       expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m'
     });
   } catch (error) {
