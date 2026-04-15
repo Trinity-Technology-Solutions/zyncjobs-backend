@@ -136,4 +136,42 @@ router.post('/job-description', async (req, res) => {
   }
 });
 
+// Generic prompt → suggestions proxy (used by frontend aiSuggestions.ts)
+router.post('/suggest', async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt) return res.json({ suggestions: [] });
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      return res.json({ suggestions: [] });
+    }
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+        'X-Title': 'ZyncJobs'
+      },
+      body: JSON.stringify({
+        model: 'mistralai/mistral-7b-instruct:free',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+        temperature: 0.7
+      })
+    });
+
+    if (!response.ok) return res.json({ suggestions: [] });
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const suggestions = content.split('\n').map(l => l.replace(/^[-•*\d.]+\s*/, '').trim()).filter(l => l.length > 1).slice(0, 8);
+    res.json({ suggestions });
+  } catch (error) {
+    console.error('AI suggest error:', error);
+    res.json({ suggestions: [] });
+  }
+});
+
 export default router;

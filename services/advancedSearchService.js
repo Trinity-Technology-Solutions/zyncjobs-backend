@@ -1,10 +1,21 @@
 import { Op } from 'sequelize';
 import Job from '../models/Job.js';
+import { haversineDistance } from '../utils/geocode.js';
 
 export const advancedJobSearch = async (params = {}) => {
-  const { query, location, jobType, workSetting, experienceLevel, salaryMin, salaryMax, skills, page = 1, limit = 20 } = params;
+  const { query, location, jobType, workSetting, experienceLevel, salaryMin, salaryMax, skills,
+    coordinates, radius, freshness, page = 1, limit = 20 } = params;
 
   const where = { isActive: true, status: 'approved' };
+
+  // Freshness filter
+  if (freshness) {
+    const now = new Date();
+    const cutoff = freshness === '24h'
+      ? new Date(now - 24 * 60 * 60 * 1000)
+      : new Date(now - 7 * 24 * 60 * 60 * 1000);
+    where.createdAt = { [Op.gte]: cutoff };
+  }
 
   if (query) {
     where[Op.or] = [
@@ -19,7 +30,6 @@ export const advancedJobSearch = async (params = {}) => {
   if (salaryMin) where.salaryMax = { [Op.gte]: salaryMin };
   if (salaryMax) where.salaryMin = { [Op.lte]: salaryMax };
   
-  // Fix jobType handling - it's now an ENUM, not an array
   if (jobType) {
     if (Array.isArray(jobType)) {
       where.jobType = { [Op.in]: jobType };
@@ -28,9 +38,25 @@ export const advancedJobSearch = async (params = {}) => {
     }
   }
   
-  // Skills is still an array
   if (skills?.length) {
     where.skills = { [Op.overlap]: Array.isArray(skills) ? skills : [skills] };
+  }
+
+  // Radius search — fetch geocoded jobs and filter by Haversine distance
+  if (coordinates && radius) {
+    const [searchLon, searchLat] = coordinates;
+    where.latitude = { [Op.ne]: null };
+    where.longitude = { [Op.ne]: null };
+
+    const allJobs = await Job.findAll({ where, order: [['createdAt', 'DESC']] });
+    const nearby = allJobs.filter(job =>
+      haversineDistance(searchLat, searchLon, job.latitude, job.longitude) <= radius
+    );
+
+    const total = nearby.length;
+    const offset = (page - 1) * limit;
+    const rows = nearby.slice(offset, offset + limit);
+    return { jobs: rows, total, page, totalPages: Math.ceil(total / limit) };
   }
 
   const offset = (page - 1) * limit;

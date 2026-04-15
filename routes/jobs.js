@@ -12,6 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import vectorService from '../services/vectorService.js';
 import { withCache, cacheDelPattern } from '../services/redisService.js';
+import { geocodeLocation } from '../utils/geocode.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -571,6 +572,12 @@ router.post('/', maxJobsGuard, [
     const job = await Job.create(jobCreateData);
     // Generate and save slug after creation (needs the UUID)
     const slug = generateSlug(job.jobTitle, job.company, job.id);
+    
+    // Geocode location for radius search (non-blocking)
+    geocodeLocation(jobCreateData.location).then(coords => {
+      if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => {});
+    }).catch(() => {});
+
     await job.update({ slug });
 
     // Index for semantic search (non-blocking)
@@ -666,6 +673,12 @@ router.put('/:id', async (req, res) => {
     if (updates.country) updates.country = updates.country.trim();
 
     await job.update(updates);
+    // Re-geocode if location changed (non-blocking)
+    if (updates.location) {
+      geocodeLocation(updates.location).then(coords => {
+        if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => {});
+      }).catch(() => {});
+    }
     // Re-index after update (non-blocking)
     vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
     const jobJson = job.toJSON();

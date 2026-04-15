@@ -95,23 +95,40 @@ router.get('/filters', async (req, res) => {
 // POST /api/search/radius - Location-based radius search
 router.post('/radius', async (req, res) => {
   try {
-    const { latitude, longitude, radius = 50, ...otherParams } = req.body;
+    const { latitude, longitude, radius = 50, query, page = 1, limit = 50 } = req.body;
     
     if (!latitude || !longitude) {
       return res.status(400).json({ error: 'Latitude and longitude are required' });
     }
 
-    const searchParams = {
-      ...otherParams,
+    const result = await advancedJobSearch({
+      query,           // job keyword only (e.g. "React Developer")
       coordinates: [longitude, latitude],
-      radius
-    };
-
-    const result = await advancedJobSearch(searchParams);
+      radius,
+      page,
+      limit
+    });
     res.json(result);
   } catch (error) {
     console.error('Radius search error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/search/geocode?q=Chennai - Proxy geocoding to avoid browser CORS
+router.get('/geocode', async (req, res) => {
+  const { q } = req.query;
+  if (!q) return res.status(400).json({ error: 'q is required' });
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'ZyncJobs/1.0', 'Accept-Language': 'en' }
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Geocode proxy error:', error);
+    res.status(500).json({ error: 'Geocoding failed' });
   }
 });
 
