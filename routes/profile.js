@@ -30,7 +30,7 @@ router.post('/save', async (req, res) => {
     const fieldMap = [
       'name','phone','location','title','yearsExperience','skills','experience',
       'education','certifications','workAuthorization','securityClearance','resume',
-      'profilePhoto','profileFrame','profileSummary','employment','projects',
+      'profilePhoto','profileFrame','coverPhoto','profileSummary','employment','projects',
       'internships','languages','awards','clubsCommittees','competitiveExams',
       'academicAchievements','companyName','roleTitle','salary','jobType',
       'gender','birthday','college','degree',
@@ -39,6 +39,7 @@ router.post('/save', async (req, res) => {
     ];
     fieldMap.forEach(f => { if (profileData[f] !== undefined) updateFields[f] = profileData[f]; });
     if (isValidUUID) updateFields.userId = userId;
+    console.log('🖼️ coverPhoto in updateFields:', updateFields.coverPhoto);
 
     // Coerce types to match DB schema
     if (updateFields.birthday !== undefined) {

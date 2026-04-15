@@ -280,7 +280,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(cookieParser());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
 // Debug middleware - only in development
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
