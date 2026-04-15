@@ -7,20 +7,28 @@ const router = express.Router();
 const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
 
 // GET /api/admin/verifications?status=pending
-// Uses emailVerified as verification proxy since no verificationStatus column exists
 router.get('/', ...adminGuard, async (req, res) => {
   try {
     const { status = 'pending' } = req.query;
+    const { Op } = await import('sequelize');
 
     const where = { role: 'employer' };
-    if (status === 'pending')  where.emailVerified = false;
-    if (status === 'approved') where.emailVerified = true;
-    // rejected: isActive false
-    if (status === 'rejected') { where.emailVerified = false; where.isActive = false; }
+    if (status === 'pending') {
+      // New employers with no verificationStatus set yet OR explicitly pending
+      where[Op.or] = [
+        { verificationStatus: 'pending' },
+        { verificationStatus: null }
+      ];
+      where.emailVerified = false;
+    } else if (status === 'approved') {
+      where.verificationStatus = 'verified';
+    } else if (status === 'rejected') {
+      where.verificationStatus = 'rejected';
+    }
 
     const employers = await User.findAll({
       where,
-      attributes: ['id', 'name', 'email', 'companyName', 'company', 'companyWebsite', 'emailVerified', 'isActive', 'createdAt'],
+      attributes: ['id', 'name', 'email', 'companyName', 'company', 'companyWebsite', 'phone', 'location', 'verificationStatus', 'emailVerified', 'isActive', 'createdAt'],
       order: [['createdAt', 'DESC']],
       limit: 100,
     });
@@ -31,8 +39,10 @@ router.get('/', ...adminGuard, async (req, res) => {
       email: e.email,
       companyName: e.companyName || e.company || 'N/A',
       website: e.companyWebsite || '',
+      phone: e.phone || '',
+      location: e.location || '',
       documents: [],
-      status: e.emailVerified ? 'approved' : (e.isActive ? 'pending' : 'rejected'),
+      status: e.verificationStatus === 'verified' ? 'approved' : (e.verificationStatus || 'pending'),
       createdAt: e.createdAt,
     }));
 

@@ -18,6 +18,37 @@ const transporter = nodemailer.createTransport({
 // Notification queue
 let notificationQueue = [];
 
+// GET /api/admin/notifications?limit=5 - Get recent notifications for bell dropdown
+router.get('/', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const User = (await import('../models/User.js')).default;
+    const Job = (await import('../models/Job.js')).default;
+    const Application = (await import('../models/Application.js')).default;
+    const { Op } = await import('sequelize');
+
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // last 7 days
+
+    const [recentUsers, recentJobs, recentApps] = await Promise.all([
+      User.findAll({ where: { createdAt: { [Op.gte]: since } }, order: [['createdAt', 'DESC']], limit: 3, attributes: ['name', 'email', 'role', 'createdAt'] }),
+      Job.findAll({ where: { createdAt: { [Op.gte]: since } }, order: [['createdAt', 'DESC']], limit: 3, attributes: ['title', 'company', 'status', 'createdAt'] }),
+      Application.findAll({ where: { createdAt: { [Op.gte]: since } }, order: [['createdAt', 'DESC']], limit: 3, attributes: ['createdAt'] }),
+    ]);
+
+    const notifications = [
+      ...recentUsers.map(u => ({ message: `New ${u.role} registered: ${u.name || u.email}`, createdAt: u.createdAt, type: 'user' })),
+      ...recentJobs.map(j => ({ message: `New job posted: ${j.title}${j.company ? ' at ' + j.company : ''}`, createdAt: j.createdAt, type: 'job' })),
+      ...recentApps.map(a => ({ message: 'New job application received', createdAt: a.createdAt, type: 'application' })),
+    ]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, limit);
+
+    res.json({ notifications });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/admin/notifications/send - Send notification
 router.post('/send', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
   try {
