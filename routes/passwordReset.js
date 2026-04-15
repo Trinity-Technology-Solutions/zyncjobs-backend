@@ -102,10 +102,15 @@ router.post('/reset-password', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await user.update({ password: hashedPassword });
+    user.password = hashedPassword;
+    await user.save();
     await tokenData.update({ used: true });
 
-    console.log('✅ Password reset successful for:', tokenData.email);
+    // Verify it actually saved
+    const verify = await User.findOne({ where: { email: { [Op.iLike]: tokenData.email } } });
+    const isMatch = await bcrypt.compare(newPassword, verify.password);
+    console.log('✅ Password reset for:', tokenData.email, '| Verify match:', isMatch);
+
     res.json({ success: true, message: 'Password reset successful' });
   } catch (error) {
     console.error('reset-password error:', error.message);
