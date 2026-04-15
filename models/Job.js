@@ -82,6 +82,14 @@ const Job = sequelize.define('Job', {
     type: DataTypes.STRING,
     allowNull: true
   },
+  latitude: {
+    type: DataTypes.FLOAT,
+    allowNull: true
+  },
+  longitude: {
+    type: DataTypes.FLOAT,
+    allowNull: true
+  },
   employerEmail: {
     type: DataTypes.STRING,
     allowNull: false
