@@ -62,7 +62,7 @@ const photoStorage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, `photo_${Date.now()}${path.extname(file.originalname)}`)
 });
 
-const uploadPhoto = multer({ storage: photoStorage, fileFilter: imageFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+const uploadPhoto = multer({ storage: photoStorage, fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
 const upload = multer({
   storage: useCloudinary ? memoryStorage : diskStorage,

@@ -189,6 +189,14 @@ const applyIndexes = async () => {
     console.warn('⚠️  jobs migration warning:', e.message);
   }
 
+  // Add coverPhoto column to profiles if missing
+  try {
+    await sequelize.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "coverPhoto" VARCHAR(255);`);
+    console.log('✅ profiles.coverPhoto column verified');
+  } catch (e) {
+    console.warn('⚠️  profiles coverPhoto migration warning:', e.message);
+  }
+
   // Add verificationStatus column to users if missing
   try {
     await sequelize.query(`
