@@ -290,6 +290,31 @@ if (process.env.NODE_ENV === 'development') {
 }
 app.use(express.urlencoded({ extended: true }));
 
+// Dedicated download route — serves resume with Content-Disposition: attachment
+app.get('/uploads/download/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filePath = path.join(__dirname, 'uploads', 'resumes', filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+  const origin = req.headers.origin;
+  const allowed = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
+  if (origin && allowed.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Content-Type', 'application/pdf');
+  // Use candidate name from query param if provided, else use raw filename
+  const candidateName = req.query.name
+    ? String(req.query.name).replace(/[^a-zA-Z0-9_\- ]/g, '').trim().replace(/\s+/g, '_')
+    : filename;
+  const downloadName = candidateName.endsWith('.pdf') ? candidateName : `${candidateName}_resume.pdf`;
+  res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+  res.sendFile(filePath);
+});
+
 // Serve uploaded files with proper headers
 app.use('/uploads', (req, res, next) => {
   // Allow cross-origin access for resume files
