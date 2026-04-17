@@ -3,6 +3,8 @@ import passport from '../config/passport.js';
 import jwt from 'jsonwebtoken';
 import fetch from 'node-fetch';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
+import { getGoogleMeetAuthUrl, getGoogleMeetTokens } from '../services/meetingService.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 
@@ -181,6 +183,125 @@ router.get('/linkedin/profile', async (req, res) => {
   } catch (error) {
     console.error('❌ LinkedIn profile fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch LinkedIn profile' });
+  }
+});
+
+// ── Google Meet OAuth ─────────────────────────────────────────────────────────
+// GET /api/auth/google/meet/connect?employerId=xxx
+router.get('/google/meet/connect', (req, res) => {
+  const { employerId } = req.query;
+  if (!employerId) return res.status(400).json({ error: 'employerId required' });
+  const authUrl = getGoogleMeetAuthUrl(employerId);
+  res.redirect(authUrl);
+});
+
+// GET /api/auth/google/meet/callback
+router.get('/google/meet/callback', async (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
+  try {
+    const { code, state: employerId } = req.query;
+    console.log('📅 Google Meet callback:', { code: code?.substring(0, 20) + '...', employerId });
+    
+    if (!code) {
+      console.error('❌ No code in callback');
+      return res.send('<h1>❌ Google Calendar Connection Failed</h1><p>No authorization code received.</p><a href="' + frontendUrl + '">Go Home</a>');
+    }
+
+    const tokens = await getGoogleMeetTokens(code);
+    console.log('✅ Got tokens:', { access: tokens.access_token?.substring(0, 20) + '...', refresh: !!tokens.refresh_token });
+
+    // Store tokens on the employer user record
+    await User.update(
+      { googleMeetAccessToken: tokens.access_token, googleMeetRefreshToken: tokens.refresh_token },
+      { where: { id: employerId } }
+    );
+    console.log('✅ Tokens saved for employer:', employerId);
+
+    // Success page
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Google Calendar Connected</title>
+        <style>
+          body { font-family: Arial; text-align: center; padding: 50px; background: #f5f5f5; }
+          .success { background: white; padding: 40px; border-radius: 10px; max-width: 500px; margin: 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+          h1 { color: #4CAF50; }
+          a { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #2196F3; color: white; text-decoration: none; border-radius: 5px; }
+        </style>
+      </head>
+      <body>
+        <div class="success">
+          <h1>✅ Google Calendar Connected!</h1>
+          <p>You can now create real Google Meet links for interviews.</p>
+          <a href="${frontendUrl}">Go to Dashboard</a>
+        </div>
+        <script>setTimeout(() => window.close(), 3000);</script>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('❌ Google Meet callback error:', error.message);
+    res.send('<h1>❌ Error</h1><p>' + error.message + '</p><a href="' + frontendUrl + '">Go Home</a>');
+  }
+});
+
+// GET /api/auth/google/meet/status?employerId=xxx
+router.get('/google/meet/status', async (req, res) => {
+  try {
+    const { employerId } = req.query;
+    if (!employerId) return res.status(400).json({ error: 'employerId required' });
+    
+    const employer = await User.findByPk(employerId);
+    if (!employer) return res.status(404).json({ error: 'Employer not found' });
+    
+    res.json({ 
+      connected: !!(employer.googleMeetAccessToken && employer.googleMeetRefreshToken),
+      hasAccessToken: !!employer.googleMeetAccessToken,
+      hasRefreshToken: !!employer.googleMeetRefreshToken
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/auth/google/meet/test?employerId=xxx - Test creating a real Meet link
+router.get('/google/meet/test', async (req, res) => {
+  try {
+    const { employerId } = req.query;
+    if (!employerId) return res.status(400).json({ error: 'employerId required' });
+    
+    const employer = await User.findByPk(employerId);
+    if (!employer) return res.status(404).json({ error: 'Employer not found' });
+    
+    if (!employer.googleMeetAccessToken) {
+      return res.json({
+        success: false,
+        message: 'Employer not connected to Google Calendar',
+        connectUrl: `http://localhost:3001/api/auth/google/meet/connect?employerId=${employerId}`
+      });
+    }
+    
+    // Import meetingService
+    const { meetingService } = await import('../services/meetingService.js');
+    
+    const result = await meetingService.createGoogleMeet({
+      topic: 'Test Interview',
+      description: 'Testing Google Meet integration',
+      start_time: new Date(Date.now() + 3600000).toISOString(),
+      duration: 60,
+      accessToken: employer.googleMeetAccessToken,
+      refreshToken: employer.googleMeetRefreshToken
+    });
+    
+    res.json({
+      success: true,
+      isRealLink: !result.fallback,
+      meetLink: result.meeting.join_url,
+      message: result.fallback ? 'Fallback link (not real)' : 'Real Google Meet link created!'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

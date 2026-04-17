@@ -250,26 +250,40 @@ router.get('/job/:jobId', async (req, res) => {
   }
 });
 
-// GET /api/applications/job/:jobId/count - Get application count for a job
+// GET /api/applications/job/:jobId/count - Get application count for a job (supports ?status=)
 router.get('/job/:jobId/count', async (req, res) => {
   try {
     const { jobId } = req.params;
-    
-    console.log('🔢 Counting applications for jobId:', jobId);
-    
+    const { status } = req.query;
+
     if (!jobId || jobId === 'undefined' || jobId === 'null') {
       return res.json({ count: 0 });
     }
 
-    const count = await Application.count({ 
-      where: { jobId }
-    });
-    
-    console.log('✅ Application count:', count);
-    
+    const where = { jobId };
+    if (status) where.status = status;
+
+    const count = await Application.count({ where });
     res.json({ count });
   } catch (error) {
     console.error('Count applications error:', error);
+    res.json({ count: 0 });
+  }
+});
+
+// GET /api/applications/job/:jobId/hired-count - Get hired count for a job
+router.get('/job/:jobId/hired-count', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      return res.json({ count: 0 });
+    }
+
+    const count = await Application.count({ where: { jobId, status: 'hired' } });
+    res.json({ count });
+  } catch (error) {
+    console.error('Hired count error:', error);
     res.json({ count: 0 });
   }
 });
