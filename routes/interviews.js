@@ -15,13 +15,14 @@ router.get('/', async (req, res) => {
   try {
     const { employerId, employerEmail } = req.query;
     
-    const where = {};
-    if (employerId && employerId !== '') where.employerId = employerId;
-    if (employerEmail && employerEmail !== '') where.employerEmail = employerEmail;
-    
-    if (Object.keys(where).length === 0) {
-      return res.json([]);
-    }
+    const conditions = [];
+    if (employerId && employerId !== '' && !employerId.includes('@')) conditions.push({ employerId });
+    if (employerEmail && employerEmail !== '') conditions.push({ employerEmail });
+    if (employerId && employerId.includes('@')) conditions.push({ employerEmail: employerId });
+
+    if (conditions.length === 0) return res.json([]);
+
+    const where = conditions.length === 1 ? conditions[0] : { [Op.or]: conditions };
 
     console.log('📅 Fetching interviews for:', { employerId, employerEmail });
     
@@ -150,9 +151,9 @@ router.get('/candidate/:email', async (req, res) => {
 // POST /api/interviews/schedule - Schedule new interview
 router.post('/schedule', async (req, res) => {
   try {
-    const { applicationId, candidateId, candidateEmail, candidateName, employerId, jobId, scheduledDate, duration, type, meetingLink, location, notes } = req.body;
+    const { applicationId, candidateId, candidateEmail, candidateName, employerId, employerEmail: bodyEmployerEmail, jobId, scheduledDate, duration, type, meetingLink, location, notes, round, interviewer } = req.body;
     
-    console.log('📅 Schedule request:', { candidateEmail, employerId });
+    console.log('📅 Schedule request:', { candidateEmail, employerId, bodyEmployerEmail });
 
     let finalCandidateId = candidateId;
     if (!finalCandidateId && candidateEmail) {
@@ -183,13 +184,22 @@ router.post('/schedule', async (req, res) => {
       job = await Job.findByPk(jobId);
     }
 
+    // Resolve employerEmail — use body value first, then look up by UUID
+    let resolvedEmployerEmail = bodyEmployerEmail || (typeof employerId === 'string' && employerId.includes('@') ? employerId : null);
+    if (!resolvedEmployerEmail && finalEmployerId) {
+      try {
+        const emp = await User.findByPk(finalEmployerId);
+        if (emp?.email) resolvedEmployerEmail = emp.email;
+      } catch { /* ignore */ }
+    }
+
     const interview = await Interview.create({
       jobId: job?.id || jobId,
       candidateId: finalCandidateId,
       employerId: finalEmployerId,
       candidateEmail: candidateEmail,
       candidateName: candidateName,
-      employerEmail: typeof employerId === 'string' && employerId.includes('@') ? employerId : null,
+      employerEmail: resolvedEmployerEmail,
       applicationId: applicationId || null,
       scheduledDate,
       duration: duration || 60,
@@ -197,6 +207,8 @@ router.post('/schedule', async (req, res) => {
       meetingLink,
       location,
       notes,
+      round: round || null,
+      interviewer: interviewer || null,
       status: 'scheduled',
       employerConfirmed: true
     });
@@ -236,34 +248,40 @@ router.post('/schedule', async (req, res) => {
   }
 });
 
-// POST /api/interviews/create-with-meeting - Schedule interview with Zoom meeting
+// POST /api/interviews/create-with-meeting - Schedule interview with meeting link
 router.post('/create-with-meeting', async (req, res) => {
   try {
     const { applicationId, candidateId, candidateEmail, jobId, scheduledDate, duration, type, platform, notes } = req.body;
     
+    // Step 1: Generate meeting link
     let meetingLink = '';
-    
     if (type === 'video' && platform === 'zoom') {
-      const meetingResult = await meetingService.createZoomMeeting({
+      const result = await meetingService.createZoomMeeting({
         topic: 'Interview Meeting',
         start_time: scheduledDate,
         duration: duration || 60,
         description: notes || 'Interview meeting scheduled via ZyncJobs'
       });
-      
-      if (meetingResult.success) {
-        meetingLink = meetingResult.meeting.join_url;
-      }
+      if (result.success) meetingLink = result.meeting.join_url;
+    } else if (type === 'video' && platform === 'googlemeet') {
+      const result = await meetingService.createGoogleMeet({
+        topic: 'Interview Meeting',
+        start_time: scheduledDate,
+        duration: duration || 60,
+        description: notes || 'Interview meeting scheduled via ZyncJobs'
+      });
+      if (result.success) meetingLink = result.meeting.join_url;
+      console.log('📅 Google Meet link generated:', meetingLink, result.fallback ? '(fallback)' : '(real)');
     }
 
+    // Step 2: Get application, candidate, job
     const application = await Application.findByPk(applicationId);
-    if (!application) {
-      return res.status(404).json({ success: false, error: 'Application not found' });
-    }
+    if (!application) return res.status(404).json({ success: false, error: 'Application not found' });
 
     const candidate = await User.findByPk(candidateId || application.candidateId);
     const job = await Job.findByPk(application.jobId);
 
+    // Step 3: Save interview with the generated meetingLink
     const interview = await Interview.create({
       jobId: application.jobId,
       candidateId: candidateId || application.candidateId,
@@ -272,34 +290,37 @@ router.post('/create-with-meeting', async (req, res) => {
       scheduledDate,
       duration: duration || 60,
       type: type || 'video',
-      meetingLink,
+      meetingLink,   // real link saved here
       notes,
       status: 'scheduled',
       employerConfirmed: true
     });
-    
+
+    console.log('✅ Interview saved with meetingLink:', meetingLink);
+
     try {
       await NotificationService.createInterviewNotification(interview);
     } catch (notificationError) {
-      console.error('⚠️ Interview notification creation failed:', notificationError.message);
+      console.error('⚠️ Notification failed:', notificationError.message);
     }
-    
-    if (candidate && candidate.email) {
-      await sendInterviewScheduledEmail(
-        candidate.email,
-        candidate.name || candidateEmail,
-        job?.jobTitle || job?.title || 'Position',
-        job?.company || 'Company',
-        { scheduledDate, duration, type, meetingLink, notes }
-      );
+
+    // Step 4: Send email to candidate with the real meeting link
+    if (candidate?.email) {
+      try {
+        await sendInterviewScheduledEmail(
+          candidate.email,
+          candidate.name || candidateEmail,
+          job?.jobTitle || job?.title || 'Position',
+          job?.company || 'Company',
+          { scheduledDate, duration, type, meetingLink, notes }
+        );
+        console.log('📧 Email sent to candidate:', candidate.email, 'with link:', meetingLink);
+      } catch (emailError) {
+        console.error('❌ Email error:', emailError.message);
+      }
     }
-    
-    res.json({ 
-      success: true, 
-      message: 'Interview scheduled successfully with meeting link and email sent',
-      interview,
-      meetingLink
-    });
+
+    res.json({ success: true, message: 'Interview scheduled successfully', interview, meetingLink });
   } catch (error) {
     console.error('Create interview with meeting error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -351,6 +372,21 @@ router.put('/:id/status', async (req, res) => {
     res.json({ success: true, interview });
   } catch (error) {
     console.error('Update interview status error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// DELETE /api/interviews/:id - Delete interview
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await Interview.destroy({ where: { id } });
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: 'Interview not found' });
+    }
+    res.json({ success: true, message: 'Interview deleted successfully' });
+  } catch (error) {
+    console.error('Delete interview error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

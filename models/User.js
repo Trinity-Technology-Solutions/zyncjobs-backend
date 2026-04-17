@@ -70,6 +70,14 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true
   },
+  googleMeetAccessToken: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  googleMeetRefreshToken: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   emailVerified: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
