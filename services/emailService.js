@@ -40,7 +40,7 @@ export const sendJobApplicationEmail = async (candidateEmail, candidateName, job
 };
 
 // Send application rejection email (supports optional AI feedback)
-export const sendApplicationRejectionEmail = async (candidateEmail, candidateName, jobTitle, company, aiFeedback = null, aiReasons = []) => {
+export const sendApplicationRejectionEmail = async (candidateEmail, candidateName, jobTitle, company, aiFeedback = null, aiReasons = [], employerEmail = null, employerName = null) => {
   try {
     const reasonsHtml = aiReasons.length
       ? `<ul style="color:#555;">${aiReasons.map(r => `<li>${r}</li>`).join('')}</ul>`
@@ -50,7 +50,8 @@ export const sendApplicationRejectionEmail = async (candidateEmail, candidateNam
       : '';
 
     const mailOptions = {
-      from: process.env.SMTP_EMAIL,
+      from: employerEmail ? `"${employerName || company}" <${employerEmail}>` : process.env.SMTP_EMAIL,
+      replyTo: employerEmail || process.env.SMTP_EMAIL,
       to: candidateEmail,
       subject: `Application Update - ${jobTitle}`,
       html: `
@@ -85,7 +86,7 @@ export const sendApplicationRejectionEmail = async (candidateEmail, candidateNam
 };
 
 // Send application status update email
-export const sendApplicationStatusEmail = async (candidateEmail, candidateName, jobTitle, company, status) => {
+export const sendApplicationStatusEmail = async (candidateEmail, candidateName, jobTitle, company, status, employerEmail = null, employerName = null) => {
   try {
     const statusMessages = {
       applied: 'Your application has been received and is under review.',
@@ -97,7 +98,8 @@ export const sendApplicationStatusEmail = async (candidateEmail, candidateName, 
     };
 
     const mailOptions = {
-      from: process.env.SMTP_EMAIL,
+      from: employerEmail ? `"${employerName || company}" <${employerEmail}>` : process.env.SMTP_EMAIL,
+      replyTo: employerEmail || process.env.SMTP_EMAIL,
       to: candidateEmail,
       subject: `Application Status Update - ${jobTitle}`,
       html: `
@@ -230,7 +232,7 @@ export const sendWelcomeEmail = async (userEmail, userName, userType) => {
 };
 
 // Send follow-up reminder email
-export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, jobTitle, company, reminderType, reminderData = {}) => {
+export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, jobTitle, company, reminderType, reminderData = {}, employerEmail = null, employerName = null) => {
   try {
     let subject, html;
     
@@ -304,7 +306,8 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
     }
 
     const mailOptions = {
-      from: process.env.SMTP_EMAIL,
+      from: employerEmail ? `"${employerName || company}" <${employerEmail}>` : process.env.SMTP_EMAIL,
+      replyTo: employerEmail || process.env.SMTP_EMAIL,
       to: candidateEmail,
       subject,
       html: `
@@ -332,7 +335,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
 };
 
 // Send new application notification to employer with candidate resume
-export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, company, candidate) => {
+export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, company, candidate, employerName = null) => {
   try {
     const { name, email, phone, resumeUrl, coverLetter } = candidate;
 
@@ -349,7 +352,8 @@ export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, comp
     }
 
     const mailOptions = {
-      from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
+      from: `"${employerName || company}" <${employerEmail}>`,
+      replyTo: employerEmail,
       to: employerEmail,
       subject: `New Application for ${jobTitle} - ${name}`,
       html: `
@@ -431,13 +435,14 @@ export const sendGdprInactivityReminderEmail = async (userEmail, userName) => {
 };
 
 // Send interview scheduled email to candidate
-export const sendInterviewScheduledEmail = async (candidateEmail, candidateName, jobTitle, company, interviewDetails) => {
+export const sendInterviewScheduledEmail = async (candidateEmail, candidateName, jobTitle, company, interviewDetails, employerEmail = null, employerName = null) => {
   try {
     const { scheduledDate, duration, type, meetingLink, location, notes } = interviewDetails;
     const interviewDate = new Date(scheduledDate);
     
     const mailOptions = {
-      from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
+      from: employerEmail ? `"${employerName || company}" <${employerEmail}>` : `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
+      replyTo: employerEmail || process.env.SMTP_EMAIL,
       to: candidateEmail,
       subject: `Interview Scheduled - ${jobTitle} at ${company}`,
       html: `
