@@ -10,16 +10,11 @@ const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
 router.get('/', ...adminGuard, async (req, res) => {
   try {
     const { status = 'pending' } = req.query;
-    const { Op } = await import('sequelize');
-
     const where = { role: 'employer' };
     if (status === 'pending') {
-      // New employers with no verificationStatus set yet OR explicitly pending
-      where[Op.or] = [
-        { verificationStatus: 'pending' },
-        { verificationStatus: null }
-      ];
-      where.emailVerified = false;
+      // Only explicitly pending employers (personal email / unknown domain)
+      // Company domain employers are auto-verified and must NOT appear here
+      where.verificationStatus = 'pending';
     } else if (status === 'approved') {
       where.verificationStatus = 'verified';
     } else if (status === 'rejected') {

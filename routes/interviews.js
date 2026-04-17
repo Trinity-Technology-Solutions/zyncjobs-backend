@@ -212,12 +212,19 @@ router.post('/schedule', async (req, res) => {
     
     if (candidateEmail) {
       try {
+        // Get employer details
+        const employer = finalEmployerId ? await User.findByPk(finalEmployerId) : null;
+        const employerEmail = employer?.email || (typeof employerId === 'string' && employerId.includes('@') ? employerId : null);
+        const employerName = employer?.companyName || employer?.name || job?.company;
+        
         await sendInterviewScheduledEmail(
           candidateEmail,
           candidateName || candidateEmail,
           job?.jobTitle || job?.title || 'Position',
           job?.company || 'Company',
-          { scheduledDate, duration, type, meetingLink, location, notes }
+          { scheduledDate, duration, type, meetingLink, location, notes },
+          employerEmail,
+          employerName
         );
         console.log('📧 Email sent to:', candidateEmail);
       } catch (emailError) {
@@ -285,12 +292,19 @@ router.post('/create-with-meeting', async (req, res) => {
     }
     
     if (candidate && candidate.email) {
+      // Get employer details
+      const employer = application.employerId ? await User.findByPk(application.employerId) : null;
+      const employerEmail = employer?.email || application.employerEmail || job?.employerEmail;
+      const employerName = employer?.companyName || employer?.name || job?.company;
+      
       await sendInterviewScheduledEmail(
         candidate.email,
         candidate.name || candidateEmail,
         job?.jobTitle || job?.title || 'Position',
         job?.company || 'Company',
-        { scheduledDate, duration, type, meetingLink, notes }
+        { scheduledDate, duration, type, meetingLink, notes },
+        employerEmail,
+        employerName
       );
     }
     
