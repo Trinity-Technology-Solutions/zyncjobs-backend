@@ -86,6 +86,7 @@ import salaryInsightsRoutes from './routes/salaryInsights.js';
 import resumeBuilderRoutes from './routes/resumeBuilder.js';
 import gdprRoutes from './routes/gdpr.js';
 import contactRoutes from './routes/contact.js';
+import aiRoutes from './routes/ai.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
@@ -418,6 +419,7 @@ app.use('/api/salary-insights', salaryInsightsRoutes);
 app.use('/api/resume-builder', resumeBuilderRoutes);
 app.use('/api/gdpr', gdprRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/ai', aiRoutes);
 app.use('/', ogTagsRoutes);
 
 // Resume parser with AI

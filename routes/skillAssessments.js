@@ -1,5 +1,6 @@
 import express from 'express';
 import { randomUUID } from 'crypto';
+import jwt from 'jsonwebtoken';
 import { sequelize } from '../config/postgresql.js';
 import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
@@ -208,34 +209,80 @@ const getDefaultReview = (skill, score, questions = [], answers = []) => {
   return { summary, strengths, improvements, recommendations, level };
 };
 
+// Optional auth middleware - allows both authenticated and guest users
+const optionalAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    // No token - create guest user
+    req.user = { id: 'guest-' + Date.now(), isGuest: true };
+    return next();
+  }
+  
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch {
+    // Invalid token - treat as guest
+    req.user = { id: 'guest-' + Date.now(), isGuest: true };
+    next();
+  }
+};
+
 // Start assessment
-router.post('/start', authenticateToken, async (req, res) => {
+router.post('/start', optionalAuth, async (req, res) => {
   try {
     const { skill } = req.body;
     if (!skill) return res.status(400).json({ error: 'Skill is required' });
 
     console.log(`🚀 Starting assessment for ${skill}...`);
-    let questions = await generateAIQuestions(skill);
-    if (!questions) questions = await generateAIQuestions(skill);
-    if (!questions) { console.log('⚠️ Using fallback questions'); questions = getFallbackQuestions(skill); }
+    
+    // Try AI generation with single attempt and 10s timeout
+    let questions = null;
+    try {
+      const aiPromise = generateAIQuestions(skill);
+      const timeoutPromise = new Promise((resolve, reject) => {
+        setTimeout(() => reject(new Error('AI timeout')), 10000);
+      });
+      questions = await Promise.race([aiPromise, timeoutPromise]);
+      console.log('✅ AI questions generated');
+    } catch (err) {
+      console.log('⚠️ AI generation failed/timeout:', err.message);
+    }
+    
+    // Fallback to local questions if AI fails
+    if (!questions || !Array.isArray(questions) || questions.length === 0) { 
+      console.log('📝 Using fallback questions'); 
+      questions = getFallbackQuestions(skill); 
+    }
 
     // Use raw INSERT to avoid missing column errors on QA DB
     const id = randomUUID();
     const questionsWithAnswer = questions.map(q => ({ ...q, userAnswer: -1 }));
 
+    // Try to insert into database, but don't fail if DB is down
     try {
       await sequelize.query(
         `INSERT INTO skill_assessments (id, "userId", skill, questions, score, answers, "createdAt", "updatedAt") VALUES (:id, :userId, :skill, :questions, 0, '{}', NOW(), NOW())`,
         { replacements: { id, userId: req.user.id, skill, questions: JSON.stringify(questionsWithAnswer) } }
       );
-    } catch {
-      // fallback: try with status column
-      await sequelize.query(
-        `INSERT INTO skill_assessments (id, "userId", skill, questions, score, answers, status, "createdAt", "updatedAt") VALUES (:id, :userId, :skill, :questions, 0, '{}', 'in_progress', NOW(), NOW())`,
-        { replacements: { id, userId: req.user.id, skill, questions: JSON.stringify(questionsWithAnswer) } }
-      );
+      console.log('✅ Saved to database');
+    } catch (dbErr) {
+      console.warn('⚠️ DB insert failed, trying with status column:', dbErr.message);
+      try {
+        await sequelize.query(
+          `INSERT INTO skill_assessments (id, "userId", skill, questions, score, answers, status, "createdAt", "updatedAt") VALUES (:id, :userId, :skill, :questions, 0, '{}', 'in_progress', NOW(), NOW())`,
+          { replacements: { id, userId: req.user.id, skill, questions: JSON.stringify(questionsWithAnswer) } }
+        );
+        console.log('✅ Saved to database (with status)');
+      } catch (dbErr2) {
+        console.error('❌ DB insert failed completely:', dbErr2.message);
+        // Continue anyway - assessment can work without DB storage
+      }
     }
 
+    console.log(`✅ Assessment created with ${questions.length} questions`);
     res.json({
       assessmentId: id,
       skill,
@@ -244,13 +291,14 @@ router.post('/start', authenticateToken, async (req, res) => {
       timeLimit: 30
     });
   } catch (error) {
-    console.error('Start assessment error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Start assessment error:', error.message);
+    console.error('Stack:', error.stack);
+    res.status(500).json({ error: error.message || 'Failed to start assessment' });
   }
 });
 
 // Submit assessment
-router.post('/submit/:id', authenticateToken, async (req, res) => {
+router.post('/submit/:id', optionalAuth, async (req, res) => {
   try {
     const { answers, timeSpent } = req.body;
 
@@ -280,7 +328,12 @@ router.post('/submit/:id', authenticateToken, async (req, res) => {
     }
 
     if (!rows || rows.length === 0) {
-      return res.status(404).json({ error: 'Assessment not found' });
+      console.warn('⚠️ Assessment not found in DB, treating as local assessment');
+      return res.status(404).json({ 
+        error: 'Assessment not found',
+        isLocal: true,
+        message: 'This assessment was not saved to the database. Please use local scoring.'
+      });
     }
 
     const assessment = rows[0];
@@ -513,6 +566,43 @@ router.get('/skills', async (req, res) => {
   } catch (error) {
     console.error('Error loading skills:', error);
     res.json(['JavaScript', 'Python', 'React', 'Node.js', 'Java', 'SQL', 'TypeScript', 'AWS']);
+  }
+});
+
+// Test database connection
+router.get('/test-db', async (req, res) => {
+  try {
+    // Test if table exists
+    const result = await sequelize.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_name = 'skill_assessments'`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    if (result.length === 0) {
+      return res.json({ 
+        status: 'error', 
+        message: 'skill_assessments table does not exist',
+        suggestion: 'Run: npm run sync-models or create the table manually'
+      });
+    }
+    
+    // Test if we can query the table
+    const count = await sequelize.query(
+      `SELECT COUNT(*) as count FROM skill_assessments`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+    
+    res.json({ 
+      status: 'ok', 
+      message: 'Database connected and table exists',
+      assessmentCount: count[0].count
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      message: error.message,
+      hint: 'Check if PostgreSQL is running and database exists'
+    });
   }
 });
 

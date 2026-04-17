@@ -33,9 +33,13 @@ const FALLBACK_MODELS = [
 
 export async function callAI({ feature = 'default', messages, maxTokens = 700, temperature = 0.7 }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error('OPENROUTER_API_KEY not set');
+  if (!apiKey) {
+    console.error('[AI] OPENROUTER_API_KEY not configured');
+    throw new Error('OPENROUTER_API_KEY not set');
+  }
 
   const primaryModel = FEATURE_MODELS[feature] || FEATURE_MODELS['default'];
+  console.log(`[AI] ${feature} — trying primary model: ${primaryModel}`);
 
   // Build model list: primary first, then fallbacks (excluding primary to avoid duplicate)
   const models = [primaryModel, ...FALLBACK_MODELS.filter(m => m !== primaryModel)];
@@ -62,15 +66,19 @@ export async function callAI({ feature = 'default', messages, maxTokens = 700, t
       if (res.ok) {
         const data = await res.json();
         const reply = data.choices?.[0]?.message?.content?.trim();
-        if (reply) return reply;
+        if (reply) {
+          console.log(`[AI] ${feature} — success with model: ${model}`);
+          return reply;
+        }
       } else {
         const err = await res.text();
-        console.warn(`[AI] ${feature} — model ${model} failed (${res.status}):`, err.substring(0, 100));
+        console.warn(`[AI] ${feature} — model ${model} failed (${res.status}):`, err.substring(0, 200));
       }
     } catch (e) {
       console.warn(`[AI] ${feature} — model ${model} error:`, e.message);
     }
   }
 
+  console.error(`[AI] ${feature} — all models failed`);
   throw new Error('All models failed');
 }
