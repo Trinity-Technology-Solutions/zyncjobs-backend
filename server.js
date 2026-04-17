@@ -493,8 +493,10 @@ app.post('/api/resume-parser/parse', async (req, res) => {
 
 
 import passwordResetRoutes from './routes/passwordReset.js';
+import otpRoutes from './routes/otp.js';
 
 app.use('/api', passwordResetRoutes);
+app.use('/api/otp', otpRoutes);
 
 app.get('/api/test-suggest', (req, res) => {
   res.json({ message: 'Suggest API is working', timestamp: new Date().toISOString() });

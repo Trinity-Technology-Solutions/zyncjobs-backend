@@ -139,11 +139,16 @@ router.post('/', authenticateToken, [
     const employerEmail = job.employerEmail || job.postedBy;
     if (employerEmail) {
       try {
+        // Get employer details
+        const employer = safeEmployerId ? await User.findByPk(safeEmployerId) : null;
+        const employerName = employer?.companyName || employer?.name || job.company;
+        
         await sendEmployerApplicationEmail(
           employerEmail,
           job.jobTitle || job.title,
           job.company,
-          { name: candidateName, email: candidateEmail, phone: candidatePhone, resumeUrl, coverLetter }
+          { name: candidateName, email: candidateEmail, phone: candidatePhone, resumeUrl, coverLetter },
+          employerName
         );
         console.log('📧 Employer notification email sent to:', employerEmail);
       } catch (emailError) {
@@ -341,20 +346,36 @@ router.put('/:id/status', [
     // Send rejection email ONLY when employer explicitly confirms rejection
     try {
       if (status === 'rejected' && employerConfirmedRejection === true && job) {
+        // Get employer details
+        const employer = application.employerId ? await User.findByPk(application.employerId) : null;
+        const employerEmail = application.employerEmail || job.employerEmail || job.postedBy;
+        const employerName = employer?.companyName || employer?.name || job.company;
+        
         await sendApplicationRejectionEmail(
           application.candidateEmail,
           application.candidateName,
           job.jobTitle || job.title,
-          job.company
+          job.company,
+          null,
+          [],
+          employerEmail,
+          employerName
         );
         console.log('📧 Rejection email sent to candidate (employer confirmed):', application.candidateEmail);
       } else if (['reviewed', 'shortlisted', 'hired'].includes(status) && job) {
+        // Get employer details
+        const employer = application.employerId ? await User.findByPk(application.employerId) : null;
+        const employerEmail = application.employerEmail || job.employerEmail || job.postedBy;
+        const employerName = employer?.companyName || employer?.name || job.company;
+        
         await sendApplicationStatusEmail(
           application.candidateEmail,
           application.candidateName,
           job.jobTitle || job.title,
           job.company,
-          status
+          status,
+          employerEmail,
+          employerName
         );
       }
     } catch (emailError) {

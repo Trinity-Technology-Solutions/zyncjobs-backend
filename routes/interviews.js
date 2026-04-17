@@ -224,12 +224,19 @@ router.post('/schedule', async (req, res) => {
     
     if (candidateEmail) {
       try {
+        // Get employer details
+        const employer = finalEmployerId ? await User.findByPk(finalEmployerId) : null;
+        const employerEmail = employer?.email || (typeof employerId === 'string' && employerId.includes('@') ? employerId : null);
+        const employerName = employer?.companyName || employer?.name || job?.company;
+        
         await sendInterviewScheduledEmail(
           candidateEmail,
           candidateName || candidateEmail,
           job?.jobTitle || job?.title || 'Position',
           job?.company || 'Company',
-          { scheduledDate, duration, type, meetingLink, location, notes }
+          { scheduledDate, duration, type, meetingLink, location, notes },
+          employerEmail,
+          employerName
         );
         console.log('📧 Email sent to:', candidateEmail);
       } catch (emailError) {
@@ -303,21 +310,22 @@ router.post('/create-with-meeting', async (req, res) => {
     } catch (notificationError) {
       console.error('⚠️ Notification failed:', notificationError.message);
     }
-
-    // Step 4: Send email to candidate with the real meeting link
-    if (candidate?.email) {
-      try {
-        await sendInterviewScheduledEmail(
-          candidate.email,
-          candidate.name || candidateEmail,
-          job?.jobTitle || job?.title || 'Position',
-          job?.company || 'Company',
-          { scheduledDate, duration, type, meetingLink, notes }
-        );
-        console.log('📧 Email sent to candidate:', candidate.email, 'with link:', meetingLink);
-      } catch (emailError) {
-        console.error('❌ Email error:', emailError.message);
-      }
+    
+    if (candidate && candidate.email) {
+      // Get employer details
+      const employer = application.employerId ? await User.findByPk(application.employerId) : null;
+      const employerEmail = employer?.email || application.employerEmail || job?.employerEmail;
+      const employerName = employer?.companyName || employer?.name || job?.company;
+      
+      await sendInterviewScheduledEmail(
+        candidate.email,
+        candidate.name || candidateEmail,
+        job?.jobTitle || job?.title || 'Position',
+        job?.company || 'Company',
+        { scheduledDate, duration, type, meetingLink, notes },
+        employerEmail,
+        employerName
+      );
     }
 
     res.json({ success: true, message: 'Interview scheduled successfully', interview, meetingLink });
