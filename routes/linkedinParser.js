@@ -56,7 +56,7 @@ Extract and return ONLY valid JSON with this exact structure (no markdown, no ex
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct',
+          model: process.env.OPENROUTER_MODEL || 'google/gemma-3-4b-it:free',
           messages: [{ role: 'user', content: prompt }]
         })
       }

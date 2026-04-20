@@ -106,7 +106,8 @@ import { sanitizeInput } from './middleware/sanitize.js';
 
 import * as Sentry from '@sentry/node';
 
-dotenv.config({ path: process.env.NODE_ENV === 'qa' ? '.env.qa' : '.env' });
+const envFile = process.env.NODE_ENV === 'qa' ? '.env.qa' : process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
+dotenv.config({ path: envFile });
 validateEnv();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -541,7 +542,7 @@ app.post('/api/chat', async (req, res) => {
         'X-Title': 'ZyncJobs'
       },
       body: JSON.stringify({
-        model: 'mistralai/mistral-7b-instruct:free',
+        model: 'google/gemma-3-4b-it:free',
         messages: [
           {
             role: 'system',
@@ -741,10 +742,10 @@ JSON:
 }`;
 
     if (!process.env.OPENROUTER_API_KEY) {
-      return res.status(500).json({ error: 'AI service not configured' });
+      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -753,23 +754,33 @@ JSON:
         'X-Title': 'ZyncJobs-JobParser'
       },
       body: JSON.stringify({
-        model: 'mistralai/mistral-7b-instruct:free',
+        model: 'google/gemma-3-4b-it:free',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
         max_tokens: 1500
       })
     });
 
-    const data = await response.json();
+    if (!aiRes.ok) {
+      console.warn('⚠️ OpenRouter returned', aiRes.status, '— using fallback');
+      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
+    }
+
+    const data = await aiRes.json();
     const content = data.choices?.[0]?.message?.content || '';
     const cleaned = content.trim().replace(/```json|```/g, '');
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
-      return res.status(500).json({ error: 'Failed to parse job post' });
+      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
+    }
 
     // Post-process: validate and fix company
     parsed.company = ''; // Never auto-fill company from JD
@@ -966,6 +977,29 @@ function sanitizeLocation(aiLocation, preExtracted) {
   if (!isInvalid(preExtracted)) return normalize(preExtracted.trim());
 
   return '';
+}
+
+// Fallback parsed result when AI is unavailable
+function buildFallbackParsed(text, preExtract) {
+  return {
+    company: preExtract.company || '',
+    jobTitle: '',
+    location: preExtract.location || '',
+    jobType: ['Full-time'],
+    workSetting: /remote/i.test(text) ? 'Remote' : /hybrid/i.test(text) ? 'Hybrid' : 'On-site',
+    skills: [],
+    experienceLevel: 'Mid',
+    experienceRange: '',
+    salaryMin: 0,
+    salaryMax: 0,
+    currency: 'INR',
+    jobCategory: 'Information Technology',
+    description: text,
+    responsibilities: [],
+    requirements: [],
+    educationLevel: "Bachelor's Degree",
+    priority: 'Medium',
+  };
 }
 
 // AI Job Description Generation

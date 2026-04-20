@@ -4,7 +4,7 @@ import vectorService from './vectorService.js';
 class AIService {
   constructor() {
     this.apiKey = process.env.OPENROUTER_API_KEY;
-    this.model = process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct';
+    this.model = process.env.OPENROUTER_MODEL || 'google/gemma-3-4b-it:free';
     this.baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
   }
 

@@ -68,7 +68,7 @@ Extract and return JSON with:
 `;
 
   const response = await axios.post(MISTRAL_API_URL, {
-    model: 'mistralai/mistral-7b-instruct',
+    model: 'google/gemma-3-4b-it:free',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3
   }, {
@@ -118,7 +118,7 @@ Extract and return JSON with:
 `;
 
   const response = await axios.post(MISTRAL_API_URL, {
-    model: 'mistralai/mistral-7b-instruct',
+    model: 'google/gemma-3-4b-it:free',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3
   }, {
@@ -183,7 +183,7 @@ Analyze and return JSON with:
 `;
 
   const response = await axios.post(MISTRAL_API_URL, {
-    model: 'mistralai/mistral-7b-instruct',
+    model: 'google/gemma-3-4b-it:free',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.2
   }, {
@@ -242,7 +242,7 @@ Generate JSON report with:
 `;
 
   const response = await axios.post(MISTRAL_API_URL, {
-    model: 'mistralai/mistral-7b-instruct',
+    model: 'google/gemma-3-4b-it:free',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.4
   }, {
