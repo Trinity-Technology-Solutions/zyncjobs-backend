@@ -4,7 +4,7 @@ import axios from 'axios';
 export class MistralJobDetector {
   constructor() {
     this.apiKey = process.env.OPENROUTER_API_KEY;
-    this.model = 'mistralai/mistral-7b-instruct';
+    this.model = 'google/gemma-3-4b-it:free';
     this.baseURL = 'https://openrouter.ai/api/v1/chat/completions';
   }
 

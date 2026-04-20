@@ -25,7 +25,7 @@ Respond with this exact JSON format:
 {"isSpam": false, "isFake": false, "hasComplianceIssues": false, "riskScore": 25, "issues": ["list specific issues found"]}`;
 
     const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'mistralai/mistral-7b-instruct',
+      model: 'google/gemma-3-4b-it:free',
       messages: [{ 
         role: 'user', 
         content: prompt 

@@ -155,7 +155,7 @@ router.post('/suggest', async (req, res) => {
         'X-Title': 'ZyncJobs'
       },
       body: JSON.stringify({
-        model: 'mistralai/mistral-7b-instruct:free',
+        model: 'google/gemma-3-4b-it:free',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 200,
         temperature: 0.7

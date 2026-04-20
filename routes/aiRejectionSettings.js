@@ -132,7 +132,7 @@ Return ONLY valid JSON:
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct',
+          model: process.env.OPENROUTER_MODEL || 'google/gemma-3-4b-it:free',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           max_tokens: 300
