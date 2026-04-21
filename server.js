@@ -120,7 +120,8 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [].filter(Boolean),
+    origin: ["https://www.zyncjobs.com"],
+    methods: ["GET", "POST"],
     credentials: true
   }
 });
@@ -811,7 +812,8 @@ JSON:
 
     // If description is empty, use original text
     if (!parsed.description) parsed.description = text;
-     // Format description with bullet points
+    
+    // Format description with bullet points
     parsed.description = formatDescriptionWithBullets(parsed.description);
 
     console.log('✅ Job post parsed - company:', parsed.company, '| title:', parsed.jobTitle, '| location:', parsed.location);
@@ -991,7 +993,9 @@ function sanitizeLocation(aiLocation, preExtracted) {
 
   return '';
 }
-xport function formatDescriptionWithBullets(text) {
+
+// Format description text with proper bullet points
+export function formatDescriptionWithBullets(text) {
   if (!text) return '';
   
   // Split by newlines and process each line
@@ -1058,7 +1062,7 @@ function buildFallbackParsed(text, preExtract) {
     salaryMax: 0,
     currency: 'INR',
     jobCategory: 'Information Technology',
-    description: text,
+    description: formatDescriptionWithBullets(text),
     responsibilities: [],
     requirements: [],
     educationLevel: "Bachelor's Degree",
