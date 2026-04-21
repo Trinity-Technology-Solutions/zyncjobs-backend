@@ -991,6 +991,57 @@ function sanitizeLocation(aiLocation, preExtracted) {
 
   return '';
 }
+xport function formatDescriptionWithBullets(text) {
+  if (!text) return '';
+  
+  // Split by newlines and process each line
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  
+  let formatted = '';
+  let inList = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Check if line starts with bullet point indicators
+    const isBullet = /^[•\-\*]\s/.test(line) || /^\d+\.\s/.test(line);
+    
+    if (isBullet) {
+      // Remove existing bullet and add HTML bullet
+      const cleanLine = line.replace(/^[•\-\*]\s/, '').replace(/^\d+\.\s/, '');
+      if (!inList) {
+        formatted += '<ul>\n';
+        inList = true;
+      }
+      formatted += `<li>${cleanLine}</li>\n`;
+    } else {
+      // Close list if we were in one
+      if (inList) {
+        formatted += '</ul>\n';
+        inList = false;
+      }
+      
+      // Check if this is a heading (short line followed by bullets or all caps)
+      const isHeading = line.length < 50 && (
+        /^[A-Z][A-Za-z\s]+:?$/.test(line) ||
+        (i < lines.length - 1 && /^[•\-\*]\s/.test(lines[i + 1]))
+      );
+      
+      if (isHeading) {
+        formatted += `<h3>${line}</h3>\n`;
+      } else {
+        formatted += `<p>${line}</p>\n`;
+      }
+    }
+  }
+  
+  // Close list if still open
+  if (inList) {
+    formatted += '</ul>\n';
+  }
+  
+  return formatted;
+}
 
 // Fallback parsed result when AI is unavailable
 function buildFallbackParsed(text, preExtract) {
