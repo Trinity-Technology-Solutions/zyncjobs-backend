@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import vectorService from '../services/vectorService.js';
 import { withCache, cacheDelPattern } from '../services/redisService.js';
 import { geocodeLocation } from '../utils/geocode.js';
+import { formatDescriptionWithBullets } from '../server.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -550,7 +551,7 @@ router.post('/', maxJobsGuard, [
       location: jobData.location,
       jobType: jobData.jobType, // This should be a string now
       workSetting: jobData.workSetting,
-      description: jobData.description,
+      description: formatDescriptionWithBullets(jobData.description),
       requirements: jobData.requirements,
       responsibilities: jobData.responsibilities,
       skills: jobData.skills, // This should be an array
@@ -660,6 +661,11 @@ router.put('/:id', async (req, res) => {
       updates.salaryMin = req.body.salary.min;
       updates.salaryMax = req.body.salary.max;
       if (req.body.salary.currency) updates.currency = req.body.salary.currency;
+    }
+    
+    // Format description with bullets if updated
+    if (updates.description) {
+      updates.description = formatDescriptionWithBullets(updates.description);
     }
 
     if (updates.jobType) {
