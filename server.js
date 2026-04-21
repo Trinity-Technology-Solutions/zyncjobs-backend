@@ -285,34 +285,13 @@ app.use('/api/users/register', loginLimiter);
 app.use(limiter);
 app.use(sanitizeInput);
 app.use(cors({
-  origin: function (origin, callback) {
-    const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
-    
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    // Check if origin is in allowed list
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    
-    // Log blocked origins for debugging
-    console.log('❌ CORS blocked origin:', origin);
-    console.log('ℹ️ Allowed origins:', allowedOrigins);
-    
-    // In development, allow localhost origins
-    if (process.env.NODE_ENV === 'development' && origin.includes('localhost')) {
-      return callback(null, true);
-    }
-    
-    const msg = `CORS policy blocked origin: ${origin}. Allowed origins: ${allowedOrigins.join(', ')}`;
-    return callback(new Error(msg), false);
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range']
+  origin: ["https://www.zyncjobs.com"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
 }));
+
+app.options("*", cors());
 app.use(cookieParser());
 app.use(express.json({ limit: '20mb' }));
 // Debug middleware - only in development
