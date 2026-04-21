@@ -119,17 +119,88 @@ router.post('/career-coach', async (req, res) => {
   }
 });
 
-// Job description generation
+// Job description generation / AI reformat
 router.post('/job-description', async (req, res) => {
   try {
-    const { jobTitle, company, location } = req.body;
-    
+    const { jobTitle, company, location, description, responsibilities, requirements } = req.body;
+
     if (!jobTitle) {
       return res.status(400).json({ error: 'Job title is required' });
     }
 
-    const description = await mistralService.generateJobDescription(jobTitle, company, location);
-    res.json({ description });
+    // Build context from whatever the user has already entered
+    const hasExistingContent = description || (responsibilities && responsibilities.length) || (requirements && requirements.length);
+
+    let prompt;
+    if (hasExistingContent) {
+      const respList = Array.isArray(responsibilities) ? responsibilities.filter(Boolean).join('\n') : (responsibilities || '');
+      const reqList  = Array.isArray(requirements)     ? requirements.filter(Boolean).join('\n')     : (requirements  || '');
+
+      prompt = `You are an expert HR professional. Reformat and improve the following job description content into proper professional English.
+DO NOT invent new content — only rewrite what is given, fixing grammar, clarity, and structure.
+Return ONLY plain text using this exact structure (no markdown, no asterisks, no stars):
+
+Job Summary
+<2-3 sentence summary paragraph>
+
+Key Responsibilities
+• <responsibility 1>
+• <responsibility 2>
+(continue for all responsibilities)
+
+Requirements
+• <requirement 1>
+• <requirement 2>
+(continue for all requirements)
+
+Use plain section headings and • for bullet points. Do not use **, *, or any markdown.
+
+Job Title: ${jobTitle}${company ? `\nCompany: ${company}` : ''}${location ? `\nLocation: ${location}` : ''}
+${description ? `\nDescription:\n${description}` : ''}
+${respList ? `\nResponsibilities:\n${respList}` : ''}
+${reqList ? `\nRequirements:\n${reqList}` : ''}`;
+    } else {
+      prompt = `You are an expert HR professional. Write a professional job description for the role below.
+Return ONLY plain text using this exact structure (no markdown, no asterisks, no stars):
+
+Job Summary
+<2-3 sentence summary paragraph>
+
+Key Responsibilities
+• <responsibility 1>
+• <responsibility 2>
+• <responsibility 3>
+• <responsibility 4>
+• <responsibility 5>
+
+Requirements
+• <requirement 1>
+• <requirement 2>
+• <requirement 3>
+• <requirement 4>
+• <requirement 5>
+
+Use plain section headings and • for bullet points. Do not use **, *, or any markdown.
+
+Job Title: ${jobTitle}${company ? `\nCompany: ${company}` : ''}${location ? `\nLocation: ${location}` : ''}`;
+    }
+
+    let description_result;
+    try {
+      const raw = await callAI({
+        feature: 'default',
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 900,
+        temperature: 0.4,
+      });
+      // Strip any ** markdown the AI may still output despite instructions
+      description_result = raw.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*\*([^*]+)\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
+    } catch (aiErr) {
+      console.warn('AI unavailable for JD, using basic fallback:', aiErr.message);
+      description_result = mistralService.generateJobDescription(jobTitle, company, location);
+    }
+
+    res.json({ description: description_result });
   } catch (error) {
     console.error('Job description generation error:', error);
     res.status(500).json({ error: 'Failed to generate job description' });
