@@ -811,6 +811,8 @@ JSON:
 
     // If description is empty, use original text
     if (!parsed.description) parsed.description = text;
+     // Format description with bullet points
+    parsed.description = formatDescriptionWithBullets(parsed.description);
 
     console.log('✅ Job post parsed - company:', parsed.company, '| title:', parsed.jobTitle, '| location:', parsed.location);
     res.json({ success: true, data: parsed });
