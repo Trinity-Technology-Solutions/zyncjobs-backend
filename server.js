@@ -216,6 +216,13 @@ export async function sendNotification(userId, type, title, message, link = null
 const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
 const isQA = process.env.NODE_ENV === 'qa';
 
+// Debug CORS configuration
+console.log('🔧 CORS Configuration:');
+console.log('  - NODE_ENV:', process.env.NODE_ENV);
+console.log('  - FRONTEND_URL:', process.env.FRONTEND_URL);
+console.log('  - Allowed Origins:', allowedOrigins);
+console.log('  - BACKEND_URL:', process.env.BACKEND_URL);
+
 // Derive API origin for frame-ancestors (e.g. https://qaapi.zyncjobs.com)
 const apiOrigin = process.env.BACKEND_URL
   ? process.env.BACKEND_URL.trim().replace(/\/+$/, '')
@@ -278,8 +285,33 @@ app.use('/api/users/register', loginLimiter);
 app.use(limiter);
 app.use(sanitizeInput);
 app.use(cors({
-  origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [].filter(Boolean),
-  credentials: true
+  origin: function (origin, callback) {
+    const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
+    
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Log blocked origins for debugging
+    console.log('❌ CORS blocked origin:', origin);
+    console.log('ℹ️ Allowed origins:', allowedOrigins);
+    
+    // In development, allow localhost origins
+    if (process.env.NODE_ENV === 'development' && origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    
+    const msg = `CORS policy blocked origin: ${origin}. Allowed origins: ${allowedOrigins.join(', ')}`;
+    return callback(new Error(msg), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
 }));
 app.use(cookieParser());
 app.use(express.json({ limit: '20mb' }));

@@ -9,15 +9,11 @@
     "start:qa": "cross-env NODE_ENV=qa node --import ./instrument.mjs server.js",
     "start:prod": "cross-env NODE_ENV=production node --import ./instrument.mjs server.js",
     "dev": "node --import ./instrument.mjs --watch server.js",
-    "fast": "node fast-server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "test-perf": "node test-performance.js",
     "db:create": "node scripts/createDatabase.js",
     "db:sync": "node scripts/syncModels.js",
     "db:seed": "node scripts/loadInitialData.js",
     "db:clear": "node scripts/clearAllData.js",
-    "db:fix-qa": "node scripts/fixQADatabase.js",
-    "db:add-columns": "node scripts/addMissingJobColumns.js"
+    "db:admin": "node scripts/createAdmin.js"
   },
   "keywords": [
     "job-portal",
