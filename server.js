@@ -115,13 +115,35 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// ✅ CORS FIRST — before helmet, session, rateLimit, everything
+const ALLOWED_ORIGINS = [
+  'https://www.zyncjobs.com',
+  'https://zyncjobs.com',
+  'https://qa.zyncjobs.com',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    console.log('❌ CORS blocked:', origin);
+    return callback(new Error('CORS blocked: ' + origin), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 // Trust proxy for deployment
 app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ["https://www.zyncjobs.com"],
-    methods: ["GET", "POST"],
+    origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [].filter(Boolean),
     credentials: true
   }
 });
@@ -214,17 +236,9 @@ export async function sendNotification(userId, type, title, message, link = null
   }
 }
 
-const allowedOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
 const isQA = process.env.NODE_ENV === 'qa';
 
-// Debug CORS configuration
-console.log('🔧 CORS Configuration:');
-console.log('  - NODE_ENV:', process.env.NODE_ENV);
-console.log('  - FRONTEND_URL:', process.env.FRONTEND_URL);
-console.log('  - Allowed Origins:', allowedOrigins);
-console.log('  - BACKEND_URL:', process.env.BACKEND_URL);
-
-// Derive API origin for frame-ancestors (e.g. https://qaapi.zyncjobs.com)
+// Derive API origin for frame-ancestors
 const apiOrigin = process.env.BACKEND_URL
   ? process.env.BACKEND_URL.trim().replace(/\/+$/, '')
   : null;
@@ -285,14 +299,6 @@ app.use('/api/users/login', loginLimiter);
 app.use('/api/users/register', loginLimiter);
 app.use(limiter);
 app.use(sanitizeInput);
-app.use(cors({
-  origin: ["https://www.zyncjobs.com"],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
-
-app.options("*", cors());
 app.use(cookieParser());
 app.use(express.json({ limit: '20mb' }));
 // Debug middleware - only in development
@@ -311,16 +317,8 @@ app.get('/uploads/download/:filename', (req, res) => {
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'File not found' });
   }
-  const origin = req.headers.origin;
-  const allowed = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
-  if (origin && allowed.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Content-Type', 'application/pdf');
-  // Use candidate name from query param if provided, else use raw filename
   const candidateName = req.query.name
     ? String(req.query.name).replace(/[^a-zA-Z0-9_\- ]/g, '').trim().replace(/\s+/g, '_')
     : filename;
@@ -331,14 +329,6 @@ app.get('/uploads/download/:filename', (req, res) => {
 
 // Serve uploaded files with proper headers
 app.use('/uploads', (req, res, next) => {
-  // Allow cross-origin access for resume files
-  const origin = req.headers.origin;
-  const allowed = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',').map(o => o.trim()) : [];
-  if (origin && allowed.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 }, express.static(path.join(__dirname, 'uploads'), {
@@ -812,9 +802,6 @@ JSON:
 
     // If description is empty, use original text
     if (!parsed.description) parsed.description = text;
-    
-    // Format description with bullet points
-    parsed.description = formatDescriptionWithBullets(parsed.description);
 
     console.log('✅ Job post parsed - company:', parsed.company, '| title:', parsed.jobTitle, '| location:', parsed.location);
     res.json({ success: true, data: parsed });
@@ -994,59 +981,6 @@ function sanitizeLocation(aiLocation, preExtracted) {
   return '';
 }
 
-// Format description text with proper bullet points
-export function formatDescriptionWithBullets(text) {
-  if (!text) return '';
-  
-  // Split by newlines and process each line
-  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-  
-  let formatted = '';
-  let inList = false;
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    // Check if line starts with bullet point indicators
-    const isBullet = /^[•\-\*]\s/.test(line) || /^\d+\.\s/.test(line);
-    
-    if (isBullet) {
-      // Remove existing bullet and add HTML bullet
-      const cleanLine = line.replace(/^[•\-\*]\s/, '').replace(/^\d+\.\s/, '');
-      if (!inList) {
-        formatted += '<ul>\n';
-        inList = true;
-      }
-      formatted += `<li>${cleanLine}</li>\n`;
-    } else {
-      // Close list if we were in one
-      if (inList) {
-        formatted += '</ul>\n';
-        inList = false;
-      }
-      
-      // Check if this is a heading (short line followed by bullets or all caps)
-      const isHeading = line.length < 50 && (
-        /^[A-Z][A-Za-z\s]+:?$/.test(line) ||
-        (i < lines.length - 1 && /^[•\-\*]\s/.test(lines[i + 1]))
-      );
-      
-      if (isHeading) {
-        formatted += `<h3>${line}</h3>\n`;
-      } else {
-        formatted += `<p>${line}</p>\n`;
-      }
-    }
-  }
-  
-  // Close list if still open
-  if (inList) {
-    formatted += '</ul>\n';
-  }
-  
-  return formatted;
-}
-
 // Fallback parsed result when AI is unavailable
 function buildFallbackParsed(text, preExtract) {
   return {
@@ -1062,7 +996,7 @@ function buildFallbackParsed(text, preExtract) {
     salaryMax: 0,
     currency: 'INR',
     jobCategory: 'Information Technology',
-    description: formatDescriptionWithBullets(text),
+    description: text,
     responsibilities: [],
     requirements: [],
     educationLevel: "Bachelor's Degree",
@@ -1411,6 +1345,44 @@ app.get('*', (req, res) => {
 app.use(Sentry.expressErrorHandler());
 app.use(errorHandler);
 
+
+// Format description text with proper bullet points
+export function formatDescriptionWithBullets(text) {
+  if (!text) return '';
+  const BS = new Set([
+    'key responsibilities','responsibilities','requirements',
+    'preferred qualifications','qualifications','what we offer',
+    'nice to have','skills required','required skills','benefits',
+    'about the role','who you are','your responsibilities',
+    'job responsibilities','duties','key duties'
+  ]);
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  let out = '', inList = false, inBS = false;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    const isBullet = /^[-*]\s/.test(l) || /^\d+\.\s/.test(l);
+    const lower = l.toLowerCase().replace(/:$/, '').trim();
+    const isH = l.length < 60 && (
+      /^[A-Z][A-Za-z\s]+:?$/.test(l) ||
+      (i < lines.length - 1 && /^[-*]\s/.test(lines[i + 1]))
+    );
+    if (isH) {
+      if (inList) { out += '</ul>\n'; inList = false; }
+      inBS = BS.has(lower);
+      out += '<h3>' + l.replace(/:$/, '') + '</h3>\n';
+    } else if (isBullet || inBS) {
+      const cl = isBullet ? l.replace(/^[-*]\s/, '').replace(/^\d+\.\s/, '') : l;
+      if (!inList) { out += '<ul>\n'; inList = true; }
+      out += '<li>' + cl + '</li>\n';
+    } else {
+      if (inList) { out += '</ul>\n'; inList = false; }
+      out += '<p>' + l + '</p>\n';
+    }
+  }
+  if (inList) out += '</ul>\n';
+  return out;
+}
+
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
@@ -1434,3 +1406,4 @@ process.on('SIGTERM', () => {
     process.exit(0);
   });
 });
+// TEST
