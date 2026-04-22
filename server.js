@@ -274,7 +274,7 @@ app.use(passport.session());
 // Rate limiting - more lenient for development
 const limiter = rateLimit({
   windowMs: 1 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 100 : 10000, // Much higher limit for dev
+  max: process.env.NODE_ENV === 'production' ? 500 : 10000,
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -285,7 +285,7 @@ const limiter = rateLimit({
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 5 : 100,
+  max: process.env.NODE_ENV === 'production' ? 20 : 100,
   message: 'Too many login attempts, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
