@@ -33,8 +33,24 @@ router.get('/', ...adminGuard, async (req, res) => {
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
+    // For employers, attach job count
+    let usersWithCount = users;
+    if (role === 'employer') {
+      usersWithCount = await Promise.all(users.map(async (u) => {
+        const jobCount = await Job.count({
+          where: {
+            [Op.or]: [
+              { employerEmail: { [Op.iLike]: u.email } },
+              { postedBy: { [Op.iLike]: u.email } }
+            ]
+          }
+        });
+        return { ...u.toJSON(), jobCount };
+      }));
+    }
+
     res.json({
-      users,
+      users: usersWithCount,
       pagination: { current: parseInt(page), total: Math.ceil(total / limit), count: total }
     });
   } catch (error) {
@@ -49,11 +65,39 @@ router.get('/:id', ...adminGuard, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const [jobCount, appCount] = await Promise.all([
-      user.role === 'employer' ? Job.count({ where: { employerEmail: user.email } }) : 0,
+      user.role === 'employer' ? Job.count({
+        where: {
+          [Op.or]: [
+            { employerEmail: { [Op.iLike]: user.email } },
+            { postedBy: { [Op.iLike]: user.email } }
+          ]
+        }
+      }) : 0,
       user.role === 'candidate' ? Application.count({ where: { candidateEmail: user.email } }) : 0
     ]);
 
     res.json({ ...user.toJSON(), jobCount, appCount });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/admin/users/:id/jobs — employer's posted jobs
+router.get('/:id/jobs', ...adminGuard, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id, { attributes: ['id', 'email', 'role'] });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const jobs = await Job.findAll({
+      where: {
+        [Op.or]: [
+          { employerEmail: { [Op.iLike]: user.email } },
+          { postedBy: { [Op.iLike]: user.email } }
+        ]
+      },
+      attributes: ['id', 'title', 'jobTitle', 'status', 'createdAt'],
+      order: [['createdAt', 'DESC']]
+    });
+    res.json({ jobs, total: jobs.length });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
