@@ -248,9 +248,8 @@ app.use(helmet({
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
       // Allow framing from frontend origins AND the API domain itself
-      'frame-ancestors': ["'self'", ...allowedOrigins, ...(apiOrigin ? [apiOrigin] : [])],
-      // Allow loading PDFs from the API domain
-      'frame-src': ["'self'", ...allowedOrigins, ...(apiOrigin ? [apiOrigin] : [])],
+      'frame-ancestors': ["'self'", ...ALLOWED_ORIGINS, ...(apiOrigin ? [apiOrigin] : [])],
+      'frame-src': ["'self'", ...ALLOWED_ORIGINS, ...(apiOrigin ? [apiOrigin] : [])],
     },
   },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
