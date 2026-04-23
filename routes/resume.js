@@ -116,31 +116,47 @@ router.post('/upload-and-parse', upload.single('resume'), async (req, res) => {
     
     let resumeText = '';
     
-    if (req.file.mimetype === 'application/pdf') {
-      // Extract actual text from PDF
-      resumeText = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer);
-      console.log('[RESUME_UPLOAD] Extracted PDF text, length:', resumeText.length);
-    } else {
-      // For DOC files, try to extract text (simplified)
-      resumeText = req.file.buffer.toString('utf8');
-      console.log('[RESUME_UPLOAD] Extracted DOC text, length:', resumeText.length);
+    try {
+      if (req.file.mimetype === 'application/pdf') {
+        resumeText = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer);
+        console.log('[RESUME_UPLOAD] Extracted PDF text, length:', resumeText.length);
+      } else {
+        resumeText = req.file.buffer.toString('utf8');
+        console.log('[RESUME_UPLOAD] Extracted DOC text, length:', resumeText.length);
+      }
+    } catch (extractError) {
+      console.error('[RESUME_UPLOAD] Text extraction failed:', extractError);
+      return res.status(400).json({ 
+        success: false,
+        error: 'Could not extract text from file. Please ensure the file is not corrupted.' 
+      });
     }
     
     if (!resumeText.trim()) {
       return res.status(400).json({ 
         success: false,
-        error: 'Could not extract text from file' 
+        error: 'Could not extract text from file. The file appears to be empty.' 
       });
     }
     
     console.log('[RESUME_UPLOAD] Extracted text length:', resumeText.length);
     
-    const profileData = await resumeParserService.parseResumeText(resumeText);
+    let profileData;
+    try {
+      profileData = await resumeParserService.parseResumeText(resumeText);
+    } catch (parseError) {
+      console.error('[RESUME_UPLOAD] AI parsing failed:', parseError);
+      return res.status(500).json({ 
+        success: false,
+        error: 'AI parsing failed. Please try again or fill your profile manually.',
+        extractedText: resumeText.substring(0, 500)
+      });
+    }
     
     res.json({
       success: true,
       profileData: profileData,
-      extractedText: resumeText.substring(0, 500) + '...' // First 500 chars for debugging
+      extractedText: resumeText.substring(0, 500) + '...'
     });
   } catch (error) {
     console.error('[RESUME_UPLOAD] Error:', error);

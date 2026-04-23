@@ -106,49 +106,36 @@ router.post('/upload', async (req, res) => {
 router.post('/upload-and-parse', upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'No file uploaded' 
-      });
+      return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
 
     console.log('[RESUME_UPLOAD] File received:', req.file.originalname, req.file.mimetype);
     
     let resumeText = '';
     
-    if (req.file.mimetype === 'application/pdf') {
-      // For demo purposes, use mock text
-      resumeText = pdfTextExtractor.getMockResumeText(req.file.originalname);
-      console.log('[RESUME_UPLOAD] Using mock PDF text extraction');
-    } else {
-      // For DOC files, try to extract text (simplified)
-      resumeText = req.file.buffer.toString('utf8');
+    try {
+      if (req.file.mimetype === 'application/pdf') {
+        resumeText = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer);
+      } else {
+        resumeText = req.file.buffer.toString('utf8');
+      }
+    } catch (extractErr) {
+      return res.status(400).json({ success: false, error: 'Could not extract text from file.' });
     }
     
     if (!resumeText.trim()) {
-      return res.status(400).json({ 
-        success: false,
-        error: 'Could not extract text from file' 
-      });
+      return res.status(400).json({ success: false, error: 'Could not extract text from file.' });
     }
     
     console.log('[RESUME_UPLOAD] Extracted text length:', resumeText.length);
     
-    // Parse the resume text to profile data
     const { resumeParser } = await import('../utils/resumeParserAI.js');
     const profileData = await resumeParser.parseResumeToProfile(resumeText);
     
-    res.json({
-      success: true,
-      profileData: profileData,
-      extractedText: resumeText.substring(0, 500) + '...' // First 500 chars for debugging
-    });
+    res.json({ success: true, profileData, extractedText: resumeText.substring(0, 500) + '...' });
   } catch (error) {
     console.error('[RESUME_UPLOAD] Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message || 'Failed to process resume file' 
-    });
+    res.status(500).json({ success: false, error: error.message || 'Failed to process resume file' });
   }
 });
 

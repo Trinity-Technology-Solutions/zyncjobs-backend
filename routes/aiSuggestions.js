@@ -194,12 +194,20 @@ Job Title: ${jobTitle}${company ? `\nCompany: ${company}` : ''}${location ? `\nL
         temperature: 0.4,
       });
       // Strip any ** markdown the AI may still output despite instructions
-      description_result = raw.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*\*([^*]+)\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
+      description_result = typeof raw === 'string'
+        ? raw.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*\*([^*]+)\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+        : await mistralService.generateJobDescription(jobTitle, company, location);
     } catch (aiErr) {
       console.warn('AI unavailable for JD, using basic fallback:', aiErr.message);
-      description_result = mistralService.generateJobDescription(jobTitle, company, location);
+      description_result = await mistralService.generateJobDescription(jobTitle, company, location);
     }
 
+    // Always ensure description_result is a string
+    if (typeof description_result !== 'string' || !description_result.trim()) {
+      description_result = `We are looking for a ${jobTitle}${company ? ` at ${company}` : ''}${location ? ` in ${location}` : ''}. The ideal candidate will have relevant experience and skills for this role.`;
+    }
+
+    console.log('[JD] Final description type:', typeof description_result, '| length:', description_result.length);
     res.json({ description: description_result });
   } catch (error) {
     console.error('Job description generation error:', error);
