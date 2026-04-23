@@ -3,7 +3,7 @@ import axios from 'axios';
 export class ResumeParserAI {
   constructor() {
     this.apiKey = process.env.OPENROUTER_API_KEY;
-    this.model = 'openai/gpt-3.5-turbo';
+    this.model = 'meta-llama/llama-3.3-70b-instruct:free';
   }
 
   async parseResumeToProfile(resumeText) {
@@ -72,28 +72,38 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
 
     try {
       console.log('[RESUME_AI] Calling OpenRouter with model:', this.model);
-      const response = await axios.post(
-        'https://openrouter.ai/api/v1/chat/completions',
-        {
-          model: this.model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          max_tokens: 2000
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-            'X-Title': 'ZyncJobs-Resume-Parser'
-          },
-          timeout: 30000
-        }
-      );
+      
+      const freeModels = [
+        'meta-llama/llama-3.3-70b-instruct:free',
+        'google/gemma-3-27b-it:free',
+        'google/gemma-3-12b-it:free',
+        'google/gemma-3-4b-it:free',
+      ];
 
-      const content = response.data?.choices?.[0]?.message?.content;
+      let content = null;
+      for (const model of freeModels) {
+        try {
+          const response = await axios.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            { model, messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 2000 },
+            {
+              headers: {
+                'Authorization': `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+                'X-Title': 'ZyncJobs-Resume-Parser'
+              },
+              timeout: 30000
+            }
+          );
+          content = response.data?.choices?.[0]?.message?.content;
+          if (content) { console.log('[RESUME_AI] Success with model:', model); break; }
+        } catch (modelErr) {
+          console.warn('[RESUME_AI] Model failed:', model, modelErr.response?.status || modelErr.message);
+        }
+      }
       if (!content) {
-        console.error('[RESUME_AI] Empty response from OpenRouter:', JSON.stringify(response.data));
+        console.error('[RESUME_AI] All models failed or returned empty response');
         return this.getFallbackParsing(resumeText);
       }
 
