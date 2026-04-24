@@ -15,7 +15,7 @@ class AIService {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5000',
+          'HTTP-Referer': process.env.FRONTEND_URL || 'https://api.zyncjobs.com',
           'X-Title': 'ZyncJobs AI'
         },
         body: JSON.stringify({

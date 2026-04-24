@@ -121,7 +121,6 @@ const ALLOWED_ORIGINS = [
   'https://zyncjobs.com',
   'https://qa.zyncjobs.com',
   'http://localhost:5173',
-  'http://localhost:3000',
 ];
 const corsOptions = {
   origin: function (origin, callback) {
@@ -539,7 +538,7 @@ app.post('/api/chat', async (req, res) => {
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+        'HTTP-Referer': process.env.FRONTEND_URL ,
         'X-Title': 'ZyncJobs'
       },
       body: JSON.stringify({
@@ -751,7 +750,7 @@ JSON:
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+        'HTTP-Referer': process.env.FRONTEND_URL || 'https://zyncjobs.com',
         'X-Title': 'ZyncJobs-JobParser'
       },
       body: JSON.stringify({

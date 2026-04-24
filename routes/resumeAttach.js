@@ -17,12 +17,12 @@ router.post('/attach', async (req, res) => {
     }
 
     // If it's a placeholder or non-file URL, return it as-is
-    if (!resumeUrl.startsWith('http://localhost:5000/uploads/')) {
+    if (!resumeUrl.startsWith('http://localhost:5000/uploads/') && !resumeUrl.startsWith('https://api.zyncjobs.com/uploads/')) {
       return res.json({ success: true, resumeUrl, fileName: null });
     }
 
     // Extract filename from URL
-    const resumePath = resumeUrl.replace('http://localhost:5000/', '');
+    const resumePath = resumeUrl.replace('http://localhost:5000/', '').replace('https://api.zyncjobs.com/', '');
     const sourceFile = path.join(__dirname, '..', resumePath);
     
     // Check if source file exists
@@ -39,7 +39,7 @@ router.post('/attach', async (req, res) => {
     // Copy the file
     fs.copyFileSync(sourceFile, destinationFile);
     
-    const newResumeUrl = `http://localhost:5000/uploads/${newFileName}`;
+    const newResumeUrl = `https://api.zyncjobs.com/uploads/${newFileName}`;
     
     res.json({ 
       success: true, 

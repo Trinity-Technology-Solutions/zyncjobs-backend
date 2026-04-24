@@ -70,7 +70,7 @@ router.get('/:applicationId', async (req, res) => {
       const isPlaceholder = !appResumeUrl || ['resume_from_quick_apply', 'resume_from_profile'].includes(appResumeUrl);
       if (!isPlaceholder) {
         resume = resume || {};
-        resume.fileUrl = appResumeUrl.startsWith('http') ? appResumeUrl : `${process.env.BACKEND_URL || 'http://localhost:5000'}/${appResumeUrl.replace(/^\//, '')}`;
+        resume.fileUrl = appResumeUrl.startsWith('http') ? appResumeUrl : `${process.env.BACKEND_URL || 'https://api.zyncjobs.com'}/${appResumeUrl.replace(/^\//, '')}`;
         resume.fileName = 'Resume';
         resume.parsedData = resume.parsedData || {};
       }

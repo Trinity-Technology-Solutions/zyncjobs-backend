@@ -4,7 +4,7 @@ import Job from '../models/Job.js';
 const router = express.Router();
 
 function getOgImage(job) {
-  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+  const backendUrl = process.env.BACKEND_URL ;
   // Trinity company — use Trinity logo from backend static
   if (job.company && job.company.toLowerCase().includes('trinity')) {
     return `${backendUrl}/images/trinity-logo.webp`;

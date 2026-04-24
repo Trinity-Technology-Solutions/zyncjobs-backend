@@ -9,7 +9,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/google/callback`,
+    callbackURL: `${process.env.BACKEND_URL || 'https://api.zyncjobs.com'}/api/auth/google/callback`,
     proxy: true,
     passReqToCallback: true
   }, async (req, accessToken, refreshToken, profile, done) => {
@@ -85,7 +85,7 @@ if (process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET) {
     tokenURL: 'https://www.linkedin.com/oauth/v2/accessToken',
     clientID: process.env.LINKEDIN_CLIENT_ID,
     clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
-    callbackURL: `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/auth/linkedin/callback`,
+    callbackURL: `${process.env.BACKEND_URL || 'https://api.zyncjobs.com'}/api/auth/linkedin/callback`,
     scope: ['openid', 'profile', 'email'],
     passReqToCallback: true,
   }, async (req, accessToken, refreshToken, params, done) => {
