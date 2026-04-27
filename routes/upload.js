@@ -3,45 +3,17 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { v2 as cloudinary } from 'cloudinary';
 import Resume from '../models/Resume.js';
 import User from '../models/User.js';
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
+import { uploadResumeToS3 } from '../services/s3Service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-// Use Cloudinary if configured, else local disk
-const useCloudinary = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
-
-if (useCloudinary) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET
-  });
-  console.log('☁️ Cloudinary storage enabled for resume uploads');
-} else {
-  console.log('💾 Local disk storage for resume uploads');
-}
-
-// Local disk storage fallback
-const uploadsDir = path.join(__dirname, '../uploads/resumes');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-const diskStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const memoryStorage = multer.memoryStorage();
+console.log('☁️ S3 storage enabled for resume uploads (bucket: zync-jobs)');
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['.pdf', '.doc', '.docx', '.rtf'];
@@ -65,7 +37,7 @@ const photoStorage = multer.diskStorage({
 const uploadPhoto = multer({ storage: photoStorage, fileFilter: imageFilter, limits: { fileSize: 10 * 1024 * 1024 } });
 
 const upload = multer({
-  storage: useCloudinary ? memoryStorage : diskStorage,
+  storage: multer.memoryStorage(),
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }
 });
@@ -77,28 +49,8 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    let fileUrl;
-
-    if (useCloudinary) {
-      // Upload buffer to Cloudinary
-      const result = await new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          {
-            folder: 'zyncjobs/resumes',
-            resource_type: 'raw',
-            public_id: `resume_${Date.now()}`,
-            format: path.extname(req.file.originalname).replace('.', '')
-          },
-          (error, result) => error ? reject(error) : resolve(result)
-        );
-        stream.end(req.file.buffer);
-      });
-      fileUrl = result.secure_url;
-      console.log('☁️ Resume uploaded to Cloudinary:', fileUrl);
-    } else {
-      fileUrl = `/uploads/resumes/${req.file.filename}`;
-      console.log('💾 Resume saved locally:', fileUrl);
-    }
+    const fileUrl = await uploadResumeToS3(req.file.buffer, req.file.originalname);
+    console.log('☁️ Resume uploaded to S3:', fileUrl);
 
     // Resolve userId from body or token
     let resolvedUserId = req.body.userId || null;
