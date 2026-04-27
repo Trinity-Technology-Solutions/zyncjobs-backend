@@ -102,7 +102,8 @@ router.post('/save', async (req, res) => {
         if (profileData.title) userUpdateData.title = profileData.title;
         if (profileData.skills) userUpdateData.skills = Array.isArray(profileData.skills) ? profileData.skills : (updateFields.skills || []);
         if (profileData.profilePhoto) userUpdateData.profilePicture = profileData.profilePhoto;
-        if (profileData.resumeUrl) userUpdateData.resumeUrl = profileData.resumeUrl;
+        if (profileData.resumeUrl !== undefined) userUpdateData.resumeUrl = profileData.resumeUrl || null;
+        if (profileData.resume !== undefined && profileData.resume === null) userUpdateData.resumeUrl = null;
         if (profileData.companyName) {
           userUpdateData.company = profileData.companyName;
           userUpdateData.companyName = profileData.companyName;
