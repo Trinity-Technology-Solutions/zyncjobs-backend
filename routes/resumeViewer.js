@@ -3,7 +3,7 @@ import { Op } from 'sequelize';
 import Application from '../models/Application.js';
 import Resume from '../models/Resume.js';
 import User from '../models/User.js';
-import { getResumeStreamFromS3 } from '../services/s3Service.js';
+import { getResumeStreamFromS3, getSignedResumeUrl } from '../services/s3Service.js';
 
 const router = express.Router();
 
@@ -53,11 +53,13 @@ router.get('/view/:applicationId', async (req, res) => {
     const isS3 = fileUrl.includes('amazonaws.com');
 
     if (isS3) {
+      // Stream S3 file through backend — S3 URL never exposed to client
       const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+      res.setHeader('Cache-Control', 'no-store');
       if (contentLength) res.setHeader('Content-Length', contentLength);
-      // Stream S3 object body to response
+      stream.on('error', (err) => { console.error('S3 stream error:', err.message); res.end(); });
       stream.pipe(res);
     } else {
       // Non-S3 file: redirect to local backend URL
@@ -89,7 +91,9 @@ router.get('/download/:applicationId', async (req, res) => {
       const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Cache-Control', 'no-store');
       if (contentLength) res.setHeader('Content-Length', contentLength);
+      stream.on('error', (err) => { console.error('S3 stream error:', err.message); res.end(); });
       stream.pipe(res);
     } else {
       res.json({ fileUrl, fileName });
