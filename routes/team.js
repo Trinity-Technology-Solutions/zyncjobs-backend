@@ -1,5 +1,9 @@
 import express from 'express';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import TeamMember from '../models/TeamMember.js';
+import User from '../models/User.js';
+import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 
@@ -43,12 +47,18 @@ router.post('/', async (req, res) => {
     const existing = await TeamMember.findOne({ where: { employerId, memberEmail } });
     if (existing) return res.status(409).json({ error: 'Member already in team' });
 
+    // Generate a secure invite token valid for 7 days
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
     const member = await TeamMember.create({
       employerId,
       memberEmail,
       memberName: memberName || memberEmail.split('@')[0],
       role: role || 'Recruiter',
-      status: 'pending'
+      status: 'pending',
+      inviteToken,
+      inviteExpiresAt
     });
 
     const transporter = createTransporter();
@@ -59,7 +69,8 @@ router.post('/', async (req, res) => {
       'Viewer': 'View Analytics only'
     };
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
+    const acceptUrl = `${frontendUrl}/team/accept?token=${inviteToken}`;
 
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
@@ -76,14 +87,13 @@ router.post('/', async (req, res) => {
             <p style="margin: 0; color: #444; font-size: 14px;"><strong>Your Role:</strong> ${role || 'Recruiter'}</p>
             <p style="margin: 8px 0 0; color: #444; font-size: 14px;"><strong>Permissions:</strong> ${rolePermissions[role || 'Recruiter'] || 'Recruiter access'}</p>
           </div>
+          <p style="color: #555; font-size: 14px;">Click the button below to accept your invitation. You'll be automatically signed in — no password needed.</p>
           <div style="text-align: center; margin: 28px 0;">
-            <a href="${frontendUrl}/employer-login" style="background-color: #6366f1; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; font-size: 15px;">
+            <a href="${acceptUrl}" style="background-color: #6366f1; color: white; padding: 14px 36px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; font-size: 15px;">
               Accept Invitation
             </a>
           </div>
-          <p style="color: #888; font-size: 13px;">
-            If you have any questions, reply to this email or contact <a href="mailto:${employerId}" style="color: #6366f1;">${employerId}</a>.
-          </p>
+          <p style="color: #888; font-size: 13px;">This link expires in 7 days. If you did not expect this invitation, you can safely ignore this email.</p>
           <footer style="border-top: 1px solid #eee; padding-top: 16px; margin-top: 20px; color: #aaa; font-size: 12px; text-align: center;">
             &copy; 2026 ZyncJobs. All rights reserved.
           </footer>
@@ -101,7 +111,6 @@ router.post('/', async (req, res) => {
       console.log(`✅ Invitation email sent to ${memberEmail}`);
     } catch (emailError) {
       console.warn('⚠️ Email sending failed, but member was created:', emailError.message);
-      // Don't fail the API call if email fails, the member invitation is created
     }
 
     res.status(201).json({
@@ -111,6 +120,65 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Error inviting member:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/team/accept/:token — magic link acceptance (no auth required)
+router.get('/accept/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const member = await TeamMember.findOne({ where: { inviteToken: token } });
+    if (!member) return res.status(404).json({ error: 'Invalid or already used invitation link.' });
+    if (new Date() > new Date(member.inviteExpiresAt)) {
+      return res.status(410).json({ error: 'This invitation link has expired. Please ask the team owner to resend.' });
+    }
+
+    // Find or create the user account for this email
+    let user = await User.findOne({ where: { email: member.memberEmail } });
+    if (!user) {
+      const tempPassword = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 8);
+      user = await User.create({
+        email: member.memberEmail,
+        name: member.memberName,
+        password: tempPassword,
+        role: 'employer',
+        isActive: true,
+        emailVerified: true,
+        verificationStatus: 'verified'
+      });
+    }
+
+    // Mark invitation as accepted
+    await member.update({ status: 'active', inviteToken: null, inviteExpiresAt: null });
+
+    // Issue tokens so the frontend can auto-login
+    const accessToken = generateAccessToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    res.json({
+      success: true,
+      accessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        userType: 'employer',
+        teamRole: member.role,
+        employerId: member.employerId
+      }
+    });
+  } catch (error) {
+    console.error('Error accepting invite:', error);
     res.status(500).json({ error: error.message });
   }
 });

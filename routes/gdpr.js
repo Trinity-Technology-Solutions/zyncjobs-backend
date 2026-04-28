@@ -6,6 +6,8 @@ import User from '../models/User.js';
 import Resume from '../models/Resume.js';
 import Application from '../models/Application.js';
 import Profile from '../models/Profile.js';
+import Job from '../models/Job.js';
+import { generateGdprPdf } from '../services/gdprPdfService.js';
 
 const router = express.Router();
 
@@ -158,6 +160,60 @@ router.get('/download-data/:userId', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── GET /api/gdpr/export-pdf/:userId ───────────────────────────────────────
+router.get('/export-pdf/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findOne({
+      where: { id: userId },
+      attributes: { exclude: ['password'] }
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const [jobs, applications, consent] = await Promise.all([
+      user.role === 'employer'
+        ? Job.findAll({
+            where: {
+              [Op.or]: [
+                { employerEmail: user.email },
+                { employerId: user.employerId || '' }
+              ]
+            },
+            order: [['createdAt', 'DESC']]
+          })
+        : [],
+      Application.findAll({
+        where: {
+          [Op.or]: [
+            { candidateId: userId },
+            { candidateEmail: user.email },
+            ...(user.role === 'employer' ? [{ employerEmail: user.email }] : [])
+          ]
+        },
+        order: [['createdAt', 'DESC']]
+      }),
+      GdprConsent.findOne({ where: { userId } })
+    ]);
+
+    const pdfBuffer = await generateGdprPdf({
+      user: user.toJSON(),
+      jobs: jobs.map ? jobs.map(j => j.toJSON()) : [],
+      applications: applications.map(a => a.toJSON()),
+      consent: consent ? consent.toJSON() : null
+    });
+
+    const safeName = (user.name || 'user').replace(/[^a-zA-Z0-9]/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="ZyncJobs_DataExport_${safeName}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('GDPR PDF export error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── DELETE /api/gdpr/delete-account/:userId ─────────────────────────────────
 router.delete('/delete-account/:userId', authenticateToken, async (req, res) => {
   try {
@@ -166,41 +222,65 @@ router.delete('/delete-account/:userId', authenticateToken, async (req, res) => 
     const user = await User.findOne({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Delete in order: resumes → applications → consent → profile → user
-    await Resume.destroy({ where: { userId } });
-    await Application.destroy({
-      where: {
-        [Op.or]: [
-          { candidateId: userId },
-          { candidateEmail: user.email }
-        ]
+    const userEmail = user.email;
+
+    const safeDestroy = async (modelPath, condition, label) => {
+      try {
+        const Model = (await import(modelPath)).default;
+        await Model.destroy({ where: condition });
+      } catch (e) {
+        console.warn(`⚠️ Could not delete from ${label}:`, e.message);
       }
-    });
+    };
+
+    await safeDestroy('../models/Application.js',    { [Op.or]: [{ candidateEmail: userEmail }, { userId }] }, 'Applications');
+    await safeDestroy('../models/Job.js',             { [Op.or]: [{ postedBy: userEmail }, { employerEmail: userEmail }, { userId }] }, 'Jobs');
+    await safeDestroy('../models/Profile.js',         { [Op.or]: [{ userId }, { email: userEmail }] }, 'Profile');
+    await safeDestroy('../models/Resume.js',          { [Op.or]: [{ userId }, { email: userEmail }] }, 'Resume');
+    await safeDestroy('../models/ResumeVersion.js',   { userId }, 'ResumeVersions');
+    await safeDestroy('../models/Interview.js',       { [Op.or]: [{ candidateEmail: userEmail }, { employerEmail: userEmail }, { userId }] }, 'Interviews');
+    await safeDestroy('../models/Message.js',         { [Op.or]: [{ senderId: userId }, { receiverId: userId }] }, 'Messages');
+    await safeDestroy('../models/Notification.js',    { [Op.or]: [{ userId }, { email: userEmail }] }, 'Notifications');
+    await safeDestroy('../models/JobAlert.js',        { [Op.or]: [{ userId }, { email: userEmail }] }, 'JobAlerts');
+    await safeDestroy('../models/SavedCandidate.js',  { [Op.or]: [{ employerId: userId }, { employerEmail: userEmail }, { candidateId: userId }] }, 'SavedCandidates');
+    await safeDestroy('../models/Review.js',          { [Op.or]: [{ userId }, { reviewerEmail: userEmail }] }, 'Reviews');
+    await safeDestroy('../models/Analytics.js',       { [Op.or]: [{ userId }, { email: userEmail }] }, 'Analytics');
+    await safeDestroy('../models/TeamMember.js',      { [Op.or]: [{ employerId: userEmail }, { memberEmail: userEmail }] }, 'TeamMembers');
+    await safeDestroy('../models/SkillAssessment.js', { userId }, 'SkillAssessments');
+    await safeDestroy('../models/PasswordReset.js',   { [Op.or]: [{ userId }, { email: userEmail }] }, 'PasswordResets');
     await GdprConsent.destroy({ where: { userId } });
 
-    // Profile may not exist — ignore error
-    try {
-      await Profile.destroy({ where: { userId } });
-    } catch (_) {}
+    // Hard delete the user so Google/LinkedIn OAuth creates a fresh account
+    await User.destroy({ where: { id: userId } });
 
-    // Anonymize user instead of hard delete (keeps audit trail)
-    await user.update({
-      email: `deleted_${userId}@zyncjobs.deleted`,
-      name: 'Deleted User',
-      password: 'DELETED',
-      isActive: false,
-      bio: null,
-      phone: null,
-      resumeUrl: null,
-      profilePicture: null,
-      skills: [],
-      certifications: [],
-      languages: []
-    });
-
-    res.json({ success: true, message: 'Account and all associated data have been deleted.' });
+    console.log(`✅ GDPR full delete: ${userEmail}`);
+    res.json({ success: true, message: 'Account and all associated data have been permanently deleted.' });
   } catch (err) {
     console.error('GDPR delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/gdpr/consent-history/:userId ─────────────────────────────────
+router.get('/consent-history/:userId', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const record = await GdprConsent.findOne({ where: { userId } });
+    if (!record) return res.json([]);
+    res.json([{
+      consentTypes: record.consentTypes,
+      consentDate: record.consentDate,
+      cookieNecessary: record.cookieNecessary,
+      cookieAnalytics: record.cookieAnalytics,
+      cookieMarketing: record.cookieMarketing,
+      cookieConsentDate: record.cookieConsentDate,
+      storeResume: record.storeResume,
+      allowEmployerView: record.allowEmployerView,
+      receiveJobAlerts: record.receiveJobAlerts,
+      allowAIRecommendations: record.allowAIRecommendations,
+      updatedAt: record.updatedAt
+    }]);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

@@ -29,13 +29,23 @@ const TeamMember = sequelize.define('TeamMember', {
   status: {
     type: DataTypes.ENUM('active', 'pending'),
     defaultValue: 'pending'
+  },
+  inviteToken: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true
+  },
+  inviteExpiresAt: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'team_members',
   timestamps: true,
   indexes: [
     { fields: ['employerId'] },
-    { unique: true, fields: ['employerId', 'memberEmail'] }
+    { unique: true, fields: ['employerId', 'memberEmail'] },
+    { fields: ['inviteToken'] }
   ]
 });
 
