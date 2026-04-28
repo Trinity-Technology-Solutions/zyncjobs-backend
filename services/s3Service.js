@@ -1,8 +1,8 @@
-import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 
 const s3 = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
-const BUCKET = process.env.S3_BUCKET || 'zync-jobs';
+const BUCKET = process.env.S3_BUCKET || 'qa-zync-jobs';
 
 export async function uploadResumeToS3(buffer, originalName) {
   const key = `resumes/${Date.now()}-${originalName.replace(/\s+/g, '_')}`;
@@ -16,7 +16,18 @@ export async function uploadResumeToS3(buffer, originalName) {
 export async function deleteResumeFromS3(fileUrl) {
   try {
     const url = new URL(fileUrl);
-    const key = url.pathname.slice(1); // remove leading /
+    const key = url.pathname.slice(1);
     await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
   } catch (_) {}
+}
+
+export async function getResumeStreamFromS3(fileUrl) {
+  const url = new URL(fileUrl);
+  const key = url.pathname.slice(1);
+  const response = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  return {
+    stream: response.Body,
+    contentType: response.ContentType || 'application/pdf',
+    contentLength: response.ContentLength
+  };
 }
