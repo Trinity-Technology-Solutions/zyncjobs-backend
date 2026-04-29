@@ -1,76 +1,294 @@
 import express from 'express';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { Op } from 'sequelize';
 import { formatCompanyWithLogo } from '../utils/companyLogoService.js';
 import Company from '../models/Company.js';
+import Job from '../models/Job.js';
+import Review from '../models/Review.js';
+import User from '../models/User.js';
 
 const router = express.Router();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Load companies data
-let companiesData = [];
-try {
-  const companiesPath = path.join(__dirname, '../data/companies.json');
-  const rawData = fs.readFileSync(companiesPath, 'utf8');
-  companiesData = JSON.parse(rawData);
-} catch (error) {
-  console.error('Error loading companies data:', error);
-}
 
 // GET /api/companies - Get all companies or search companies
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    let companies = companiesData;
+    let whereClause = {};
     
     // If search query provided, filter companies
     if (req.query.search) {
-      const searchTerm = req.query.search.toString().toLowerCase();
-      companies = companiesData.filter(company => 
-        company.name.toLowerCase().includes(searchTerm)
-      );
+      const searchTerm = req.query.search.toString();
+      whereClause = {
+        [Op.or]: [
+          { name: { [Op.iLike]: `%${searchTerm}%` } },
+          { description: { [Op.iLike]: `%${searchTerm}%` } },
+          { industry: { [Op.iLike]: `%${searchTerm}%` } }
+        ]
+      };
     }
     
-    // Format companies with logo service (includes Google favicon fallback)
-    const formattedCompanies = companies.map(company => formatCompanyWithLogo(company));
+    // Fetch companies from database
+    const companies = await Company.findAll({
+      where: whereClause,
+      order: [['createdAt', 'DESC']],
+      attributes: { exclude: ['followers'] }
+    });
     
+    const companyNames = companies.map(c => c.name);
+
+    // Real open positions count
+    const jobCounts = await Job.findAll({
+      where: { company: { [Op.in]: companyNames }, isActive: true, status: 'approved' },
+      attributes: ['company', [Job.sequelize.fn('COUNT', Job.sequelize.col('id')), 'count']],
+      group: ['company'],
+      raw: true
+    });
+    const jobCountMap = Object.fromEntries(jobCounts.map(j => [j.company, parseInt(j.count)]));
+
+    // Real average rating per company
+    const ratings = await Review.findAll({
+      where: { companyName: { [Op.in]: companyNames } },
+      attributes: ['companyName', [Review.sequelize.fn('AVG', Review.sequelize.col('rating')), 'avgRating'], [Review.sequelize.fn('COUNT', Review.sequelize.col('id')), 'reviewCount']],
+      group: ['companyName'],
+      raw: true
+    });
+    const ratingMap = Object.fromEntries(ratings.map(r => [r.companyName, { avg: parseFloat(r.avgRating).toFixed(1), count: parseInt(r.reviewCount) }]));
+
+    // Real employer count per company
+    const employers = await User.findAll({
+      where: { company: { [Op.in]: companyNames }, role: 'employer', isActive: true },
+      attributes: ['company', [User.sequelize.fn('COUNT', User.sequelize.col('id')), 'count']],
+      group: ['company'],
+      raw: true
+    });
+    const employerMap = Object.fromEntries(employers.map(e => [e.company, parseInt(e.count)]));
+
+    const formattedCompanies = companies.map(company => {
+      const companyData = company.toJSON();
+      const name = companyData.name;
+      return {
+        ...formatCompanyWithLogo(companyData),
+        openPositions: jobCountMap[name] || 0,
+        rating: ratingMap[name]?.avg || null,
+        reviewCount: ratingMap[name]?.count || 0,
+        employerCount: employerMap[name] || 0,
+        location: companyData.location || null,
+        size: companyData.size || null
+      };
+    });
+
     res.json(formattedCompanies);
   } catch (error) {
     console.error('Error loading companies:', error);
-    res.json([]);
+    res.status(500).json({ error: 'Failed to load companies' });
   }
 });
 
 // GET /api/companies/logo/:companyName - Get company logo by name
-router.get('/logo/:companyName', (req, res) => {
-  const companyName = req.params.companyName.toLowerCase().trim();
-  
-  // Find exact match first
-  let company = companiesData.find(c => 
-    c.name.toLowerCase().trim() === companyName
-  );
-  
-  // If no exact match, try partial match
-  if (!company) {
-    company = companiesData.find(c => 
-      c.name.toLowerCase().includes(companyName) || 
-      companyName.includes(c.name.toLowerCase())
-    );
+router.get('/logo/:companyName', async (req, res) => {
+  try {
+    const companyName = req.params.companyName.trim();
+    
+    // Find company in database
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { name: { [Op.iLike]: companyName } },
+          { name: { [Op.iLike]: `%${companyName}%` } }
+        ]
+      }
+    });
+    
+    if (company) {
+      const companyData = company.toJSON();
+      res.json(formatCompanyWithLogo(companyData));
+    } else {
+      res.status(404).json({ error: 'Company not found' });
+    }
+  } catch (error) {
+    console.error('Error finding company logo:', error);
+    res.status(500).json({ error: 'Failed to find company' });
   }
-  
-  if (company) {
-    res.json(formatCompanyWithLogo(company));
-  } else {
-    res.status(404).json({ error: 'Company not found' });
+});
+
+// POST /api/companies - Create a new company (for employers)
+router.post('/', async (req, res) => {
+  try {
+    const {
+      name,
+      domain,
+      logo,
+      description,
+      industry,
+      size,
+      website,
+      location
+    } = req.body;
+    
+    // Validate required fields
+    if (!name) {
+      return res.status(400).json({ error: 'Company name is required' });
+    }
+    
+    // Check if company already exists
+    const existingCompany = await Company.findOne({
+      where: { name: { [Op.iLike]: name } }
+    });
+    
+    if (existingCompany) {
+      return res.status(409).json({ error: 'Company with this name already exists' });
+    }
+    
+    // Create new company
+    const company = await Company.create({
+      name,
+      domain,
+      logo,
+      description,
+      industry,
+      size,
+      website,
+      location,
+      followers: []
+    });
+    
+    const companyData = company.toJSON();
+    res.status(201).json(formatCompanyWithLogo(companyData));
+  } catch (error) {
+    console.error('Error creating company:', error);
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      res.status(409).json({ error: 'Company with this name already exists' });
+    } else {
+      res.status(500).json({ error: 'Failed to create company' });
+    }
+  }
+});
+
+// GET /api/companies/:id - Get specific company details
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { id: id },
+          { name: { [Op.iLike]: id } }
+        ]
+      },
+      attributes: {
+        exclude: ['followers'] // Don't include followers in public view
+      }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    const companyData = company.toJSON();
+    const name = companyData.name;
+
+    const [jobCount, ratingData, employerCount] = await Promise.all([
+      Job.count({ where: { company: name, isActive: true, status: 'approved' } }),
+      Review.findOne({
+        where: { companyName: name },
+        attributes: [[Review.sequelize.fn('AVG', Review.sequelize.col('rating')), 'avgRating'], [Review.sequelize.fn('COUNT', Review.sequelize.col('id')), 'reviewCount']],
+        raw: true
+      }),
+      User.count({ where: { company: name, role: 'employer', isActive: true } })
+    ]);
+
+    res.json({
+      ...formatCompanyWithLogo(companyData),
+      openPositions: jobCount,
+      rating: ratingData?.avgRating ? parseFloat(ratingData.avgRating).toFixed(1) : null,
+      reviewCount: parseInt(ratingData?.reviewCount) || 0,
+      employerCount,
+      location: companyData.location || null,
+      size: companyData.size || null
+    });
+  } catch (error) {
+    console.error('Error fetching company:', error);
+    res.status(500).json({ error: 'Failed to fetch company' });
+  }
+});
+
+// PUT /api/companies/:id - Update company (for employers)
+router.put('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+    
+    // Remove fields that shouldn't be updated via this endpoint
+    delete updateData.id;
+    delete updateData.followers;
+    delete updateData.createdAt;
+    delete updateData.updatedAt;
+    
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { id: id },
+          { name: { [Op.iLike]: id } }
+        ]
+      }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    await company.update(updateData);
+    const updatedCompany = await company.reload();
+    
+    const companyData = updatedCompany.toJSON();
+    res.json(formatCompanyWithLogo(companyData));
+  } catch (error) {
+    console.error('Error updating company:', error);
+    res.status(500).json({ error: 'Failed to update company' });
+  }
+});
+
+// DELETE /api/companies/:id - Delete company (for employers)
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { id: id },
+          { name: { [Op.iLike]: id } }
+        ]
+      }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    await company.destroy();
+    res.json({ success: true, message: 'Company deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting company:', error);
+    res.status(500).json({ error: 'Failed to delete company' });
   }
 });
 
 // Helper: find or create company record in DB by name
 const findOrCreateCompany = async (companyId) => {
-  let company = await Company.findOne({ where: { name: companyId } }).catch(() => null);
+  let company = await Company.findOne({ 
+    where: {
+      [Op.or]: [
+        { id: companyId },
+        { name: { [Op.iLike]: companyId } }
+      ]
+    }
+  }).catch(() => null);
+  
   if (!company) {
-    company = await Company.create({ name: companyId, followers: [] }).catch(() => null);
+    company = await Company.create({ 
+      name: companyId, 
+      followers: [] 
+    }).catch(() => null);
   }
   return company;
 };
