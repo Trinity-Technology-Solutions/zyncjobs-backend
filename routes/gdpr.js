@@ -171,8 +171,21 @@ router.get('/export-pdf/:userId', authenticateToken, async (req, res) => {
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const [jobs, applications, consent] = await Promise.all([
-      user.role === 'employer'
+    // Ensure role is properly set - default to 'candidate' if not specified
+    const userRole = user.role || 'candidate';
+    const isEmployer = userRole === 'employer';
+    const isCandidate = userRole === 'candidate';
+
+    console.log('🔍 GDPR Route Debug:');
+    console.log('User ID:', userId);
+    console.log('User role from DB:', user.role);
+    console.log('Determined role:', userRole);
+    console.log('Is employer:', isEmployer);
+    console.log('Is candidate:', isCandidate);
+    console.log('User email:', user.email);
+
+    const [jobs, applications, consent, resumes] = await Promise.all([
+      isEmployer
         ? Job.findAll({
             where: {
               [Op.or]: [
@@ -186,21 +199,43 @@ router.get('/export-pdf/:userId', authenticateToken, async (req, res) => {
       Application.findAll({
         where: {
           [Op.or]: [
-            { candidateId: userId },
-            { candidateEmail: user.email },
-            ...(user.role === 'employer' ? [{ employerEmail: user.email }] : [])
+            ...(isCandidate ? [
+              { candidateId: userId },
+              { candidateEmail: user.email }
+            ] : []),
+            ...(isEmployer ? [
+              { employerEmail: user.email }
+            ] : [])
           ]
         },
         order: [['createdAt', 'DESC']]
       }),
-      GdprConsent.findOne({ where: { userId } })
+      GdprConsent.findOne({ where: { userId } }),
+      isCandidate
+        ? Resume.findAll({
+            where: { userId },
+            order: [['createdAt', 'DESC']]
+          })
+        : []
     ]);
 
+    console.log('Data fetched:');
+    console.log('Jobs count:', jobs.length);
+    console.log('Applications count:', applications.length);
+    console.log('Resumes count:', resumes.length);
+
+    // Ensure user object has the correct role for PDF generation
+    const userForPdf = {
+      ...user.toJSON(),
+      role: userRole
+    };
+
     const pdfBuffer = await generateGdprPdf({
-      user: user.toJSON(),
+      user: userForPdf,
       jobs: jobs.map ? jobs.map(j => j.toJSON()) : [],
       applications: applications.map(a => a.toJSON()),
-      consent: consent ? consent.toJSON() : null
+      consent: consent ? consent.toJSON() : null,
+      resumes: resumes.map ? resumes.map(r => r.toJSON()) : []
     });
 
     const safeName = (user.name || 'user').replace(/[^a-zA-Z0-9]/g, '_');

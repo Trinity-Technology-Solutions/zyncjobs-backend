@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+.npm/
+.yarn/
 
 # Environment variables
 .env
@@ -8,33 +10,65 @@ node_modules/
 .env.qa
 .env.production
 .env.staging
+.env.development
 
 # Logs
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Uploads (keep structure, ignore files)
 uploads/photos/*
 uploads/resumes/*
+uploads/talent-resumes/*
 !uploads/photos/.gitkeep
 !uploads/resumes/.gitkeep
+!uploads/talent-resumes/.gitkeep
 
 # OS files
 .DS_Store
+.DS_Store?
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
 
 # Build
 dist/
 build/
+out/
 
 # Testing
 coverage/
 .nyc_output/
+
+# Runtime
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# PM2
+.pm2/
+
+# Sentry
+.sentryclirc
+
+# Optional: keep package-lock if you want reproducible installs
+# package-lock.json
