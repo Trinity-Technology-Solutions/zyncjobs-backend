@@ -55,6 +55,39 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       }
 
       // New user — create with the correct portal role
+      // ── Invite-only check for OAuth employers ──────────────────────
+      if (portalType === 'employer') {
+        const emailDomain = googleEmail.split('@')[1]?.toLowerCase();
+        const genericDomains = ['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','live.com'];
+
+        if (emailDomain && !genericDomains.includes(emailDomain)) {
+          // Check if invited
+          const TeamMember = (await import('../models/TeamMember.js')).default;
+          const hasInvite = await TeamMember.findOne({
+            where: { memberEmail: googleEmail.toLowerCase() }
+          });
+
+          if (!hasInvite) {
+            // Check if another employer already has this domain
+            const allEmployers = await User.findAll({
+              where: { role: 'employer', isActive: true },
+              attributes: ['email', 'companyName', 'company']
+            });
+            const existingCompany = allEmployers.find(u =>
+              u.email.split('@')[1]?.toLowerCase() === emailDomain
+            );
+
+            if (existingCompany) {
+              const cName = existingCompany.companyName || existingCompany.company || emailDomain;
+              // Return a special error user object — frontend will handle
+              const errUser = { oauthBlocked: true, companyName: cName, email: googleEmail };
+              return done(null, errUser);
+            }
+          }
+        }
+      }
+      // ───────────────────────────────────────────────────────────────
+
       user = await User.create({
         googleId: profile.id,
         name: profile.displayName,
@@ -64,7 +97,13 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         userType: portalType,
         role: portalType,
         isActive: true,
-        emailVerified: true
+        emailVerified: true,
+        // For employers, add company verification fields
+        ...(portalType === 'employer' && {
+          verificationStatus: 'pending', // Default to pending for OAuth employers
+          companyDomain: googleEmail.split('@')[1],
+          domainVerificationMethod: 'manual_review' // OAuth users need manual review by default
+        })
       });
 
       user.isNewUser = true;

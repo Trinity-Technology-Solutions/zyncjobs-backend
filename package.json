@@ -13,7 +13,11 @@
     "db:sync": "node scripts/syncModels.js",
     "db:seed": "node scripts/loadInitialData.js",
     "db:clear": "node scripts/clearAllData.js",
-    "db:admin": "node scripts/createAdmin.js"
+    "db:admin": "node scripts/createAdmin.js",
+    "migrate:verification-columns": "node scripts/migrateVerificationColumns.js",
+    "migrate:job-company-link": "node scripts/migrateJobCompanyLink.js",
+    "migrate:company-profiles": "node scripts/migrateCompanyProfiles.js",
+    "test:company-profiles": "node scripts/testCompanyProfiles.js"
   },
   "keywords": [
     "job-portal",

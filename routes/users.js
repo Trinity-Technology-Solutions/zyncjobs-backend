@@ -9,6 +9,8 @@ import { authenticateToken } from '../middleware/auth.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import { registrationGuard, emailVerificationGuard } from '../middleware/settingsMiddleware.js';
+import { CompanyVerificationService } from '../services/companyVerificationService.js';
+import TeamMember from '../models/TeamMember.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -46,13 +48,30 @@ router.post('/register', registrationGuard, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, fullName, email, password, userType, phone, company, companyName, companyLogo, companyWebsite, location } = req.body;
+    const { 
+      name, 
+      fullName, 
+      email, 
+      password, 
+      userType, 
+      phone, 
+      company, 
+      companyName, 
+      companyLogo, 
+      companyWebsite, 
+      location,
+      employerId,
+      // New company verification fields
+      domainVerification,
+      companyProfile
+    } = req.body;
 
     const userName = name || fullName || '';
     const companyField = company || companyName || '';
 
     console.log('🔍 Registration attempt for:', email);
     console.log('🔍 UserType received:', userType);
+    console.log('🔍 Domain verification data:', domainVerification);
 
     const existingUser = await User.findOne({ 
       where: { email: { [Op.iLike]: email } }
@@ -70,39 +89,140 @@ router.post('/register', registrationGuard, [
 
     const hashedPassword = await bcrypt.hash(password, 8);
 
-    // Domain verification for employers
+    // ── Invite-only check for employers ──────────────────────────────
+    if ((userType || 'candidate') === 'employer') {
+      const emailDomain = email.split('@')[1]?.toLowerCase();
+      const genericDomains = ['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','live.com'];
+
+      if (emailDomain && !genericDomains.includes(emailDomain)) {
+        // Check if invited first — invited members bypass this check
+        const hasInvite = await TeamMember.findOne({
+          where: { memberEmail: email.toLowerCase() }
+        });
+
+        if (!hasInvite) {
+          // Check if any active employer already registered with this exact domain
+          const allEmployers = await User.findAll({
+            where: { role: 'employer', isActive: true },
+            attributes: ['email', 'companyName', 'company']
+          });
+          const existingCompany = allEmployers.find(u => 
+            u.email.split('@')[1]?.toLowerCase() === emailDomain
+          );
+
+          if (existingCompany) {
+            const cName = existingCompany.companyName || existingCompany.company || emailDomain;
+            return res.status(409).json({
+              error: 'COMPANY_ALREADY_EXISTS',
+              companyName: cName,
+              message: `${cName} already has an account on ZyncJobs. Ask your company admin to invite you from their Team Management page.`
+            });
+          }
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────
+
+    // Enhanced domain verification for employers
     let verificationStatus = 'verified'; // candidates are auto-verified
     let verificationNote = '';
+    let domainVerificationMethod = null;
+    let companyDomain = null;
+    let finalCompanyProfile = null;
+    
     if ((userType || 'candidate') === 'employer') {
-      const { status, matched } = checkDomainVerification(email);
-      verificationStatus = status;
-      verificationNote = matched
-        ? `Auto-verified: domain matches ${matched.name}`
-        : 'Pending admin review: unknown company domain';
-      console.log(`🔍 Employer domain check for ${email}: ${verificationStatus} - ${verificationNote}`);
+      companyDomain = email.split('@')[1]?.toLowerCase();
+      
+      if (domainVerification) {
+        // Use frontend verification results
+        verificationStatus = CompanyVerificationService.determineVerificationStatus(domainVerification);
+        domainVerificationMethod = domainVerification.verificationMethod;
+        finalCompanyProfile = domainVerification.companyProfile || companyProfile;
+        
+        verificationNote = CompanyVerificationService.getVerificationStatusMessage(
+          verificationStatus, 
+          domainVerificationMethod
+        );
+      } else {
+        // Fallback: perform verification on backend
+        const verificationResult = await CompanyVerificationService.verifyCompanyDomain(
+          email, 
+          companyField
+        );
+        
+        verificationStatus = CompanyVerificationService.determineVerificationStatus(verificationResult);
+        domainVerificationMethod = verificationResult.verificationMethod;
+        finalCompanyProfile = verificationResult.companyProfile;
+        verificationNote = verificationResult.message;
+      }
+      
+      console.log(`🔍 Employer verification for ${email}: ${verificationStatus} via ${domainVerificationMethod}`);
+      console.log(`🔍 Verification note: ${verificationNote}`);
     }
     
+    // Check if this email was invited as a team member
+    const teamInvite = await TeamMember.findOne({
+      where: { memberEmail: email.toLowerCase(), status: 'pending' }
+    });
+
+    // If invited, fetch the owner's account to inherit company data
+    let ownerUser = null;
+    if (teamInvite) {
+      ownerUser = await User.findOne({
+        where: { email: { [Op.iLike]: teamInvite.employerId } }
+      });
+    }
+
+    const finalRole = teamInvite ? 'employer' : (userType || 'candidate');
+    const finalCompany = ownerUser?.company || ownerUser?.companyName || companyField;
+    const finalCompanyName = ownerUser?.companyName || ownerUser?.company || companyName || companyField;
+    const finalCompanyLogo = ownerUser?.companyLogo || companyLogo || '';
+    const finalCompanyWebsite = ownerUser?.companyWebsite || companyWebsite || '';
+    const finalEmployerId = ownerUser?.employerId || employerId || null;
+    const finalVerificationStatus = teamInvite ? 'verified' : verificationStatus;
+
     const user = await User.create({
       name: userName,
       email: email.toLowerCase(),
       password: hashedPassword,
-      role: userType || 'candidate',
+      role: finalRole,
+      employerId: finalEmployerId,
       phone: phone || '',
-      company: companyField,
-      companyName: companyName || companyField,
-      companyLogo: companyLogo || '',
-      companyWebsite: companyWebsite || '',
+      company: finalCompany,
+      companyName: finalCompanyName,
+      companyLogo: finalCompanyLogo,
+      companyWebsite: finalCompanyWebsite,
       location: location || '',
-      verificationStatus,
-      verificationNote
+      verificationStatus: finalVerificationStatus,
+      verificationNote: teamInvite ? 'Team member - auto verified' : verificationNote,
+      ...(finalCompanyProfile && { companyProfile: finalCompanyProfile }),
+      ...(domainVerificationMethod && { domainVerificationMethod }),
+      verificationRequestedAt: new Date()
     });
-    console.log('✅ User created successfully:', email);
+
+    // Activate the team invite
+    if (teamInvite) {
+      await teamInvite.update({ status: 'active' });
+      console.log(`✅ Team member activated: ${email} under ${teamInvite.employerId}`);
+    }
+    
+    console.log('✅ User created successfully:', email, 'Status:', verificationStatus);
 
     // Send welcome email asynchronously (don't wait for it)
     setImmediate(async () => {
       try {
         console.log('🚀 Sending welcome email in background...');
-        await sendWelcomeEmail(email, userName, userType || 'candidate');
+        await sendWelcomeEmail(
+          email, 
+          userName, 
+          userType || 'candidate',
+          {
+            verificationStatus,
+            verificationMethod: domainVerificationMethod,
+            companyName: companyField,
+            companyDomain
+          }
+        );
         console.log('📧 Welcome email sent successfully');
       } catch (emailError) {
         console.error('❌ Welcome email failed:', emailError.message);
@@ -118,19 +238,24 @@ router.post('/register', registrationGuard, [
       name: user.name,
       email: user.email,
       userType: user.role,
+      employerId: user.employerId,
       phone: user.phone,
       company: user.companyName || user.company,
       companyName: user.companyName || user.company,
       companyLogo: user.companyLogo,
       companyWebsite: user.companyWebsite,
       location: user.location,
-      verificationStatus: user.verificationStatus
+      verificationStatus: user.verificationStatus,
+      companyProfile: user.companyProfile,
+      teamRole: teamInvite?.role || null
     };
 
+    const message = finalVerificationStatus === 'verified'
+      ? 'Account created and verified! You can now sign in.'
+      : 'Account created! Your account is pending verification. You will be notified once approved.';
+
     res.status(201).json({ 
-      message: user.verificationStatus === 'verified'
-        ? 'Account created and verified! You can now sign in.'
-        : 'Account created! Your account is pending admin verification. You will be notified once approved.',
+      message,
       user: userResponse,
       verificationStatus: user.verificationStatus,
       accessToken,
@@ -243,7 +368,31 @@ router.post('/login', async (req, res) => {
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
 
-    const resolvedCompany = user.companyName || user.company || '';
+    // Check if this user is a team member — get their role + owner's company
+    let teamMemberData = null;
+    try {
+      const tm = await TeamMember.findOne({
+        where: { memberEmail: user.email, status: 'active' }
+      });
+      if (tm) {
+        const owner = await User.findOne({
+          where: { email: { [Op.iLike]: tm.employerId } },
+          attributes: ['employerId', 'company', 'companyName', 'companyLogo', 'companyWebsite']
+        });
+        teamMemberData = {
+          teamRole: tm.role,
+          employerId: owner?.employerId || tm.employerId,
+          company: owner?.companyName || owner?.company || user.company,
+          companyName: owner?.companyName || owner?.company || user.companyName,
+          companyLogo: owner?.companyLogo || user.companyLogo,
+          companyWebsite: owner?.companyWebsite || user.companyWebsite
+        };
+      }
+    } catch (e) {
+      console.warn('Team member check failed:', e.message);
+    }
+
+    const resolvedCompany = teamMemberData?.companyName || user.companyName || user.company || '';
     const userResponse = {
       id: user.id,
       name: user.name,
@@ -252,11 +401,13 @@ router.post('/login', async (req, res) => {
       phone: user.phone,
       company: resolvedCompany,
       companyName: resolvedCompany,
-      companyLogo: user.companyLogo,
-      companyWebsite: user.companyWebsite,
+      companyLogo: teamMemberData?.companyLogo || user.companyLogo,
+      companyWebsite: teamMemberData?.companyWebsite || user.companyWebsite,
+      employerId: teamMemberData?.employerId || user.employerId,
       location: user.location,
       verificationStatus: user.verificationStatus || 'verified',
       profilePhoto: user.profilePicture || profileData.profilePhoto,
+      teamRole: teamMemberData?.teamRole || null,
       ...profileData
     };
 
@@ -417,6 +568,32 @@ router.get('/login', (req, res) => {
 // GET /api/users/register - Redirect to proper endpoint  
 router.get('/register', (req, res) => {
   res.status(405).json({ error: 'Use POST method for registration', endpoint: 'POST /api/users/register' });
+});
+
+// GET /api/users/check-domain?domain=tcs.com - Check if domain already has an employer
+router.get('/check-domain', async (req, res) => {
+  try {
+    const { domain } = req.query;
+    if (!domain) return res.status(400).json({ error: 'domain required' });
+
+    const allEmployers = await User.findAll({
+      where: { role: 'employer', isActive: true },
+      attributes: ['email', 'companyName', 'company']
+    });
+    const existing = allEmployers.find(u =>
+      u.email.split('@')[1]?.toLowerCase() === domain.toLowerCase()
+    );
+    if (existing) {
+      return res.json({
+        exists: true,
+        email: existing.email,
+        companyName: existing.companyName || existing.company || domain
+      });
+    }
+    res.json({ exists: false });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // GET /api/users/check/:email - Check if user exists

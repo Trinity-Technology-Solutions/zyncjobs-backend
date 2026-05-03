@@ -87,6 +87,35 @@ const User = sequelize.define('User', {
     type: DataTypes.ENUM('pending', 'verified', 'rejected'),
     defaultValue: 'pending',
     allowNull: true
+  },
+  // New company verification fields
+  companyProfile: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    comment: 'Company profile data from verification'
+  },
+  domainVerificationMethod: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Method used for domain verification'
+  },
+  verificationRequestedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  verifiedAt: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  verifiedBy: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Admin who verified the user'
+  },
+  verificationNote: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    comment: 'Notes about verification process'
   }
 }, {
   tableName: 'users',
