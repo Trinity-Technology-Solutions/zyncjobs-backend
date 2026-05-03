@@ -603,7 +603,10 @@
     "id": 101,
     "name": "Trinity Technology Solutions",
     "domain": "trinitetech.com",
-    "logoUrl": "https://img.logo.dev/trinitetech.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+    "logoUrl": "/images/trinity-logo.webp",
+    "website": "https://trinitetech.com",
+    "industry": "Information Technology",
+    "size": "50-200"
   },
   {
     "id": 102,

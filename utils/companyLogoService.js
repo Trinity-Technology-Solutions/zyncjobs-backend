@@ -86,8 +86,8 @@ export const formatCompanyWithLogo = (company) => {
   const logoInfo = getCompanyLogo(company);
   
   return {
+    ...company,
     id: company.id?.toString(),
-    name: company.name,
     domain: company.domain || extractDomain(company.website),
     logo: logoInfo.logoUrl,
     logoUrl: logoInfo.logoUrl,

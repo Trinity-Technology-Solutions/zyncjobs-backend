@@ -3,9 +3,11 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import TeamMember from '../models/TeamMember.js';
 import User from '../models/User.js';
-import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
 
 dotenv.config();
 
@@ -21,7 +23,151 @@ const createTransporter = () => nodemailer.createTransport({
   }
 });
 
-// GET /api/team?employerId=email — get all team members
+// ── GET /api/team/invite-info/:token ─────────────────────────────────
+router.get('/invite-info/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const invite = await TeamMember.findOne({ where: { inviteToken: token } });
+    if (!invite) return res.status(404).json({ success: false, error: 'Invalid or expired invitation link.' });
+
+    const existingUser = await User.findOne({ where: { email: invite.memberEmail } });
+
+    res.json({
+      success: true,
+      memberName: invite.memberName,
+      memberEmail: invite.memberEmail,
+      role: invite.role,
+      companyName: invite.companyName || invite.employerId,
+      hasAccount: !!existingUser
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ── GET /api/team/accept/:token — existing user auto login ────────────
+router.get('/accept/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const invite = await TeamMember.findOne({ where: { inviteToken: token } });
+    if (!invite) return res.status(404).json({ success: false, error: 'Invalid or expired invitation link.' });
+
+    const user = await User.findOne({ where: { email: invite.memberEmail } });
+    if (!user) return res.status(404).json({ success: false, error: 'No account found. Please set a password first.' });
+
+    await invite.update({ status: 'active', inviteToken: null });
+
+    const accessToken = generateAccessToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    res.json({
+      success: true,
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: 'employer',
+        userType: 'employer',
+        companyName: invite.companyName || invite.employerId,
+        teamRole: invite.role,
+        employerId: invite.employerId
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ── POST /api/team/accept/:token — new user set password + login ──────
+router.post('/accept/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters.' });
+    }
+
+    const invite = await TeamMember.findOne({ where: { inviteToken: token } });
+    if (!invite) return res.status(404).json({ success: false, error: 'Invalid or expired invitation link.' });
+
+    let user = await User.findOne({ where: { email: invite.memberEmail } });
+    if (!user) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      user = await User.create({
+        email: invite.memberEmail,
+        password: hashedPassword,
+        name: invite.memberName,
+        role: 'employer',
+        companyName: invite.companyName || invite.employerId,
+        verificationStatus: 'verified'
+      });
+    }
+
+    await invite.update({ status: 'active', inviteToken: null });
+
+    const accessToken = generateAccessToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    res.json({
+      success: true,
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: 'employer',
+        userType: 'employer',
+        companyName: invite.companyName || invite.employerId,
+        teamRole: invite.role,
+        employerId: invite.employerId
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ── POST /api/team/accept — backward compat ───────────────────────────
+router.post('/accept', async (req, res) => {
+  try {
+    const { memberEmail } = req.body;
+    if (!memberEmail) return res.status(400).json({ error: 'memberEmail required' });
+
+    const invite = await TeamMember.findOne({
+      where: { memberEmail: memberEmail.toLowerCase(), status: 'pending' }
+    });
+    if (!invite) return res.status(404).json({ error: 'No pending invite found' });
+
+    await invite.update({ status: 'active' });
+    res.json({ success: true, employerId: invite.employerId, role: invite.role });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── GET /api/team/check ───────────────────────────────────────────────
+router.get('/check', async (req, res) => {
+  try {
+    const { memberEmail } = req.query;
+    if (!memberEmail) return res.status(400).json({ error: 'memberEmail required' });
+
+    const invite = await TeamMember.findOne({ where: { memberEmail: memberEmail.toLowerCase() } });
+    res.json({
+      hasInvite: !!invite,
+      status: invite?.status || null,
+      role: invite?.role || null,
+      employerId: invite?.employerId || null
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── GET /api/team ─────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
     const { employerId } = req.query;
@@ -33,23 +179,20 @@ router.get('/', async (req, res) => {
     });
     res.json(members);
   } catch (error) {
-    console.error('Error fetching team:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// POST /api/team — invite a member
+// ── POST /api/team — invite a member ─────────────────────────────────
 router.post('/', async (req, res) => {
   try {
-    const { employerId, memberEmail, memberName, role } = req.body;
+    const { employerId, memberEmail, memberName, role, companyName } = req.body;
     if (!employerId || !memberEmail) return res.status(400).json({ error: 'employerId and memberEmail required' });
 
     const existing = await TeamMember.findOne({ where: { employerId, memberEmail } });
     if (existing) return res.status(409).json({ error: 'Member already in team' });
 
-    // Generate a secure invite token valid for 7 days
     const inviteToken = crypto.randomBytes(32).toString('hex');
-    const inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     const member = await TeamMember.create({
       employerId,
@@ -58,10 +201,11 @@ router.post('/', async (req, res) => {
       role: role || 'Recruiter',
       status: 'pending',
       inviteToken,
-      inviteExpiresAt
+      companyName: companyName || employerId
     });
 
-    const transporter = createTransporter();
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const inviteLink = `${frontendUrl}/team/accept?token=${inviteToken}`;
 
     const rolePermissions = {
       'Owner': 'Full access — Post Jobs, Manage Applications, Invite Members, Remove Members, Change Roles, View Analytics',
@@ -69,121 +213,57 @@ router.post('/', async (req, res) => {
       'Viewer': 'View Analytics only'
     };
 
-    const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
-    const acceptUrl = `${frontendUrl}/team/accept?token=${inviteToken}`;
-
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
         <div style="background-color: white; padding: 30px; border-radius: 8px; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #6366f1; padding: 24px 20px; text-align: center; border-radius: 6px 6px 0 0; margin: -30px -30px 24px;">
+          <div style="background-color: #1d4ed8; padding: 24px 20px; text-align: center; border-radius: 6px 6px 0 0; margin: -30px -30px 24px;">
             <h1 style="color: white; margin: 0; font-size: 24px;">ZyncJobs</h1>
           </div>
-          <h2 style="color: #333; margin-bottom: 16px;">You're invited to join a team!</h2>
+          <h2 style="color: #333;">You're invited to join a team!</h2>
           <p style="color: #555; font-size: 15px;">Hi <strong>${memberName || memberEmail}</strong>,</p>
           <p style="color: #555; font-size: 15px;">
-            <strong>${employerId}</strong> has invited you to join their ZyncJobs team as a <strong>${role || 'Recruiter'}</strong>.
+            <strong>${companyName || employerId}</strong> has invited you to join their ZyncJobs team as a <strong>${role || 'Recruiter'}</strong>.
           </p>
-          <div style="background-color: #f0f4ff; padding: 16px; border-left: 4px solid #6366f1; border-radius: 4px; margin: 20px 0;">
+          <div style="background-color: #eff6ff; padding: 16px; border-left: 4px solid #1d4ed8; border-radius: 4px; margin: 20px 0;">
             <p style="margin: 0; color: #444; font-size: 14px;"><strong>Your Role:</strong> ${role || 'Recruiter'}</p>
-            <p style="margin: 8px 0 0; color: #444; font-size: 14px;"><strong>Permissions:</strong> ${rolePermissions[role || 'Recruiter'] || 'Recruiter access'}</p>
+            <p style="margin: 8px 0 0; color: #444; font-size: 14px;"><strong>Permissions:</strong> ${rolePermissions[role || 'Recruiter']}</p>
           </div>
           <p style="color: #555; font-size: 14px;">Click the button below to accept your invitation. You'll be automatically signed in — no password needed.</p>
           <div style="text-align: center; margin: 28px 0;">
-            <a href="${acceptUrl}" style="background-color: #6366f1; color: white; padding: 14px 36px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; font-size: 15px;">
+            <a href="${inviteLink}" style="background-color: #1d4ed8; color: white; padding: 14px 36px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; font-size: 15px;">
               Accept Invitation
             </a>
           </div>
-          <p style="color: #888; font-size: 13px;">This link expires in 7 days. If you did not expect this invitation, you can safely ignore this email.</p>
-          <footer style="border-top: 1px solid #eee; padding-top: 16px; margin-top: 20px; color: #aaa; font-size: 12px; text-align: center;">
-            &copy; 2026 ZyncJobs. All rights reserved.
-          </footer>
+          <p style="color: #888; font-size: 13px;">Or copy this link: <a href="${inviteLink}" style="color: #1d4ed8;">${inviteLink}</a></p>
+          <p style="color: #aaa; font-size: 12px;">This link expires after use. If you did not expect this, ignore this email.</p>
         </div>
       </div>
     `;
 
     try {
+      const transporter = createTransporter();
       await transporter.sendMail({
         from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
         to: memberEmail,
-        subject: `You've been invited to join ZyncJobs Team as a ${role || 'Recruiter'}`,
+        subject: `You've been invited to join ${companyName || employerId} on ZyncJobs`,
         html: emailHtml
       });
       console.log(`✅ Invitation email sent to ${memberEmail}`);
     } catch (emailError) {
-      console.warn('⚠️ Email sending failed, but member was created:', emailError.message);
+      console.warn('⚠️ Email failed, but member created:', emailError.message);
     }
 
     res.status(201).json({
       ...member.toJSON(),
-      emailSent: true,
-      message: `Invitation created and email sent to ${memberEmail}`
+      inviteLink,
+      emailSent: true
     });
   } catch (error) {
-    console.error('Error inviting member:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// GET /api/team/accept/:token — magic link acceptance (no auth required)
-router.get('/accept/:token', async (req, res) => {
-  try {
-    const { token } = req.params;
-
-    const member = await TeamMember.findOne({ where: { inviteToken: token } });
-    if (!member) return res.status(404).json({ error: 'Invalid or already used invitation link.' });
-    if (new Date() > new Date(member.inviteExpiresAt)) {
-      return res.status(410).json({ error: 'This invitation link has expired. Please ask the team owner to resend.' });
-    }
-
-    // Find or create the user account for this email
-    let user = await User.findOne({ where: { email: member.memberEmail } });
-    if (!user) {
-      const tempPassword = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 8);
-      user = await User.create({
-        email: member.memberEmail,
-        name: member.memberName,
-        password: tempPassword,
-        role: 'employer',
-        isActive: true,
-        emailVerified: true,
-        verificationStatus: 'verified'
-      });
-    }
-
-    // Mark invitation as accepted
-    await member.update({ status: 'active', inviteToken: null, inviteExpiresAt: null });
-
-    // Issue tokens so the frontend can auto-login
-    const accessToken = generateAccessToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
-
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
-
-    res.json({
-      success: true,
-      accessToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        userType: 'employer',
-        teamRole: member.role,
-        employerId: member.employerId
-      }
-    });
-  } catch (error) {
-    console.error('Error accepting invite:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// PUT /api/team/:id — update role or status
+// ── PUT /api/team/:id ─────────────────────────────────────────────────
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -198,12 +278,11 @@ router.put('/:id', async (req, res) => {
     });
     res.json(member);
   } catch (error) {
-    console.error('Error updating member:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// DELETE /api/team/:id — remove a member
+// ── DELETE /api/team/:id ──────────────────────────────────────────────
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -211,7 +290,6 @@ router.delete('/:id', async (req, res) => {
     if (!deleted) return res.status(404).json({ error: 'Member not found' });
     res.json({ message: 'Member removed' });
   } catch (error) {
-    console.error('Error removing member:', error);
     res.status(500).json({ error: error.message });
   }
 });
