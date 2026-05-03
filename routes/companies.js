@@ -1,24 +1,315 @@
 import express from 'express';
 import { Op } from 'sequelize';
+import multer from 'multer';
+import { uploadCompanyLogoToS3, uploadCompanyCoverToS3, deleteCompanyImageFromS3 } from '../services/s3Service.js';
 import { formatCompanyWithLogo } from '../utils/companyLogoService.js';
 import Company from '../models/Company.js';
+import CompanyProfile from '../models/CompanyProfile.js';
 import Job from '../models/Job.js';
 import Review from '../models/Review.js';
 import User from '../models/User.js';
+import { authenticateToken as auth } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(file.originalname.toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
+
+
+
+// ===== COMPANY PROFILE ROUTES =====
+
+// GET /api/companies/:id/profile - Get company profile
+router.get('/:id/profile', auth, async (req, res) => {
+  try {
+    const { id: companyId } = req.params;
+    
+    // Verify user has access to this company
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    // For employers, check if they belong to this company
+    if (user.role === 'employer' && user.company !== companyId) {
+      // Try to find company by name as well
+      const company = await Company.findByPk(companyId);
+      if (!company || user.company !== company.name) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+    
+    // Get or create company profile
+    let profile = await CompanyProfile.findOne({
+      where: { companyId },
+      include: [{
+        model: Company,
+        as: 'company',
+        attributes: ['id', 'name', 'domain', 'logo']
+      }]
+    });
+    
+    if (!profile) {
+      // Create default profile if doesn't exist
+      profile = await CompanyProfile.create({ companyId });
+      await profile.reload({
+        include: [{
+          model: Company,
+          as: 'company',
+          attributes: ['id', 'name', 'domain', 'logo']
+        }]
+      });
+    }
+    
+    res.json({ profile });
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+// PUT /api/companies/:id/profile - Update company profile
+router.put('/:id/profile', auth, async (req, res) => {
+  try {
+    const { id: companyId } = req.params;
+    const {
+      description,
+      industry,
+      companySize,
+      foundedYear,
+      headquarters,
+      website,
+      phone,
+      tagline,
+      benefits,
+      locations,
+      socialLinks
+    } = req.body;
+    
+    // Verify user has access to this company
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    // For employers, check if they belong to this company
+    if (user.role === 'employer' && user.company !== companyId) {
+      const company = await Company.findByPk(companyId);
+      if (!company || user.company !== company.name) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+    
+    // Calculate completion percentage
+    const requiredFields = [description, industry, companySize, headquarters];
+    const completedRequired = requiredFields.filter(field => field && field.trim()).length;
+    const optionalFields = [website, phone, tagline];
+    const completedOptional = optionalFields.filter(field => field && field.trim()).length;
+    const hasBenefits = benefits && benefits.length > 0 ? 1 : 0;
+    const hasLocations = locations && locations.length > 0 ? 1 : 0;
+    
+    const completionPercentage = Math.round(
+      ((completedRequired * 20) + (completedOptional * 10) + (hasBenefits * 10) + (hasLocations * 10))
+    );
+    
+    // Upsert profile
+    const [profile] = await CompanyProfile.upsert({
+      companyId,
+      description,
+      industry,
+      companySize,
+      foundedYear: foundedYear ? parseInt(foundedYear) : null,
+      headquarters,
+      website,
+      phone,
+      tagline,
+      benefits: benefits || [],
+      locations: locations || [],
+      socialLinks: socialLinks || {},
+      completionPercentage
+    }, {
+      returning: true
+    });
+    
+    res.json({ profile });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// POST /api/companies/:id/upload-logo - Upload company logo
+router.post('/:id/upload-logo', auth, upload.single('logo'), async (req, res) => {
+  try {
+    const { id: companyId } = req.params;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    // Verify user has access to this company
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    if (user.role === 'employer' && user.company !== companyId) {
+      const company = await Company.findByPk(companyId);
+      if (!company || user.company !== company.name) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+    
+    // Upload to S3
+    const logoUrl = await uploadCompanyLogoToS3(req.file.buffer, companyId, req.file.originalname);
+    
+    // Update profile with logo URL
+    await CompanyProfile.upsert({
+      companyId,
+      logoUrl
+    });
+    
+    // Also update companies table
+    await Company.update(
+      { logo: logoUrl },
+      { where: { id: companyId } }
+    );
+    
+    res.json({ logoUrl });
+  } catch (error) {
+    console.error('Upload logo error:', error);
+    res.status(500).json({ error: 'Failed to upload logo' });
+  }
+});
+
+// POST /api/companies/:id/upload-cover - Upload cover image
+router.post('/:id/upload-cover', auth, upload.single('cover'), async (req, res) => {
+  try {
+    const { id: companyId } = req.params;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    // Verify user has access to this company
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    if (user.role === 'employer' && user.company !== companyId) {
+      const company = await Company.findByPk(companyId);
+      if (!company || user.company !== company.name) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+    
+    // Upload to S3
+    const coverUrl = await uploadCompanyCoverToS3(req.file.buffer, companyId, req.file.originalname);
+    
+    // Update profile with cover URL
+    await CompanyProfile.upsert({
+      companyId,
+      coverImageUrl: coverUrl
+    });
+    
+    res.json({ coverUrl });
+  } catch (error) {
+    console.error('Upload cover error:', error);
+    res.status(500).json({ error: 'Failed to upload cover image' });
+  }
+});
+
+// GET /api/companies/:id/completion-status - Get completion status
+router.get('/:id/completion-status', auth, async (req, res) => {
+  try {
+    const { id: companyId } = req.params;
+    
+    const profile = await CompanyProfile.findOne({
+      where: { companyId }
+    });
+    
+    if (!profile) {
+      return res.json({ completionPercentage: 0, profileCompleted: false });
+    }
+    
+    res.json({
+      completionPercentage: profile.completionPercentage || 0,
+      profileCompleted: profile.profileCompleted || false
+    });
+  } catch (error) {
+    console.error('Get completion status error:', error);
+    res.status(500).json({ error: 'Failed to fetch completion status' });
+  }
+});
+
+// POST /api/companies/:id/mark-completed - Mark profile as completed
+router.post('/:id/mark-completed', auth, async (req, res) => {
+  try {
+    const { id: companyId } = req.params;
+    
+    // Verify user has access to this company
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    if (user.role === 'employer' && user.company !== companyId) {
+      const company = await Company.findByPk(companyId);
+      if (!company || user.company !== company.name) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+    
+    // Mark as completed
+    await CompanyProfile.update(
+      { profileCompleted: true },
+      { where: { companyId } }
+    );
+    
+    // Also update companies table
+    await Company.update(
+      { profileCompleted: true },
+      { where: { id: companyId } }
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Mark completed error:', error);
+    res.status(500).json({ error: 'Failed to mark profile as completed' });
+  }
+});
+
+// ===== EXISTING COMPANY ROUTES =====
 
 // GET /api/companies - Get all companies or search companies
 router.get('/', async (req, res) => {
   try {
     let whereClause = {};
+    const { search, limit = 50 } = req.query;
     
     // If search query provided, filter companies
-    if (req.query.search) {
-      const searchTerm = req.query.search.toString();
+    if (search) {
+      const searchTerm = search.toString();
       whereClause = {
         [Op.or]: [
           { name: { [Op.iLike]: `%${searchTerm}%` } },
+          { domain: { [Op.iLike]: `%${searchTerm}%` } },
           { description: { [Op.iLike]: `%${searchTerm}%` } },
           { industry: { [Op.iLike]: `%${searchTerm}%` } }
         ]
@@ -28,8 +319,9 @@ router.get('/', async (req, res) => {
     // Fetch companies from database
     const companies = await Company.findAll({
       where: whereClause,
-      order: [['createdAt', 'DESC']],
-      attributes: { exclude: ['followers'] }
+      order: [['verified', 'DESC'], ['createdAt', 'DESC']], // Verified companies first
+      limit: parseInt(limit),
+      attributes: { exclude: ['followers', 'verificationDocuments'] } // Don't expose sensitive data
     });
     
     const companyNames = companies.map(c => c.name);
@@ -71,7 +363,10 @@ router.get('/', async (req, res) => {
         reviewCount: ratingMap[name]?.count || 0,
         employerCount: employerMap[name] || 0,
         location: companyData.location || null,
-        size: companyData.size || null
+        size: companyData.size || null,
+        // Include verification status for frontend
+        verified: companyData.verified || false,
+        verificationStatus: companyData.verificationStatus || 'pending'
       };
     });
 
@@ -120,7 +415,10 @@ router.post('/', async (req, res) => {
       industry,
       size,
       website,
-      location
+      location,
+      employerEmail,
+      gstNumber,
+      registrationNumber
     } = req.body;
     
     // Validate required fields
@@ -130,11 +428,24 @@ router.post('/', async (req, res) => {
     
     // Check if company already exists
     const existingCompany = await Company.findOne({
-      where: { name: { [Op.iLike]: name } }
+      where: {
+        [Op.or]: [
+          { name: { [Op.iLike]: name } },
+          ...(domain ? [{ domain: { [Op.iLike]: domain } }] : [])
+        ]
+      }
     });
     
     if (existingCompany) {
-      return res.status(409).json({ error: 'Company with this name already exists' });
+      return res.status(409).json({ 
+        error: 'Company with this name or domain already exists',
+        existingCompany: {
+          id: existingCompany.id,
+          name: existingCompany.name,
+          domain: existingCompany.domain,
+          verified: existingCompany.verified
+        }
+      });
     }
     
     // Create new company
@@ -147,11 +458,25 @@ router.post('/', async (req, res) => {
       size,
       website,
       location,
-      followers: []
+      gstNumber,
+      registrationNumber,
+      createdBy: employerEmail,
+      followers: [],
+      verified: false,
+      verificationStatus: 'pending'
     });
     
     const companyData = company.toJSON();
-    res.status(201).json(formatCompanyWithLogo(companyData));
+    
+    // Don't expose sensitive verification data
+    delete companyData.verificationDocuments;
+    delete companyData.verifiedBy;
+    
+    res.status(201).json({
+      success: true,
+      company: formatCompanyWithLogo(companyData),
+      message: 'Company profile created successfully'
+    });
   } catch (error) {
     console.error('Error creating company:', error);
     if (error.name === 'SequelizeUniqueConstraintError') {
@@ -159,6 +484,73 @@ router.post('/', async (req, res) => {
     } else {
       res.status(500).json({ error: 'Failed to create company' });
     }
+  }
+});
+
+// GET /api/companies/suggestions?q={query} - Get company suggestions
+router.get('/suggestions', async (req, res) => {
+  try {
+    const { q: query, limit = 10 } = req.query;
+    
+    if (!query || query.length < 2) {
+      return res.json({ success: true, companies: [] });
+    }
+    
+    // Import the verification service
+    const { CompanyVerificationService } = await import('../services/companyVerificationService.js');
+    
+    const suggestions = await CompanyVerificationService.getCompanySuggestions(
+      query, 
+      parseInt(limit)
+    );
+    
+    res.json({
+      success: true,
+      companies: suggestions
+    });
+  } catch (error) {
+    console.error('Company suggestions error:', error);
+    res.status(500).json({ 
+      success: false,
+      companies: [],
+      error: 'Failed to fetch company suggestions'
+    });
+  }
+});
+
+// POST /api/companies/verify - Verify company domain (for frontend)
+router.post('/verify', async (req, res) => {
+  try {
+    const { email, companyName } = req.body;
+    
+    if (!email || !companyName) {
+      return res.status(400).json({ 
+        error: 'Email and company name are required' 
+      });
+    }
+    
+    // Import the verification service
+    const { CompanyVerificationService } = await import('../services/companyVerificationService.js');
+    
+    const verificationResult = await CompanyVerificationService.verifyCompanyDomain(
+      email, 
+      companyName
+    );
+    
+    res.json({
+      success: true,
+      ...verificationResult
+    });
+  } catch (error) {
+    console.error('Company verification error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Verification service unavailable',
+      isValid: false,
+      isCompanyDomain: false,
+      verificationMethod: 'manual_review',
+      message: 'Please try again later'
+    });
   }
 });
 
@@ -344,5 +736,7 @@ router.post('/:id/unfollow', async (req, res) => {
     res.status(500).json({ error: 'Failed to unfollow company' });
   }
 });
+
+
 
 export default router;

@@ -29,6 +29,15 @@ const TeamMember = sequelize.define('TeamMember', {
   status: {
     type: DataTypes.ENUM('active', 'pending'),
     defaultValue: 'pending'
+  },
+  inviteToken: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true
+  },
+  companyName: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   tableName: 'team_members',

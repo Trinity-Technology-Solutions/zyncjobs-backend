@@ -2,8 +2,10 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
+import Company from '../models/Company.js';
 import { Op } from 'sequelize';
-import { requireRole, requirePermission, PERMISSIONS } from '../middleware/roleAuth.js';
+import { requireRole, requirePermission, PERMISSIONS, requireTeamRole } from '../middleware/roleAuth.js';
+import { authenticateToken } from '../middleware/auth.js';
 import { mistralDetector } from '../utils/mistralJobDetector.js';
 import { generateEmployerId, generatePositionId, generatePositionIdWithYear } from '../utils/idGenerator.js';
 import { maxJobsGuard, getJobStatus } from '../middleware/settingsMiddleware.js';
@@ -14,6 +16,7 @@ import vectorService from '../services/vectorService.js';
 import { withCache, cacheDelPattern } from '../services/redisService.js';
 import { geocodeLocation } from '../utils/geocode.js';
 import { formatDescriptionWithBullets } from '../server.js';
+import JobRefreshService from '../services/jobRefreshService.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -450,7 +453,7 @@ router.get('/search', async (req, res) => {
 });
 
 // POST /api/jobs - Create new job
-router.post('/', maxJobsGuard, [
+router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireTeamRole(['Owner', 'Recruiter']), maxJobsGuard, [
   body('jobTitle').notEmpty().withMessage('Job title is required'),
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
@@ -470,25 +473,24 @@ router.post('/', maxJobsGuard, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const employerEmail = req.body.employerEmail || req.headers['x-employer-email'];
-    if (!employerEmail) {
-      return res.status(400).json({ error: 'Employer email is required' });
+    // Team member-a? Owner's employerId use pannanum
+    const employerEmail = req.user.email;
+    let user = await User.findOne({ where: { email: employerEmail } });
+    let employerId;
+
+    // Check if this user is a team member — use owner's employerId
+    if (req.teamEmployerId) {
+      const owner = await User.findOne({ where: { email: { [Op.iLike]: req.teamEmployerId } } });
+      employerId = owner?.employerId;
     }
 
-    // Find or create employer ID
-    let user = await User.findOne({ where: { email: employerEmail, role: 'employer' } });
-    let employerId;
-    
-    if (user && user.employerId) {
+    if (!employerId && user?.employerId) {
       employerId = user.employerId;
-    } else {
-      // Generate new sequential employer ID
+    }
+
+    if (!employerId) {
       employerId = await generateEmployerId();
-      
-      if (user) {
-        // Update existing user with employer ID
-        await user.update({ employerId });
-      }
+      if (user) await user.update({ employerId });
     }
 
     const jobData = { ...req.body };
@@ -545,6 +547,26 @@ router.post('/', maxJobsGuard, [
     const autoCategory = jobData.jobCategory || getCategoryFromTitle(jobData.jobTitle);
     
     // Explicitly construct the job creation object to avoid any spread issues
+    // Auto-link to Company table
+    let companyId = null;
+    try {
+      const companyName = jobData.company?.trim();
+      if (companyName) {
+        let company = await Company.findOne({ where: { name: { [Op.iLike]: companyName } } });
+        if (!company) {
+          company = await Company.create({
+            name: companyName,
+            logo: getCompanyLogo(companyName) || '',
+            createdBy: employerEmail,
+            followers: []
+          });
+        }
+        companyId = company.id;
+      }
+    } catch (e) {
+      console.warn('Company auto-link failed:', e.message);
+    }
+
     const jobCreateData = {
       jobTitle: jobData.jobTitle,
       company: jobData.company,
@@ -568,7 +590,9 @@ router.post('/', maxJobsGuard, [
       status: getJobStatus(),
       employerEmail,
       postedBy: employerEmail,
-      isActive: true
+      companyId,
+      refreshCount: 0,
+      originalPostedAt: new Date()
     };
     
     console.log('Final jobCreateData:', JSON.stringify(jobCreateData, null, 2));
@@ -610,8 +634,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/jobs/:id - Delete job (soft delete by setting isActive to false)
-router.delete('/:id', async (req, res) => {
+// DELETE /api/jobs/:id - Delete job
+router.delete('/:id', authenticateToken, requireRole(['employer', 'admin']), requireTeamRole(['Owner', 'Recruiter']), async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.id);
     if (!job) {
@@ -627,8 +651,8 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/jobs/:id/permanent - Permanently delete job (hard delete)
-router.delete('/:id/permanent', async (req, res) => {
+// DELETE /api/jobs/:id/permanent - Permanently delete job
+router.delete('/:id/permanent', authenticateToken, requireRole(['employer', 'admin']), requireTeamRole(['Owner']), async (req, res) => {
   try {
     const deleted = await Job.destroy({ where: { id: req.params.id } });
     if (!deleted) {
@@ -641,7 +665,7 @@ router.delete('/:id/permanent', async (req, res) => {
 });
 
 // PUT /api/jobs/:id - Update job
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, requireRole(['employer', 'admin']), requireTeamRole(['Owner', 'Recruiter']), async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -710,6 +734,92 @@ router.put('/:id/reactivate', async (req, res) => {
     res.json({ message: 'Job reactivated successfully', job });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/jobs/:id/refresh - Refresh a job posting
+router.post('/:id/refresh', async (req, res) => {
+  try {
+    const { userPlan = 'free' } = req.body;
+    const result = await JobRefreshService.refreshJob(req.params.id, userPlan);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      const statusCode = result.code === 'JOB_NOT_FOUND' ? 404 : 400;
+      res.status(statusCode).json(result);
+    }
+  } catch (error) {
+    console.error('Error in refresh endpoint:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+// POST /api/jobs/bulk-refresh - Refresh multiple jobs
+router.post('/bulk-refresh', async (req, res) => {
+  try {
+    const { jobIds, userPlan = 'free' } = req.body;
+    const result = await JobRefreshService.refreshMultipleJobs(jobIds, userPlan);
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error in bulk refresh endpoint:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+// GET /api/jobs/:id/refresh-status - Get refresh status for a job
+router.get('/:id/refresh-status', async (req, res) => {
+  try {
+    const { userPlan = 'free' } = req.query;
+    const result = await JobRefreshService.getRefreshStatus(req.params.id, userPlan);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      const statusCode = result.code === 'JOB_NOT_FOUND' ? 404 : 500;
+      res.status(statusCode).json(result);
+    }
+  } catch (error) {
+    console.error('Error in refresh status endpoint:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      code: 'INTERNAL_ERROR'
+    });
+  }
+});
+
+// GET /api/jobs/refresh/analytics - Get refresh analytics for employer
+router.get('/refresh/analytics', async (req, res) => {
+  try {
+    const { employerEmail, userPlan = 'free' } = req.query;
+    
+    if (!employerEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Employer email is required',
+        code: 'MISSING_EMAIL'
+      });
+    }
+    
+    const result = await JobRefreshService.getRefreshAnalytics(employerEmail, userPlan);
+    res.json(result);
+  } catch (error) {
+    console.error('Error in refresh analytics endpoint:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      code: 'INTERNAL_ERROR'
+    });
   }
 });
 

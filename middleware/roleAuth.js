@@ -1,3 +1,5 @@
+import TeamMember from '../models/TeamMember.js';
+
 // Role-based access control middleware
 export const requireRole = (allowedRoles) => {
   return (req, res, next) => {
@@ -70,6 +72,37 @@ export const ROLE_PERMISSIONS = {
     PERMISSIONS.VIEW_JOBS,
     PERMISSIONS.MANAGE_PROFILE
   ]
+};
+
+// Team role middleware — checks TeamMember table for role
+// allowedTeamRoles: ['Owner', 'Recruiter', 'Viewer']
+export const requireTeamRole = (allowedTeamRoles) => {
+  return async (req, res, next) => {
+    try {
+      const userEmail = req.user?.email;
+      if (!userEmail) return res.status(401).json({ error: 'Authentication required' });
+
+      // Owner of the company (not a team member) always has full access
+      const tm = await TeamMember.findOne({
+        where: { memberEmail: userEmail, status: 'active' }
+      });
+
+      // Not a team member = they are the owner, allow all
+      if (!tm) return next();
+
+      if (!allowedTeamRoles.includes(tm.role)) {
+        return res.status(403).json({
+          error: `Access denied. Required role: ${allowedTeamRoles.join(' or ')}. Your role: ${tm.role}`
+        });
+      }
+
+      req.teamRole = tm.role;
+      req.teamEmployerId = tm.employerId;
+      next();
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  };
 };
 
 // Check if user has specific permission
