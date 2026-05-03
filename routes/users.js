@@ -687,8 +687,54 @@ router.put('/:id/verify', authenticateToken, async (req, res) => {
   }
 });
 
+// PUT /api/users/:id/password - Update user password
+router.put('/:id/password', async (req, res) => {
+  try {
+    const identifier = decodeURIComponent(req.params.id || '').trim();
+    const { currentPassword, newPassword } = req.body;
+
+    console.log('🔐 Password update request for:', identifier);
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    let user;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (identifier.includes('@')) {
+      user = await User.findOne({ where: { email: { [Op.iLike]: identifier } } });
+    } else if (uuidRegex.test(identifier)) {
+      user = await User.findByPk(identifier);
+    } else {
+      return res.status(400).json({ error: 'Invalid user identifier' });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 8);
+    await user.update({ password: hashedPassword });
+
+    console.log('✅ Password updated for:', user.email);
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('❌ Update password error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // PUT /api/users/:id - Update user email
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const identifier = decodeURIComponent(req.params.id || '').trim();
     const { email } = req.body;
@@ -706,6 +752,11 @@ router.put('/:id', async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Ensure the authenticated user can only update their own email
+    if (req.user.id !== user.id) {
+      return res.status(403).json({ error: 'Unauthorized to update this account' });
     }
 
     // Check if new email is already taken by another user

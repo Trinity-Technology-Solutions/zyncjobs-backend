@@ -1,4 +1,6 @@
 import express from 'express';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import TeamMember from '../models/TeamMember.js';
 import User from '../models/User.js';
 import nodemailer from 'nodemailer';
@@ -226,6 +228,7 @@ router.post('/', async (req, res) => {
             <p style="margin: 0; color: #444; font-size: 14px;"><strong>Your Role:</strong> ${role || 'Recruiter'}</p>
             <p style="margin: 8px 0 0; color: #444; font-size: 14px;"><strong>Permissions:</strong> ${rolePermissions[role || 'Recruiter']}</p>
           </div>
+          <p style="color: #555; font-size: 14px;">Click the button below to accept your invitation. You'll be automatically signed in — no password needed.</p>
           <div style="text-align: center; margin: 28px 0;">
             <a href="${inviteLink}" style="background-color: #1d4ed8; color: white; padding: 14px 36px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; font-size: 15px;">
               Accept Invitation

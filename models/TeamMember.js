@@ -44,7 +44,8 @@ const TeamMember = sequelize.define('TeamMember', {
   timestamps: true,
   indexes: [
     { fields: ['employerId'] },
-    { unique: true, fields: ['employerId', 'memberEmail'] }
+    { unique: true, fields: ['employerId', 'memberEmail'] },
+    { fields: ['inviteToken'] }
   ]
 });
 

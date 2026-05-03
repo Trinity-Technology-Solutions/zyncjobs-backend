@@ -1350,36 +1350,50 @@ app.use(errorHandler);
 // Format description text with proper bullet points
 export function formatDescriptionWithBullets(text) {
   if (!text) return '';
-  const BS = new Set([
+
+  // If already HTML, return as-is
+  if (/<[a-z][\s\S]*>/i.test(text)) return text;
+
+  const BULLET_SECTIONS = new Set([
     'key responsibilities','responsibilities','requirements',
     'preferred qualifications','qualifications','what we offer',
     'nice to have','skills required','required skills','benefits',
     'about the role','who you are','your responsibilities',
-    'job responsibilities','duties','key duties'
+    'job responsibilities','duties','key duties','what you will do',
+    'what we are looking for','your role','the role'
   ]);
+
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  let out = '', inList = false, inBS = false;
+  let out = '', inList = false, inBulletSection = false;
+
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
-    const isBullet = /^[-*]\s/.test(l) || /^\d+\.\s/.test(l);
+    const isBullet = /^[-*•]\s+/.test(l) || /^\d+[.)\s]\s*/.test(l);
     const lower = l.toLowerCase().replace(/:$/, '').trim();
-    const isH = l.length < 60 && (
-      /^[A-Z][A-Za-z\s]+:?$/.test(l) ||
-      (i < lines.length - 1 && /^[-*]\s/.test(lines[i + 1]))
-    );
-    if (isH) {
+
+    // Detect section heading: short line ending with colon OR followed by a bullet line
+    const nextIsBullet = i < lines.length - 1 && (/^[-*•]\s+/.test(lines[i + 1]) || /^\d+[.)\s]\s*/.test(lines[i + 1]));
+    const isHeading = l.length < 80 && (l.endsWith(':') || nextIsBullet) && !isBullet;
+
+    if (isHeading) {
       if (inList) { out += '</ul>\n'; inList = false; }
-      inBS = BS.has(lower);
+      inBulletSection = BULLET_SECTIONS.has(lower);
       out += '<h3>' + l.replace(/:$/, '') + '</h3>\n';
-    } else if (isBullet || inBS) {
-      const cl = isBullet ? l.replace(/^[-*]\s/, '').replace(/^\d+\.\s/, '') : l;
+    } else if (isBullet) {
+      // Explicit bullet — strip the bullet marker
+      const content = l.replace(/^[-*•]\s+/, '').replace(/^\d+[.)\s]\s*/, '');
       if (!inList) { out += '<ul>\n'; inList = true; }
-      out += '<li>' + cl + '</li>\n';
+      out += '<li>' + content + '</li>\n';
+    } else if (inBulletSection) {
+      // Plain line inside a known bullet section — treat as bullet
+      if (!inList) { out += '<ul>\n'; inList = true; }
+      out += '<li>' + l + '</li>\n';
     } else {
-      if (inList) { out += '</ul>\n'; inList = false; }
+      if (inList) { out += '</ul>\n'; inList = false; inBulletSection = false; }
       out += '<p>' + l + '</p>\n';
     }
   }
+
   if (inList) out += '</ul>\n';
   return out;
 }
