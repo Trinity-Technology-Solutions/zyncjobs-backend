@@ -95,6 +95,11 @@ const Job = sequelize.define('Job', {
     allowNull: false
   },
   postedBy: DataTypes.STRING,
+  companyId: {
+    type: DataTypes.UUID,
+    allowNull: true,
+    comment: 'FK to companies table'
+  },
   applicationDeadline: DataTypes.DATE,
   isActive: {
     type: DataTypes.BOOLEAN,
@@ -116,6 +121,21 @@ const Job = sequelize.define('Job', {
   applicationsCount: {
     type: DataTypes.INTEGER,
     defaultValue: 0
+  },
+  refreshCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: 'Number of times this job has been refreshed'
+  },
+  lastRefreshedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp of the last refresh'
+  },
+  originalPostedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Original posting date (before any refreshes)'
   }
 }, {
   tableName: 'jobs',
@@ -132,7 +152,10 @@ const Job = sequelize.define('Job', {
     { fields: ['positionId'], unique: true },
     { fields: ['isActive', 'status'] },
     { fields: ['createdAt'] },
-    { fields: ['slug'] }
+    { fields: ['slug'] },
+    { fields: ['refreshCount'] },
+    { fields: ['lastRefreshedAt'] },
+    { fields: ['companyId'] }
   ]
 });
 

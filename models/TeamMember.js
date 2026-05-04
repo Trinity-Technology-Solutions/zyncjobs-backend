@@ -35,8 +35,8 @@ const TeamMember = sequelize.define('TeamMember', {
     allowNull: true,
     unique: true
   },
-  inviteExpiresAt: {
-    type: DataTypes.DATE,
+  companyName: {
+    type: DataTypes.STRING,
     allowNull: true
   }
 }, {

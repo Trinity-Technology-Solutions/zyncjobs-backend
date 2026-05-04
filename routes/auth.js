@@ -34,11 +34,53 @@ router.get('/google/callback',
   },
   async (req, res) => {
     try {
+      // Check if OAuth was blocked due to invite-only
+      if (req.user?.oauthBlocked) {
+        const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
+        return res.redirect(`${frontendUrl}/employer-register?blocked=1&company=${encodeURIComponent(req.user.companyName)}`);
+      }
+
       const isNewUser = req.user.isNewUser === true;
       const portalType = req.query.state || 'candidate';
 
       // Always use the role stored on the user (set correctly in passport.js)
       const userRole = req.user.role || req.user.userType || portalType;
+
+      // For new employer users, perform company verification
+      if (isNewUser && portalType === 'employer') {
+        try {
+          // Import the verification service
+          const { CompanyVerificationService } = await import('../services/companyVerificationService.js');
+          
+          const email = req.user.email;
+          const domain = email.split('@')[1];
+          
+          // Try to find company by domain
+          const verificationResult = await CompanyVerificationService.verifyCompanyDomain(
+            email, 
+            domain // Use domain as company name for OAuth users
+          );
+          
+          // Update user with verification results
+          const verificationStatus = CompanyVerificationService.determineVerificationStatus(verificationResult);
+          
+          await req.user.update({
+            verificationStatus,
+            companyDomain: domain,
+            domainVerificationMethod: verificationResult.verificationMethod,
+            companyProfile: verificationResult.companyProfile ? JSON.stringify(verificationResult.companyProfile) : null
+          });
+          
+          console.log(`✅ OAuth employer verification completed: ${verificationStatus} (${verificationResult.verificationMethod})`);
+        } catch (verificationError) {
+          console.error('❌ OAuth employer verification failed:', verificationError);
+          // Continue with manual review as fallback
+          await req.user.update({
+            verificationStatus: 'pending',
+            domainVerificationMethod: 'manual_review'
+          });
+        }
+      }
 
       const token = generateAccessToken(req.user.id);
       const refreshToken = generateRefreshToken(req.user.id);
