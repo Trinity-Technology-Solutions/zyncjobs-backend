@@ -175,6 +175,15 @@ router.get('/', async (req, res) => {
       where: { employerId },
       order: [['createdAt', 'ASC']]
     });
+
+    // Auto-fix: Owner records should always be active
+    for (const m of members) {
+      if (m.role === 'Owner' && m.status !== 'active') {
+        await m.update({ status: 'active', inviteToken: null });
+        m.status = 'active';
+      }
+    }
+
     res.json(members);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -190,18 +199,27 @@ router.post('/', async (req, res) => {
     const existing = await TeamMember.findOne({ where: { employerId, memberEmail } });
     if (existing) return res.status(409).json({ error: 'Member already in team' });
 
-    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const inviteToken = role === 'Owner' ? null : crypto.randomBytes(32).toString('hex');
 
     const member = await TeamMember.create({
       employerId,
       memberEmail,
       memberName: memberName || memberEmail.split('@')[0],
       role: role || 'Recruiter',
-      status: 'pending',
+      status: role === 'Owner' ? 'active' : 'pending',
       inviteToken,
       companyName: companyName || employerId
     });
 
+    // Owner doesn't need an invite email
+    if (role === 'Owner') {
+      return res.status(201).json({
+        ...member.toJSON(),
+        token: null,
+        inviteLink: null,
+        emailSent: false
+      });
+    }
     // Use inviteBaseUrl from frontend if provided, otherwise fall back to env
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const baseUrl = inviteBaseUrl || `${frontendUrl}/team/accept`;
