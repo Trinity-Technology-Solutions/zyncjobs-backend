@@ -61,55 +61,49 @@ export const sendOTPEmail = async (email, name, userType) => {
   try {
     const otp = generateOTP();
     storeOTP(email, otp);
-    
-    const mailOptions = {
+
+    const { baseTemplate, ctaButton, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+
+    const digits = otp.split('').map(d =>
+      `<span style="display:inline-block;width:44px;height:52px;line-height:52px;text-align:center;background:#F5F3FF;border:2px solid #4F46E5;border-radius:10px;color:#4F46E5;font-size:26px;font-weight:800;margin:0 4px;font-family:'Courier New',monospace;">${d}</span>`
+    ).join('');
+
+    const content = `
+      <!-- Hero -->
+      <div style="background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);padding:36px 40px;text-align:center;">
+        <div style="font-size:44px;margin-bottom:10px;">🔐</div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Verify Your Email</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">One-time verification code</p>
+      </div>
+
+      <!-- Body -->
+      <div style="padding:36px 40px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name || 'there'}! 👋</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 28px;">
+          Use the code below to verify your email and complete your ${userType === 'employer' ? 'employer' : 'job seeker'} registration on ZyncJobs.
+        </p>
+
+        <!-- OTP Box -->
+        <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:14px;padding:28px;text-align:center;margin:0 0 24px;">
+          <p style="color:#6B7280;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin:0 0 16px;">Your Verification Code</p>
+          <div style="margin-bottom:16px;">${digits}</div>
+          <p style="color:#9CA3AF;font-size:12px;margin:0;">⏰ Expires in <strong style="color:#EF4444;">10 minutes</strong></p>
+        </div>
+
+        <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:10px;padding:14px 18px;margin-bottom:24px;">
+          <p style="color:#92400E;font-size:13px;margin:0;">⚠️ Never share this code with anyone. ZyncJobs will never ask for your OTP.</p>
+        </div>
+
+        ${divider()}
+        <p style="color:#9CA3AF;font-size:13px;text-align:center;margin:0;">Didn't request this? You can safely ignore this email.</p>
+      </div>`;
+
+    await transporter.sendMail({
       from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
       to: email,
-      subject: 'ZyncJobs - Email Verification Code',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #6366f1; padding: 30px 20px; text-align: center;">
-            <h1 style="color: white; margin: 0;">ZyncJobs</h1>
-          </div>
-          
-          <div style="padding: 40px 30px; background-color: white;">
-            <h2 style="color: #333;">Email Verification</h2>
-            
-            <p style="color: #555; font-size: 16px;">
-              Hello ${name || 'there'}! 👋
-            </p>
-            
-            <p style="color: #555; font-size: 16px;">
-              Thank you for registering as a ${userType === 'employer' ? 'Employer' : 'Job Seeker'} on ZyncJobs.
-            </p>
-            
-            <p style="color: #555; font-size: 16px;">
-              Your verification code is:
-            </p>
-            
-            <div style="background-color: #f0f9ff; padding: 20px; border-radius: 8px; text-align: center; margin: 30px 0;">
-              <h1 style="color: #6366f1; font-size: 48px; letter-spacing: 8px; margin: 0; font-family: 'Courier New', monospace;">
-                ${otp}
-              </h1>
-            </div>
-            
-            <p style="color: #888; font-size: 14px;">
-              This code will expire in <strong>10 minutes</strong>.
-            </p>
-            
-            <p style="color: #888; font-size: 14px;">
-              If you didn't request this code, please ignore this email.
-            </p>
-          </div>
-          
-          <div style="background-color: #f1f1f1; padding: 20px; text-align: center;">
-            <p style="color: #666; margin: 0; font-size: 12px;">© 2025 ZyncJobs. All rights reserved.</p>
-          </div>
-        </div>
-      `
-    };
-
-    await transporter.sendMail(mailOptions);
+      subject: `${otp} is your ZyncJobs verification code`,
+      html: baseTemplate(content, `Your ZyncJobs OTP is ${otp}. Valid for 10 minutes.`)
+    });
     console.log('✅ OTP email sent to:', email);
     return { success: true, message: 'OTP sent successfully' };
   } catch (error) {
