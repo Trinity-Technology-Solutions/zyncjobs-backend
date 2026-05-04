@@ -184,7 +184,7 @@ router.get('/', async (req, res) => {
 // ── POST /api/team — invite a member ─────────────────────────────────
 router.post('/', async (req, res) => {
   try {
-    const { employerId, memberEmail, memberName, role, companyName } = req.body;
+    const { employerId, memberEmail, memberName, role, companyName, inviteBaseUrl } = req.body;
     if (!employerId || !memberEmail) return res.status(400).json({ error: 'employerId and memberEmail required' });
 
     const existing = await TeamMember.findOne({ where: { employerId, memberEmail } });
@@ -202,8 +202,10 @@ router.post('/', async (req, res) => {
       companyName: companyName || employerId
     });
 
+    // Use inviteBaseUrl from frontend if provided, otherwise fall back to env
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const inviteLink = `${frontendUrl}/team/accept?token=${inviteToken}`;
+    const baseUrl = inviteBaseUrl || `${frontendUrl}/team/accept`;
+    const inviteLink = `${baseUrl}?token=${inviteToken}`;
 
     const rolePermissions = {
       'Owner': 'Full access — Post Jobs, Manage Applications, Invite Members, Remove Members, Change Roles, View Analytics',
@@ -253,6 +255,7 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({
       ...member.toJSON(),
+      token: inviteToken,
       inviteLink,
       emailSent: true
     });
