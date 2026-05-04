@@ -103,6 +103,34 @@ router.get('/:id/jobs', ...adminGuard, async (req, res) => {
   }
 });
 
+// PUT /api/admin/users/:id — update user fields (email, name, company, etc.)
+router.put('/:id', ...adminGuard, async (req, res) => {
+  try {
+    const target = await User.findByPk(req.params.id);
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (target.role === 'super_admin') return res.status(403).json({ error: 'Cannot edit super admin' });
+
+    const allowed = ['email', 'name', 'company', 'companyName', 'phone'];
+    const updates = {};
+    allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+
+    if (updates.email) {
+      const existing = await User.findOne({ where: { email: updates.email } });
+      if (existing && String(existing.id) !== String(req.params.id)) {
+        return res.status(409).json({ error: 'Email already in use by another account' });
+      }
+    }
+
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'No valid fields to update' });
+
+    await User.update(updates, { where: { id: req.params.id } });
+    const updated = await User.findByPk(req.params.id, { attributes: { exclude: ['password'] } });
+    res.json({ message: 'User updated', user: updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // PUT /api/admin/users/:id/role — change role
 router.put('/:id/role', ...adminGuard, async (req, res) => {
   try {
