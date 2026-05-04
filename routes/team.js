@@ -5,8 +5,6 @@ import TeamMember from '../models/TeamMember.js';
 import User from '../models/User.js';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
-import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
 
 dotenv.config();
