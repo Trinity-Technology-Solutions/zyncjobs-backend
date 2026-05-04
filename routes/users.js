@@ -733,15 +733,11 @@ router.put('/:id/password', async (req, res) => {
   }
 });
 
-// PUT /api/users/:id - Update user email
+// PUT /api/users/:id - Update user email and/or company profile
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const identifier = decodeURIComponent(req.params.id || '').trim();
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
+    const { email, companyName, company, companyWebsite, companyLogo, industry, companySize, headquarters, companyDescription } = req.body;
 
     let user;
     if (identifier.includes('@')) {
@@ -750,28 +746,42 @@ router.put('/:id', authenticateToken, async (req, res) => {
       user = await User.findByPk(identifier);
     }
 
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (req.user.id !== user.id) return res.status(403).json({ error: 'Unauthorized to update this account' });
+
+    const updateData = {};
+
+    // Email update
+    if (email && email !== user.email) {
+      const dup = await User.findOne({ where: { email: { [Op.iLike]: email }, id: { [Op.ne]: user.id } } });
+      if (dup) return res.status(400).json({ error: 'Email already in use by another account' });
+      updateData.email = email.toLowerCase();
     }
 
-    // Ensure the authenticated user can only update their own email
-    if (req.user.id !== user.id) {
-      return res.status(403).json({ error: 'Unauthorized to update this account' });
+    // Company fields
+    if (companyName !== undefined) { updateData.companyName = companyName; updateData.company = companyName; }
+    if (company !== undefined)     { updateData.company = company; updateData.companyName = company; }
+    if (companyWebsite !== undefined) updateData.companyWebsite = companyWebsite;
+    if (companyLogo !== undefined)    updateData.companyLogo = companyLogo;
+
+    // Store industry/size/headquarters in companyProfile JSONB
+    if (industry !== undefined || companySize !== undefined || headquarters !== undefined || companyDescription !== undefined) {
+      const prev = user.companyProfile || {};
+      updateData.companyProfile = {
+        ...prev,
+        ...(industry !== undefined && { industry }),
+        ...(companySize !== undefined && { companySize }),
+        ...(headquarters !== undefined && { headquarters }),
+        ...(companyDescription !== undefined && { description: companyDescription })
+      };
     }
 
-    // Check if new email is already taken by another user
-    const existing = await User.findOne({
-      where: { email: { [Op.iLike]: email }, id: { [Op.ne]: user.id } }
-    });
-    if (existing) {
-      return res.status(400).json({ error: 'Email already in use by another account' });
-    }
+    if (Object.keys(updateData).length === 0) return res.json({ message: 'No changes', user: user.toJSON() });
 
-    await user.update({ email: email.toLowerCase() });
-
-    res.json({ message: 'Email updated successfully', email: user.email });
+    await user.update(updateData);
+    res.json({ message: 'Profile updated successfully', user: user.toJSON() });
   } catch (error) {
-    console.error('❌ Update email error:', error);
+    console.error('❌ Update user error:', error);
     res.status(500).json({ error: error.message });
   }
 });

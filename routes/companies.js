@@ -426,7 +426,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Company name is required' });
     }
     
-    // Check if company already exists
+    // Upsert: update if exists, create if not
     const existingCompany = await Company.findOne({
       where: {
         [Op.or]: [
@@ -437,14 +437,21 @@ router.post('/', async (req, res) => {
     });
     
     if (existingCompany) {
-      return res.status(409).json({ 
-        error: 'Company with this name or domain already exists',
-        existingCompany: {
-          id: existingCompany.id,
-          name: existingCompany.name,
-          domain: existingCompany.domain,
-          verified: existingCompany.verified
-        }
+      // Update existing company with new info
+      await existingCompany.update({
+        ...(domain && { domain }),
+        ...(logo && { logo }),
+        ...(description && { description }),
+        ...(industry && { industry }),
+        ...(size && { size }),
+        ...(website && { website }),
+        ...(location && { location }),
+        ...(employerEmail && !existingCompany.createdBy && { createdBy: employerEmail })
+      });
+      return res.json({
+        success: true,
+        company: formatCompanyWithLogo(existingCompany.toJSON()),
+        message: 'Company profile updated'
       });
     }
     
