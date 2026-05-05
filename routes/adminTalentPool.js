@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import nodemailer from 'nodemailer';
+import TalentCandidate from '../models/TalentCandidate.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,86 +25,67 @@ const upload = multer({ storage, fileFilter: (req, file, cb) => {
   allowed.includes(path.extname(file.originalname).toLowerCase()) ? cb(null, true) : cb(new Error('PDF, DOC, DOCX, TXT only'));
 }, limits: { fileSize: 10 * 1024 * 1024 } });
 
-// ── In-memory store (replace with DB model later) ─────────────────
-// Using a JSON file for persistence without adding a new DB model
-const DATA_FILE = path.join(__dirname, '../data/talentPool.json');
-
-function readData() {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return { candidates: [] };
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch { return { candidates: [] }; }
-}
-
-function writeData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
-
 // ── POST /api/admin/talent/upload ─────────────────────────────────
-// Upload + parse multiple resumes
 router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 200), async (req, res) => {
   if (!req.files || !req.files.length) return res.status(400).json({ error: 'No files uploaded' });
 
   const pdfTextExtractor = (await import('../services/pdfTextExtractor.js')).default;
   const { resumeParser } = await import('../utils/resumeParserAI.js');
-  const data = readData();
   const results = [];
 
-  for (const file of req.files) {
+  // OpenRouter free tier: ~20 req/min → process 5 at a time with delay between batches
+  const CONCURRENCY = 5;
+  const BATCH_DELAY_MS = 15000; // 15s between batches to stay under rate limit
+
+  async function parseAndSave(file) {
     try {
       const buffer = fs.readFileSync(file.path);
       const text = await pdfTextExtractor.extractTextFromBuffer(buffer);
       const parsed = await resumeParser.parseResumeToProfile(text);
-
-      const candidate = {
+      const candidate = await TalentCandidate.create({
         id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         name: parsed.name || '',
         email: parsed.email || '',
         phone: parsed.phone || '',
         skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : '',
-        experience: parsed.workExperiences?.length
-          ? `${parsed.workExperiences.length} role(s)`
-          : '',
+        experience: parsed.workExperiences?.length ? `${parsed.workExperiences.length} role(s)` : '',
         jobTitle: parsed.title || '',
         resumePath: file.path,
         resumeFile: file.filename,
         status: parsed.email ? 'Parsed' : 'Error',
         source: 'uploaded_resume',
-        isRegistered: false,
-        isVisible: false,
-        emailStatus: 'Not Sent',
-        emailSentAt: null,
-        addedDate: new Date().toISOString(),
         rawText: text.substring(0, 500)
-      };
-
-      data.candidates.push(candidate);
-      results.push({ file: file.originalname, status: 'ok', name: candidate.name, email: candidate.email });
+      });
+      return { file: file.originalname, status: 'ok', name: candidate.name, email: candidate.email };
     } catch (err) {
-      results.push({ file: file.originalname, status: 'error', error: err.message });
+      return { file: file.originalname, status: 'error', error: err.message };
     }
   }
 
-  writeData(data);
+  for (let i = 0; i < req.files.length; i += CONCURRENCY) {
+    const batch = req.files.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(batch.map(parseAndSave));
+    results.push(...batchResults);
+    // Wait between batches (skip delay after last batch)
+    if (i + CONCURRENCY < req.files.length) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+  }
+
   res.json({ success: true, processed: results.length, results });
 });
 
 // ── GET /api/admin/talent/candidates ─────────────────────────────
-router.get('/candidates', authenticateToken, requireRole(['admin']), (req, res) => {
-  const data = readData();
-  res.json({ candidates: data.candidates });
+router.get('/candidates', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const candidates = await TalentCandidate.findAll({ order: [['addedDate', 'DESC']] });
+  res.json({ candidates });
 });
 
 // ── DELETE /api/admin/talent/candidates/:id ───────────────────────
-router.delete('/candidates/:id', authenticateToken, requireRole(['admin']), (req, res) => {
-  const data = readData();
-  data.candidates = data.candidates.filter(c => c.id !== req.params.id);
-  writeData(data);
+router.delete('/candidates/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  await TalentCandidate.destroy({ where: { id: req.params.id } });
   res.json({ success: true });
 });
 
 // ── POST /api/admin/talent/email ──────────────────────────────────
-// Send bulk emails in batches
 router.post('/email', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { candidateIds, template, batchSize = 100 } = req.body;
   if (!candidateIds?.length) return res.status(400).json({ error: 'No candidates selected' });
@@ -183,8 +165,10 @@ router.post('/email', authenticateToken, requireRole(['admin']), async (req, res
   };
 
   const tpl = TEMPLATES[template] || TEMPLATES.invite;
-  const data = readData();
-  const toSend = data.candidates.filter(c => candidateIds.includes(c.id) && c.email);
+  const { Op } = await import('sequelize');
+  const toSend = await TalentCandidate.findAll({
+    where: { id: { [Op.in]: candidateIds }, email: { [Op.ne]: '' } }
+  });
 
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_SERVER,
@@ -196,7 +180,6 @@ router.post('/email', authenticateToken, requireRole(['admin']), async (req, res
   let sent = 0, failed = 0;
   const errors = [];
 
-  // Process in batches
   for (let i = 0; i < toSend.length; i += batchSize) {
     const batch = toSend.slice(i, i + batchSize);
     for (const c of batch) {
@@ -207,37 +190,30 @@ router.post('/email', authenticateToken, requireRole(['admin']), async (req, res
           subject: tpl.subject,
           html: tpl.html(c.name)
         });
-        // Mark as sent
-        const idx = data.candidates.findIndex(x => x.id === c.id);
-        if (idx !== -1) {
-          data.candidates[idx].emailStatus = 'Sent';
-          data.candidates[idx].emailSentAt = new Date().toISOString();
-        }
+        await c.update({ emailStatus: 'Sent', emailSentAt: new Date() });
         sent++;
       } catch (err) {
         failed++;
         errors.push({ id: c.id, email: c.email, error: err.message });
       }
     }
-    // Small delay between batches (300ms in API, real delay handled by frontend)
     if (i + batchSize < toSend.length) await new Promise(r => setTimeout(r, 300));
   }
 
-  writeData(data);
   res.json({ success: true, sent, failed, errors });
 });
 
 // ── GET /api/admin/talent/stats ───────────────────────────────────
-router.get('/stats', authenticateToken, requireRole(['admin']), (req, res) => {
-  const data = readData();
-  const c = data.candidates;
-  res.json({
-    total: c.length,
-    parsed: c.filter(x => x.status === 'Parsed').length,
-    errors: c.filter(x => x.status === 'Error').length,
-    emailSent: c.filter(x => x.emailStatus === 'Sent').length,
-    notSent: c.filter(x => x.emailStatus !== 'Sent').length
-  });
+router.get('/stats', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { Op } = await import('sequelize');
+  const [total, parsed, errors, emailSent] = await Promise.all([
+    TalentCandidate.count(),
+    TalentCandidate.count({ where: { status: 'Parsed' } }),
+    TalentCandidate.count({ where: { status: 'Error' } }),
+    TalentCandidate.count({ where: { emailStatus: 'Sent' } })
+  ]);
+
+  res.json({ total, parsed, errors, emailSent, notSent: total - emailSent });
 });
 
 export default router;

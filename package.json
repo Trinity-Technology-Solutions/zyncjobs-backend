@@ -17,6 +17,7 @@
     "migrate:verification-columns": "node scripts/migrateVerificationColumns.js",
     "migrate:job-company-link": "node scripts/migrateJobCompanyLink.js",
     "migrate:company-profiles": "node scripts/migrateCompanyProfiles.js",
+    "migrate:talent-pool": "node scripts/migrateTalentPool.js",
     "test:company-profiles": "node scripts/testCompanyProfiles.js"
   },
   "keywords": [

@@ -372,7 +372,7 @@ router.post('/login', async (req, res) => {
     let teamMemberData = null;
     try {
       const tm = await TeamMember.findOne({
-        where: { memberEmail: user.email, status: 'active' }
+        where: { memberEmail: { [Op.iLike]: user.email }, status: 'active' }
       });
       if (tm) {
         const owner = await User.findOne({
