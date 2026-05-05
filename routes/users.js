@@ -425,8 +425,8 @@ router.post('/login', async (req, res) => {
     res.json({ 
       message: 'Login successful',
       user: userResponse,
-      accessToken
-      // refreshToken sent via httpOnly cookie only
+      accessToken,
+      refreshToken
     });
   } catch (error) {
     console.error('❌ Login error:', error);
@@ -876,3 +876,4 @@ router.delete('/:id', async (req, res) => {
 });
 
 export default router;
+

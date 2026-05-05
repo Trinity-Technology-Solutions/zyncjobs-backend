@@ -453,13 +453,12 @@ router.get('/search', async (req, res) => {
 });
 
 // POST /api/jobs - Create new job
-router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireTeamRole(['Owner', 'Recruiter']), maxJobsGuard, [
+router.post('/', maxJobsGuard, [
   body('jobTitle').notEmpty().withMessage('Job title is required'),
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {
     const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'];
-    // Handle both array and string inputs
     const types = Array.isArray(val) ? val : [val];
     if (!types.length) throw new Error('Job type is required');
     if (!types.every(t => valid.includes(t))) throw new Error('Invalid job type');
@@ -473,20 +472,14 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
       return res.status(400).json({ errors: errors.array() });
     }
 
-    // Team member-a? Owner's employerId use pannanum
-    const employerEmail = req.user.email;
+    // Get employer email from body (sent by frontend) or from auth token if available
+    const employerEmail = req.body.employerEmail || req.body.postedBy || (req.user?.email) || '';
+    if (!employerEmail) {
+      return res.status(400).json({ error: 'Employer email is required' });
+    }
+
     let user = await User.findOne({ where: { email: employerEmail } });
-    let employerId;
-
-    // Check if this user is a team member — use owner's employerId
-    if (req.teamEmployerId) {
-      const owner = await User.findOne({ where: { email: { [Op.iLike]: req.teamEmployerId } } });
-      employerId = owner?.employerId;
-    }
-
-    if (!employerId && user?.employerId) {
-      employerId = user.employerId;
-    }
+    let employerId = user?.employerId;
 
     if (!employerId) {
       employerId = await generateEmployerId();
@@ -635,16 +628,13 @@ router.get('/:id', async (req, res) => {
 });
 
 // DELETE /api/jobs/:id - Delete job
-router.delete('/:id', authenticateToken, requireRole(['employer', 'admin']), requireTeamRole(['Owner', 'Recruiter']), async (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.id);
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    
-    // Soft delete - set isActive to false instead of hard delete
     await job.update({ isActive: false });
-    
     res.json({ message: 'Job deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -665,7 +655,7 @@ router.delete('/:id/permanent', authenticateToken, requireRole(['employer', 'adm
 });
 
 // PUT /api/jobs/:id - Update job
-router.put('/:id', authenticateToken, requireRole(['employer', 'admin']), requireTeamRole(['Owner', 'Recruiter']), async (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });

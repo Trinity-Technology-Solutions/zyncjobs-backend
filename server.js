@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import session from 'express-session';
-import dotenv from 'dotenv';
+// import dotenv from 'dotenv'; // Moved to instrument.mjs
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import fs from 'fs';
@@ -108,7 +108,7 @@ import { sanitizeInput } from './middleware/sanitize.js';
 import * as Sentry from '@sentry/node';
 
 const envFile = process.env.NODE_ENV === 'qa' ? '.env.qa' : process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
-dotenv.config({ path: envFile });
+// dotenv.config({ path: envFile }); // Moved to instrument.mjs
 validateEnv();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -122,12 +122,17 @@ const ALLOWED_ORIGINS = [
   'https://zyncjobs.com',
   'https://qa.zyncjobs.com',
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://localhost:3000',
 ];
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Allow any localhost port in development
+    if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost:\d+$/.test(origin)) {
+      return callback(null, true);
+    }
     console.log('❌ CORS blocked:', origin);
     return callback(new Error('CORS blocked: ' + origin), false);
   },
