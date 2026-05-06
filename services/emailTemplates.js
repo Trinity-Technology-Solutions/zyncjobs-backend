@@ -1,5 +1,20 @@
 // Shared premium email base template for ZyncJobs
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://zyncjobs.com';
+
+// Inline logo as base64 so it works in all email clients regardless of hosting
+const __dirname_email = dirname(fileURLToPath(import.meta.url));
+let LOGO_BASE64;
+try {
+  const logoPath = join(__dirname_email, '../public/images/zyncjobs-logo.png');
+  const logoData = readFileSync(logoPath);
+  LOGO_BASE64 = `data:image/png;base64,${logoData.toString('base64')}`;
+} catch {
+  LOGO_BASE64 = '';
+}
 
 // Brand colors
 const BRAND = {
@@ -35,9 +50,8 @@ export const baseTemplate = (content, previewText = '') => `
         <!-- HEADER -->
         <tr><td style="background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);border-radius:16px 16px 0 0;padding:24px 40px;text-align:center;">
           <a href="${FRONTEND_URL}" style="text-decoration:none;display:inline-block;">
-            <img src="${FRONTEND_URL}/images/zyncjobs-logo.png" alt="ZyncJobs" width="160" height="auto"
-              style="display:block;max-width:160px;height:auto;margin:0 auto;"
-              onerror="this.style.display='none'"/>
+            <img src="${LOGO_BASE64}" alt="ZyncJobs" width="180" height="50"
+              style="display:block;width:180px;height:50px;margin:0 auto;"/>
           </a>
           <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:12px;letter-spacing:0.5px;">AI-Powered Hiring Platform</p>
         </td></tr>

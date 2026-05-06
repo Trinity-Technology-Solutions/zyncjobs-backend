@@ -358,7 +358,7 @@ app.use('/api/job-alerts', jobAlertRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/moderation', moderationRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/analytics', analyticsTrackingRoutes);
+app.use('/api/analytics-tracking', analyticsTrackingRoutes);
 app.use('/api/admin/jobs', adminJobsRoutes);
 app.use('/api/companies', companyRoutes);
 app.use('/api/company', companySearchRoutes);

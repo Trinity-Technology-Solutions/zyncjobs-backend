@@ -93,6 +93,120 @@ router.put('/privacy-settings/:userId', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── POST /api/gdpr/download-data ──────────────────────────────────────────────────
+// Handle data export via POST (matches frontend expectation)
+router.post('/download-data', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    
+    // Ensure user can only download their own data
+    if (req.user.id !== userId) {
+      return res.status(403).json({ error: 'You can only download your own data' });
+    }
+
+    const user = await User.findOne({
+      where: { id: userId },
+      attributes: { exclude: ['password'] }
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const [resumes, applications, consent, jobs, profile] = await Promise.all([
+      Resume.findAll({ where: { userId } }),
+      Application.findAll({
+        where: {
+          [Op.or]: [
+            { candidateId: userId },
+            { candidateEmail: user.email }
+          ]
+        }
+      }),
+      GdprConsent.findOne({ where: { userId } }),
+      // Get jobs if user is employer
+      user.role === 'employer' ? Job.findAll({
+        where: {
+          [Op.or]: [
+            { employerEmail: user.email },
+            { postedBy: user.email },
+            { userId: userId }
+          ]
+        }
+      }) : [],
+      Profile.findOne({ where: { userId } })
+    ]);
+
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      userType: user.role || 'candidate',
+      profile: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        location: user.location,
+        title: user.title,
+        bio: user.bio,
+        skills: user.skills,
+        phone: user.phone,
+        createdAt: user.createdAt,
+        // Add profile data if exists
+        ...(profile ? {
+          profileSummary: profile.profileSummary,
+          education: profile.education,
+          experience: profile.experience,
+          projects: profile.projects,
+          certifications: profile.certifications,
+          languages: profile.languages
+        } : {})
+      },
+      resumes: resumes.map(r => ({
+        id: r.id,
+        fileName: r.fileName,
+        status: r.status,
+        uploadedAt: r.createdAt
+      })),
+      applications: applications.map(a => ({
+        id: a.id,
+        jobId: a.jobId,
+        jobTitle: a.jobTitle,
+        status: a.status,
+        coverLetter: a.coverLetter,
+        appliedAt: a.createdAt
+      })),
+      jobs: jobs.map(j => ({
+        id: j.id,
+        title: j.jobTitle,
+        company: j.company,
+        location: j.location,
+        status: j.status,
+        postedAt: j.createdAt
+      })),
+      privacySettings: consent ? {
+        storeResume: consent.storeResume,
+        allowEmployerView: consent.allowEmployerView,
+        receiveJobAlerts: consent.receiveJobAlerts,
+        allowAIRecommendations: consent.allowAIRecommendations,
+        consentDate: consent.consentDate
+      } : null
+    };
+
+    res.json({
+      success: true,
+      data: exportData
+    });
+  } catch (err) {
+    console.error('GDPR download error:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to export data',
+      message: err.message 
+    });
+  }
+});
+
 // ─── GET /api/gdpr/download-data/:userId ─────────────────────────────────────
 router.get('/download-data/:userId', authenticateToken, async (req, res) => {
   try {
@@ -249,25 +363,55 @@ router.get('/export-pdf/:userId', authenticateToken, async (req, res) => {
   }
 });
 
-// ─── DELETE /api/gdpr/delete-account/:userId ─────────────────────────────────
-router.delete('/delete-account/:userId', authenticateToken, async (req, res) => {
+// ─── POST /api/gdpr/delete-account ──────────────────────────────────────────
+// Handle account deletion via POST (matches frontend expectation)
+router.post('/delete-account', authenticateToken, async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { userId, confirmDeletion, reason } = req.body;
+    
+    // Validate request
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    
+    if (!confirmDeletion) {
+      return res.status(400).json({ error: 'confirmDeletion must be true' });
+    }
+    
+    // Ensure user can only delete their own account
+    if (req.user.id !== userId) {
+      return res.status(403).json({ error: 'You can only delete your own account' });
+    }
 
     const user = await User.findOne({ where: { id: userId } });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     const userEmail = user.email;
+    const userName = user.name || 'Unknown';
+    
+    console.log(`🗑️ Starting account deletion for user: ${userName} (${userEmail})`);
+
+    // Log the deletion attempt
+    console.log(`📝 Deletion reason: ${reason || 'User requested account deletion'}`);
 
     const safeDestroy = async (modelPath, condition, label) => {
       try {
         const Model = (await import(modelPath)).default;
-        await Model.destroy({ where: condition });
+        const count = await Model.count({ where: condition });
+        if (count > 0) {
+          await Model.destroy({ where: condition });
+          console.log(`✅ Deleted ${count} records from ${label}`);
+        } else {
+          console.log(`ℹ️ No records found in ${label}`);
+        }
       } catch (e) {
         console.warn(`⚠️ Could not delete from ${label}:`, e.message);
       }
     };
 
+    // Delete all related data in proper order
     await safeDestroy('../models/Application.js',    { [Op.or]: [{ candidateEmail: userEmail }, { userId }] }, 'Applications');
     await safeDestroy('../models/Job.js',             { [Op.or]: [{ postedBy: userEmail }, { employerEmail: userEmail }, { userId }] }, 'Jobs');
     await safeDestroy('../models/Profile.js',         { [Op.or]: [{ userId }, { email: userEmail }] }, 'Profile');
@@ -283,16 +427,28 @@ router.delete('/delete-account/:userId', authenticateToken, async (req, res) => 
     await safeDestroy('../models/TeamMember.js',      { [Op.or]: [{ employerId: userEmail }, { memberEmail: userEmail }] }, 'TeamMembers');
     await safeDestroy('../models/SkillAssessment.js', { userId }, 'SkillAssessments');
     await safeDestroy('../models/PasswordReset.js',   { [Op.or]: [{ userId }, { email: userEmail }] }, 'PasswordResets');
+    
+    // Delete GDPR consent record
     await GdprConsent.destroy({ where: { userId } });
+    console.log(`✅ Deleted GDPR consent records`);
 
-    // Hard delete the user so Google/LinkedIn OAuth creates a fresh account
+    // Finally delete the user account
     await User.destroy({ where: { id: userId } });
+    console.log(`✅ Deleted user account: ${userName} (${userEmail})`);
 
-    console.log(`✅ GDPR full delete: ${userEmail}`);
-    res.json({ success: true, message: 'Account and all associated data have been permanently deleted.' });
+    console.log(`🎉 GDPR full delete completed successfully for: ${userEmail}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Account and all associated data have been permanently deleted.' 
+    });
   } catch (err) {
-    console.error('GDPR delete error:', err);
-    res.status(500).json({ error: err.message });
+    console.error('❌ GDPR delete error:', err);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to delete account completely',
+      message: err.message 
+    });
   }
 });
 

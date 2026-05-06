@@ -86,6 +86,11 @@ See `.env.example` for all required environment variables.
 - `GET /api/users/:id` - Get user profile
 - `PUT /api/users/:id` - Update user profile
 
+### Resume Generation
+- `POST /api/pdf/generate-resume` - Generate PDF resume
+- `POST /api/pdf/generate-docx` - Generate DOCX resume
+- `GET /api/pdf/download` - Download existing resume file
+
 ### Search
 - `GET /api/search?q=<query>&location=<location>` - Search jobs
 

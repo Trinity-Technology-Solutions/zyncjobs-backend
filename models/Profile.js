@@ -16,6 +16,7 @@ const Profile = sequelize.define('Profile', {
   phone: DataTypes.STRING,
   location: DataTypes.STRING,
   title: DataTypes.STRING,
+  jobTitle: DataTypes.STRING,
   yearsExperience: DataTypes.STRING,
   skills: {
     type: DataTypes.ARRAY(DataTypes.STRING),

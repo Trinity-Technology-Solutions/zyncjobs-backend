@@ -28,7 +28,7 @@ router.post('/save', async (req, res) => {
     // Build update fields — only include keys that were actually sent
     const updateFields = {};
     const fieldMap = [
-      'name','phone','location','title','yearsExperience','skills','experience',
+      'name','phone','location','title','jobTitle','yearsExperience','skills','experience',
       'education','certifications','workAuthorization','securityClearance','resume',
       'profilePhoto','profileFrame','coverPhoto','profileSummary','employment','projects',
       'internships','languages','awards','clubsCommittees','competitiveExams',
