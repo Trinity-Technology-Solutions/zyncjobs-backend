@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import PDFService from '../services/pdfService.js';
 import docxService from '../services/docxService.js';
 import { asyncHandler } from '../utils/errorHandler.js';
@@ -63,7 +63,7 @@ router.post('/generate-resume', asyncHandler(async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     
     // Send the PDF buffer directly
-    res.end(pdfBuffer, 'binary');
+    res.send(pdfBuffer);
   } catch (error) {
     console.error('PDF generation error:', error);
     res.status(500).json({ error: 'Failed to generate PDF: ' + error.message });
@@ -92,7 +92,7 @@ router.post('/generate-docx', asyncHandler(async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     
     // Send the DOCX buffer directly
-    res.end(docxBuffer, 'binary');
+    res.send(docxBuffer);
   } catch (error) {
     console.error('DOCX generation error:', error);
     res.status(500).json({ error: 'Failed to generate DOCX: ' + error.message });
