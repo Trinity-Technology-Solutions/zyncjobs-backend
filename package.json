@@ -40,6 +40,7 @@
     "cloudinary": "^1.41.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "docx": "^9.6.1",
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
     "express-rate-limit": "^8.2.1",
