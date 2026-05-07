@@ -3,8 +3,49 @@ import User from '../models/User.js';
 import Job from '../models/Job.js';
 import Company from '../models/Company.js';
 import { Op } from 'sequelize';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// POST /api/employers/complete-profile - Complete company profile (requires auth)
+router.post('/complete-profile', authenticateToken, async (req, res) => {
+  try {
+    const { name, industry, description, location, size, website, logo } = req.body;
+
+    if (!name) return res.status(400).json({ error: 'Company name is required' });
+
+    const user = req.user;
+
+    let company = await Company.findOne({ where: { name: { [Op.iLike]: name } } });
+    if (company) {
+      await company.update({
+        industry: industry || company.industry,
+        description: description || company.description,
+        location: location || company.location,
+        size: size || company.size,
+        website: website || company.website,
+        logo: logo || company.logo
+      });
+    } else {
+      company = await Company.create({ name, industry, description, location, size, website, logo, followers: [] });
+    }
+
+    const companyProfile = {
+      ...(user.companyProfile || {}),
+      ...(industry && { industry }),
+      ...(size && { companySize: size }),
+      ...(location && { headquarters: location }),
+      ...(description && { description })
+    };
+
+    await user.update({ company: name, companyName: name, companyWebsite: website, companyLogo: logo, companyProfile });
+
+    res.json({ success: true, company: company.toJSON(), message: 'Company profile completed successfully' });
+  } catch (error) {
+    console.error('Error completing company profile:', error);
+    res.status(500).json({ error: 'Failed to complete company profile' });
+  }
+});
 
 // POST /api/employers/:employerId/company - Register/Update company for employer
 router.post('/:employerId/company', async (req, res) => {
