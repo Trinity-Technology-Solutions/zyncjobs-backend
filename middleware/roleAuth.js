@@ -21,6 +21,18 @@ export const requireRole = (allowedRoles) => {
   };
 };
 
+// Super admin only middleware
+export const requireSuperAdmin = (req, res, next) => {
+  const userRole = req.user?.role;
+  const userEmail = req.user?.email;
+  
+  if (userRole !== 'super_admin' && userEmail !== 'admin@zyncjobs.com') {
+    return res.status(403).json({ error: 'Super admin access required' });
+  }
+  
+  next();
+};
+
 // Permission definitions
 export const PERMISSIONS = {
   // Admin permissions

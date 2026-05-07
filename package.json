@@ -14,6 +14,8 @@
     "db:seed": "node scripts/loadInitialData.js",
     "db:clear": "node scripts/clearAllData.js",
     "db:admin": "node scripts/createAdmin.js",
+    "admin:setup": "node scripts/setupAdminSystem.js",
+    "admin:create-super": "node scripts/createSuperAdmin.js",
     "migrate:verification-columns": "node scripts/migrateVerificationColumns.js",
     "migrate:job-company-link": "node scripts/migrateJobCompanyLink.js",
     "migrate:company-profiles": "node scripts/migrateCompanyProfiles.js",
