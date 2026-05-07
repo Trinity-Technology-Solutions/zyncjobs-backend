@@ -509,6 +509,48 @@ export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, comp
 
 export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendJobAlertEmail, sendWelcomeEmail, sendFollowUpReminderEmail, sendEmployerApplicationEmail };
 
+// Send admin invitation email
+export const sendAdminInviteEmail = async (toEmail, name, role, token) => {
+  try {
+    const { baseTemplate, ctaButton, FRONTEND_URL } = await import('./emailTemplates.js');
+    const roleLabel = role === 'super_admin' ? 'Super Administrator' : 'Administrator';
+    const inviteUrl = `${FRONTEND_URL}/admin/accept-invite?token=${token}`;
+
+    const content = `
+      <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:36px 40px;text-align:center;">
+        <div style="font-size:44px;margin-bottom:10px;">🛡️</div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Admin Invitation</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">You've been invited to ZyncJobs Admin</p>
+      </div>
+      <div style="padding:36px 40px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name}! 👋</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
+          You've been invited to join ZyncJobs as a <strong style="color:#2563eb;">${roleLabel}</strong>.
+          Click the button below to set your password and activate your account.
+        </p>
+        <div style="background:#f0f9ff;border:1px solid #bfdbfe;border-radius:10px;padding:16px 20px;margin:0 0 24px;">
+          <p style="color:#1e40af;font-size:13px;margin:0;">⏰ This invitation link expires in <strong>24 hours</strong>.</p>
+        </div>
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('🔐 Activate Admin Account', inviteUrl, '#2563eb')}
+        </div>
+        <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:16px 0 0;">If you didn't expect this invitation, you can safely ignore this email.</p>
+      </div>`;
+
+    await transporter.sendMail({
+      from: `"ZyncJobs Admin" <${process.env.SMTP_EMAIL}>`,
+      to: toEmail,
+      subject: `🛡️ You're invited as ${roleLabel} — ZyncJobs`,
+      html: baseTemplate(content, `Admin invitation for ${name} to join ZyncJobs`)
+    });
+    console.log('✅ Admin invite email sent to:', toEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Admin invite email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // Send GDPR inactivity reminder email (Step 4)
 export const sendGdprInactivityReminderEmail = async (userEmail, userName) => {
   try {
