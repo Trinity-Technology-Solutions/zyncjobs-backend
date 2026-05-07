@@ -3,20 +3,41 @@ import TeamMember from '../models/TeamMember.js';
 // Role-based access control middleware
 export const requireRole = (allowedRoles) => {
   return (req, res, next) => {
+    console.log('🔒 Role check:', {
+      userRole: req.user?.role,
+      allowedRoles,
+      userEmail: req.user?.email
+    });
+    
     // User model uses 'role' field; support both for compatibility
     const userRole = req.user?.role || req.user?.userType || req.body.userType;
     
     if (!userRole) {
-      return res.status(401).json({ error: 'Authentication required' });
+      console.warn('❌ No user role found');
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        code: 'NO_ROLE'
+      });
     }
     
     // super_admin has access to everything admin can access
     const effectiveRole = userRole === 'super_admin' ? 'admin' : userRole;
     
     if (!allowedRoles.includes(effectiveRole) && !allowedRoles.includes(userRole)) {
-      return res.status(403).json({ error: 'Access denied. Insufficient permissions.' });
+      console.warn('❌ Access denied:', {
+        userRole,
+        effectiveRole,
+        allowedRoles
+      });
+      return res.status(403).json({ 
+        error: 'Access denied. Insufficient permissions.',
+        code: 'INSUFFICIENT_PERMISSIONS',
+        required: allowedRoles,
+        current: userRole
+      });
     }
     
+    console.log('✅ Role check passed:', userRole);
     next();
   };
 };

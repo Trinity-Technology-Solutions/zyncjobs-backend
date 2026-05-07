@@ -116,6 +116,14 @@ const User = sequelize.define('User', {
     type: DataTypes.TEXT,
     allowNull: true,
     comment: 'Notes about verification process'
+  },
+  inviteToken: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  inviteTokenExpiry: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'users',

@@ -1,12 +1,14 @@
 import express from 'express';
 import { Op } from 'sequelize';
 import bcryptjs from 'bcryptjs';
+import crypto from 'crypto';
 import User from '../models/User.js';
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
 import GdprConsent from '../models/GdprConsent.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole, requireSuperAdmin } from '../middleware/roleAuth.js';
+import { sendAdminInviteEmail } from '../services/emailService.js';
 
 const router = express.Router();
 const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
@@ -17,7 +19,7 @@ router.get('/', ...adminGuard, async (req, res) => {
   try {
     const { page = 1, limit = 20, role, search, isActive } = req.query;
     const where = {};
-    if (role) where.role = role;
+    if (role) where.role = role.includes(',') ? { [Op.in]: role.split(',') } : role;
     if (isActive !== undefined) where.isActive = isActive === 'true';
     if (search) {
       where[Op.or] = [
@@ -284,6 +286,99 @@ router.delete('/:id', ...superAdminGuard, async (req, res) => {
   } catch (error) {
     console.error('Delete user error:', error);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// POST /api/admin/users/invite-admin — send invite email (super admin only)
+router.post('/invite-admin', ...superAdminGuard, async (req, res) => {
+  try {
+    const { name, email, role } = req.body;
+    if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+    if (!['admin', 'super_admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+
+    const existing = await User.findOne({ where: { email: email.toLowerCase() } });
+
+    // If user exists and is already active, block
+    if (existing && existing.isActive) {
+      return res.status(409).json({ error: 'An active user with this email already exists' });
+    }
+
+    // Generate secure token valid for 24h
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    if (existing && !existing.isActive) {
+      // Resend invite: refresh token and expiry
+      await existing.update({ name: name.trim(), role, inviteToken: token, inviteTokenExpiry: expiry });
+    } else {
+      await User.create({
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
+        password: await bcryptjs.hash(crypto.randomBytes(16).toString('hex'), 10),
+        role,
+        isActive: false,
+        inviteToken: token,
+        inviteTokenExpiry: expiry
+      });
+    }
+
+    await sendAdminInviteEmail(email, name, role, token);
+    res.json({ success: true, message: `Invitation sent to ${email}` });
+  } catch (error) {
+    console.error('Invite admin error:', error);
+    res.status(500).json({ error: 'Failed to send invitation' });
+  }
+});
+
+// GET /api/admin/users/accept-invite/info/:token — validate token, return invite info
+router.get('/accept-invite/info/:token', async (req, res) => {
+  try {
+    const user = await User.findOne({
+      where: {
+        inviteToken: req.params.token,
+        inviteTokenExpiry: { [Op.gt]: new Date() },
+        isActive: false
+      }
+    });
+    if (!user) return res.status(400).json({ success: false, error: 'Invalid or expired invitation link.' });
+    res.json({ success: true, name: user.name, email: user.email, role: user.role });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/admin/users/accept-invite — set password, activate account
+router.post('/accept-invite', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password || password.length < 6)
+      return res.status(400).json({ error: 'Valid token and password (min 6 chars) required' });
+
+    const user = await User.findOne({
+      where: {
+        inviteToken: token,
+        inviteTokenExpiry: { [Op.gt]: new Date() },
+        isActive: false
+      }
+    });
+    if (!user) return res.status(400).json({ error: 'Invalid or expired invitation link.' });
+
+    const hashed = await bcryptjs.hash(password, 10);
+    await user.update({ password: hashed, isActive: true, inviteToken: null, inviteTokenExpiry: null });
+
+    const { generateAccessToken, generateRefreshToken } = await import('../utils/jwt.js');
+    const accessToken = generateAccessToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    res.json({
+      success: true,
+      accessToken,
+      refreshToken,
+      user: { id: user.id, name: user.name, email: user.email, role: user.role }
+    });
+  } catch (error) {
+    console.error('Accept invite error:', error);
+    res.status(500).json({ error: 'Failed to activate account' });
   }
 });
 
