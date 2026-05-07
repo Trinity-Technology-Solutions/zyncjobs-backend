@@ -60,6 +60,8 @@ router.get('/profile/:email', async (req, res) => {
           eventType: 'search_appearance'
         }
       });
+      
+      console.log('📊 Search appearances count for', email, ':', searchAppearances);
 
       const recruiterActions = await Analytics.count({
         where: {
@@ -197,25 +199,73 @@ router.get('/recruiter-actions/:email', async (req, res) => {
 router.get('/search-appearances/:email', async (req, res) => {
   try {
     const { email } = req.params;
+    console.log('🔍 Search appearances request for:', email);
+    
     const appearances = await Analytics.findAll({
       where: { email: { [Op.iLike]: `%${email}%` }, eventType: 'search_appearance' },
       order: [['createdAt', 'DESC']],
-      limit: 20
+      limit: 100 // Increased limit for debugging
     });
+    
+    console.log('🔍 Found appearances:', appearances.length);
+    
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     const thisWeek = await Analytics.count({
       where: { email: { [Op.iLike]: `%${email}%` }, eventType: 'search_appearance', createdAt: { [Op.gte]: weekAgo } }
     });
+    
     const keywordMap = {};
     appearances.forEach(a => {
       const kw = a.metadata && (a.metadata.searchQuery || a.metadata.keyword);
       if (kw) keywordMap[kw] = (keywordMap[kw] || 0) + 1;
     });
     const topKeywords = Object.entries(keywordMap).sort((a,b) => b[1]-a[1]).slice(0,10).map(([kw]) => kw);
+    
+    console.log('🔍 Response:', { total: appearances.length, thisWeek, topKeywords: topKeywords.length });
+    
     res.json({ appearances, thisWeek, topKeywords });
   } catch (error) {
     console.error('Search appearances error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/analytics/debug/:email - Debug analytics data
+router.get('/debug/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    // Get all analytics records for this email
+    const allRecords = await Analytics.findAll({
+      where: { email: { [Op.iLike]: `%${email}%` } },
+      order: [['createdAt', 'DESC']],
+      limit: 50
+    });
+    
+    // Group by event type
+    const byType = {};
+    allRecords.forEach(record => {
+      const type = record.eventType;
+      if (!byType[type]) byType[type] = [];
+      byType[type].push({
+        id: record.id,
+        createdAt: record.createdAt,
+        metadata: record.metadata
+      });
+    });
+    
+    res.json({
+      email,
+      totalRecords: allRecords.length,
+      byEventType: Object.keys(byType).map(type => ({
+        eventType: type,
+        count: byType[type].length,
+        records: byType[type].slice(0, 5) // Show first 5 records
+      }))
+    });
+  } catch (error) {
+    console.error('Debug analytics error:', error);
     res.status(500).json({ error: error.message });
   }
 });

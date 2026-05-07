@@ -1,5 +1,6 @@
-import express from 'express';
+﻿import express from 'express';
 import PDFService from '../services/pdfService.js';
+import docxService from '../services/docxService.js';
 import { asyncHandler } from '../utils/errorHandler.js';
 import path from 'path';
 import fs from 'fs';
@@ -49,14 +50,53 @@ router.post('/generate-resume', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Resume data is required' });
   }
 
-  const pdfBuffer = await PDFService.generateResumePDF(resumeData);
-  const name = resumeData.personalInfo?.name || resumeData.name || 'Resume';
-  const fileName = `${name.replace(/\s+/g, '_')}_Resume.pdf`;
+  try {
+    const pdfBuffer = await PDFService.generateResumePDF(resumeData);
+    const name = resumeData.personalInfo?.name || resumeData.name || 'Resume';
+    const fileName = `${name.replace(/\s+/g, '_')}_Resume.pdf`;
 
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-  res.setHeader('Content-Length', pdfBuffer.length);
-  res.send(pdfBuffer);
+    // Set proper headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Pragma', 'no-cache');
+    
+    // Send the PDF buffer directly
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error('PDF generation error:', error);
+    res.status(500).json({ error: 'Failed to generate PDF: ' + error.message });
+  }
+}));
+
+// POST /api/pdf/generate-docx
+// Accepts ResumeStore shape OR flat profile shape
+router.post('/generate-docx', asyncHandler(async (req, res) => {
+  const resumeData = req.body.resumeData || req.body;
+
+  if (!resumeData || typeof resumeData !== 'object') {
+    return res.status(400).json({ error: 'Resume data is required' });
+  }
+
+  try {
+    const docxBuffer = await docxService.generateResumeDOCX(resumeData);
+    const name = resumeData.personalInfo?.name || resumeData.name || 'Resume';
+    const fileName = `${name.replace(/\s+/g, '_')}_Resume.docx`;
+
+    // Set proper headers for DOCX download
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', docxBuffer.length);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Pragma', 'no-cache');
+    
+    // Send the DOCX buffer directly
+    res.send(docxBuffer);
+  } catch (error) {
+    console.error('DOCX generation error:', error);
+    res.status(500).json({ error: 'Failed to generate DOCX: ' + error.message });
+  }
 }));
 
 export default router;

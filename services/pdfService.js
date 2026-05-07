@@ -137,11 +137,38 @@ const pdfService = {
     return new Promise((resolve, reject) => {
       try {
         const d = normalise(resumeData);
-        const doc = new PDFDocument({ size: 'A4', margin: MARGIN, bufferPages: true });
+        
+        // Validate that we have at least a name
+        if (!d.name || d.name.trim() === '') {
+          return reject(new Error('Name is required for PDF generation'));
+        }
+        
+        const doc = new PDFDocument({ 
+          size: 'A4', 
+          margin: MARGIN, 
+          bufferPages: true,
+          info: {
+            Title: `${d.name} - Resume`,
+            Author: d.name,
+            Subject: 'Professional Resume',
+            Creator: 'ZyncJobs Resume Builder'
+          }
+        });
+        
         const chunks = [];
-        doc.on('data', c => chunks.push(c));
-        doc.on('end', () => resolve(Buffer.concat(chunks)));
-        doc.on('error', reject);
+        doc.on('data', chunk => chunks.push(chunk));
+        doc.on('end', () => {
+          try {
+            const pdfBuffer = Buffer.concat(chunks);
+            if (pdfBuffer.length === 0) {
+              return reject(new Error('Generated PDF is empty'));
+            }
+            resolve(pdfBuffer);
+          } catch (err) {
+            reject(new Error('Failed to create PDF buffer: ' + err.message));
+          }
+        });
+        doc.on('error', err => reject(new Error('PDF generation error: ' + err.message)));
 
         // ── NAME ─────────────────────────────────────────────────────────────
         doc.font(FONTS.bold).fontSize(22).fillColor(COLORS.heading)
