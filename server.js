@@ -14,6 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './config/database.js';
+import { sequelize } from './config/postgresql.js';
 import passport from './config/passport.js';
 import authRoutes from './routes/auth.js';
 import tokenRoutes from './routes/token.js';
@@ -1184,14 +1185,31 @@ app.get('/api/test-settings', (req, res) => {
 });
 
 // Simple health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    message: 'Backend server is running',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    redis: getRedisStatus()
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    await sequelize.authenticate();
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      services: { api: true, database: true, redis: getRedisStatus() },
+      version: '1.0.0'
+    });
+  } catch (error) {
+    console.error('❌ Health check failed:', error);
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      error: error.message,
+      services: { api: true, database: false, redis: getRedisStatus() }
+    });
+  }
+});
+
+// Ping endpoint for basic connectivity
+app.get('/api/ping', (req, res) => {
+  res.json({ message: 'pong', timestamp: new Date().toISOString(), server: 'zyncjobs-api' });
 });
 
 // Test applications endpoint
@@ -1334,7 +1352,7 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, 'build')));
 }
 
-// Serve frontend app for non-API routes (SPA support)
+// Serve frontend app for non-API routes (SPA support) — MUST be last
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     res.status(404).json({ error: 'API endpoint not found', path: req.path });
