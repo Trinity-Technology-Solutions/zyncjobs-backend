@@ -3,7 +3,7 @@ import { Op } from 'sequelize';
 import Application from '../models/Application.js';
 import Resume from '../models/Resume.js';
 import User from '../models/User.js';
-import { getResumeStreamFromS3, getSignedResumeUrl } from '../services/s3Service.js';
+// import { getResumeStreamFromS3, getSignedResumeUrl } from '../services/s3Service.js';
 
 const router = express.Router();
 
