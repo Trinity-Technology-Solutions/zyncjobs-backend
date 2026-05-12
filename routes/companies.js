@@ -1,7 +1,7 @@
 import express from 'express';
 import { Op } from 'sequelize';
 import multer from 'multer';
-import { uploadCompanyLogoToS3, uploadCompanyCoverToS3, deleteCompanyImageFromS3 } from '../services/s3Service.js';
+// import { uploadCompanyLogoToS3, uploadCompanyCoverToS3, deleteCompanyImageFromS3 } from '../services/s3Service.js';
 import { formatCompanyWithLogo } from '../utils/companyLogoService.js';
 import Company from '../models/Company.js';
 import CompanyProfile from '../models/CompanyProfile.js';
