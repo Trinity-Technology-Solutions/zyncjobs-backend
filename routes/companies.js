@@ -564,6 +564,94 @@ router.post('/', async (req, res) => {
   }
 });
 
+// GET /api/companies/by-domain/:domain - Get company by domain
+router.get('/by-domain/:domain', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    
+    if (!domain) {
+      return res.status(400).json({ error: 'Domain is required' });
+    }
+    
+    // Find company by domain
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { domain: { [Op.iLike]: domain } },
+          { companyWebsite: { [Op.iLike]: `%${domain}%` } },
+          { website: { [Op.iLike]: `%${domain}%` } }
+        ]
+      },
+      attributes: { exclude: ['followers', 'verificationDocuments'] }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ 
+        error: 'Company not found', 
+        message: `No company found for domain: ${domain}` 
+      });
+    }
+    
+    const companyData = company.toJSON();
+    const name = companyData.name;
+    
+    // Get additional data
+    const [jobCount, ratingData, employerCount] = await Promise.all([
+      Job.count({ where: { company: name, isActive: true, status: 'approved' } }),
+      Review.findOne({
+        where: { companyName: name },
+        attributes: [
+          [Review.sequelize.fn('AVG', Review.sequelize.col('rating')), 'avgRating'],
+          [Review.sequelize.fn('COUNT', Review.sequelize.col('id')), 'reviewCount']
+        ],
+        raw: true
+      }),
+      User.count({ where: { company: name, role: 'employer', isActive: true } })
+    ]);
+    
+    res.json({
+      ...formatCompanyWithLogo(companyData),
+      // Basic fields
+      name: companyData.name,
+      companyName: companyData.name,
+      industry: companyData.industry,
+      description: companyData.description,
+      location: companyData.location || companyData.headquarters,
+      employees: companyData.size || companyData.companySize,
+      website: companyData.website || companyData.companyWebsite,
+      // Enhanced fields
+      tagline: companyData.tagline,
+      foundedYear: companyData.foundedYear,
+      companyType: companyData.companyType,
+      companySize: companyData.companySize,
+      headquarters: companyData.headquarters,
+      companyWebsite: companyData.companyWebsite,
+      benefits: companyData.benefits || [],
+      socialLinks: companyData.socialLinks || {},
+      locations: companyData.additionalLocations || [],
+      gstNumber: companyData.gstNumber,
+      cinNumber: companyData.cinNumber,
+      companyEmail: companyData.companyEmail,
+      phoneNumber: companyData.phoneNumber,
+      companyPhotos: companyData.companyPhotos || [],
+      employerEmail: companyData.createdBy,
+      domain: companyData.domain,
+      // Calculated fields
+      openPositions: jobCount,
+      rating: ratingData?.avgRating ? parseFloat(ratingData.avgRating).toFixed(1) : null,
+      reviewCount: parseInt(ratingData?.reviewCount) || 0,
+      employerCount,
+      size: companyData.size || companyData.companySize || null,
+      // Verification status
+      verified: companyData.verified || false,
+      verificationStatus: companyData.verificationStatus || 'pending'
+    });
+  } catch (error) {
+    console.error('Error fetching company by domain:', error);
+    res.status(500).json({ error: 'Failed to fetch company by domain' });
+  }
+});
+
 // GET /api/companies/suggestions?q={query} - Get company suggestions
 router.get('/suggestions', async (req, res) => {
   try {
