@@ -151,8 +151,19 @@ const io = new Server(httpServer, {
 });
 const PORT = process.env.PORT || 5000;
 
-connectDB().then(() => {
+connectDB().then(async () => {
   console.log('✅ Database connected');
+  
+  // Run enhanced company fields migration
+  try {
+    const { migrateEnhancedCompanyFields } = await import('./scripts/migrateEnhancedCompanyFields.js');
+    await migrateEnhancedCompanyFields();
+    console.log('✅ Enhanced company fields migration completed');
+  } catch (migrationError) {
+    console.warn('⚠️ Migration warning:', migrationError.message);
+    // Don't fail server startup if migration fails
+  }
+  
   // Comment out loadInitialData for faster startup
   // loadInitialData();
   

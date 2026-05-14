@@ -737,7 +737,29 @@ router.put('/:id/password', async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const identifier = decodeURIComponent(req.params.id || '').trim();
-    const { email, companyName, company, companyWebsite, companyLogo, industry, companySize, headquarters, companyDescription } = req.body;
+    const { 
+      email, 
+      companyName, 
+      company, 
+      companyWebsite, 
+      companyLogo, 
+      industry, 
+      companySize, 
+      headquarters, 
+      companyDescription,
+      // Enhanced fields from EmployerCompleteProfilePage
+      tagline,
+      foundedYear,
+      companyType,
+      benefits,
+      socialLinks,
+      locations,
+      gstNumber,
+      cinNumber,
+      companyEmail,
+      phoneNumber,
+      companyPhotos
+    } = req.body;
 
     let user;
     if (identifier.includes('@')) {
@@ -764,21 +786,88 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (companyWebsite !== undefined) updateData.companyWebsite = companyWebsite;
     if (companyLogo !== undefined)    updateData.companyLogo = companyLogo;
 
-    // Store industry/size/headquarters in companyProfile JSONB
-    if (industry !== undefined || companySize !== undefined || headquarters !== undefined || companyDescription !== undefined) {
+    // Store enhanced company profile data in companyProfile JSONB
+    const hasEnhancedFields = [
+      industry, companySize, headquarters, companyDescription,
+      tagline, foundedYear, companyType, benefits, socialLinks,
+      locations, gstNumber, cinNumber, companyEmail, phoneNumber, companyPhotos
+    ].some(field => field !== undefined);
+
+    if (hasEnhancedFields) {
       const prev = user.companyProfile || {};
       updateData.companyProfile = {
         ...prev,
         ...(industry !== undefined && { industry }),
         ...(companySize !== undefined && { companySize }),
         ...(headquarters !== undefined && { headquarters }),
-        ...(companyDescription !== undefined && { description: companyDescription })
+        ...(companyDescription !== undefined && { description: companyDescription }),
+        ...(tagline !== undefined && { tagline }),
+        ...(foundedYear !== undefined && { foundedYear }),
+        ...(companyType !== undefined && { companyType }),
+        ...(benefits !== undefined && { benefits }),
+        ...(socialLinks !== undefined && { socialLinks }),
+        ...(locations !== undefined && { locations }),
+        ...(gstNumber !== undefined && { gstNumber }),
+        ...(cinNumber !== undefined && { cinNumber }),
+        ...(companyEmail !== undefined && { companyEmail }),
+        ...(phoneNumber !== undefined && { phoneNumber }),
+        ...(companyPhotos !== undefined && { companyPhotos })
       };
     }
 
     if (Object.keys(updateData).length === 0) return res.json({ message: 'No changes', user: user.toJSON() });
 
     await user.update(updateData);
+    
+    // Also update/create company record if this is an employer
+    if (user.role === 'employer' && (companyName || company)) {
+      try {
+        const Company = (await import('../models/Company.js')).default;
+        const finalCompanyName = companyName || company || user.companyName || user.company;
+        
+        if (finalCompanyName) {
+          // Find or create company record
+          const [companyRecord] = await Company.findOrCreate({
+            where: { name: { [Op.iLike]: finalCompanyName } },
+            defaults: {
+              name: finalCompanyName,
+              domain: user.email.split('@')[1],
+              createdBy: user.email,
+              verified: false,
+              verificationStatus: 'pending'
+            }
+          });
+          
+          // Update company record with enhanced data
+          const companyUpdateData = {
+            ...(industry && { industry }),
+            ...(companySize && { size: companySize, companySize }),
+            ...(headquarters && { location: headquarters, headquarters }),
+            ...(companyWebsite && { website: companyWebsite, companyWebsite }),
+            ...(companyDescription && { description: companyDescription }),
+            ...(tagline && { tagline }),
+            ...(foundedYear && { foundedYear }),
+            ...(companyType && { companyType }),
+            ...(benefits && { benefits }),
+            ...(socialLinks && { socialLinks }),
+            ...(locations && { additionalLocations: locations }),
+            ...(gstNumber && { gstNumber }),
+            ...(cinNumber && { cinNumber }),
+            ...(companyEmail && { companyEmail }),
+            ...(phoneNumber && { phoneNumber }),
+            ...(companyPhotos && { companyPhotos })
+          };
+          
+          if (Object.keys(companyUpdateData).length > 0) {
+            await companyRecord.update(companyUpdateData);
+          }
+        }
+      } catch (companyError) {
+        console.warn('Company record update failed:', companyError.message);
+        // Don't fail the user update if company update fails
+      }
+    }
+
     res.json({ message: 'Profile updated successfully', user: user.toJSON() });
   } catch (error) {
     console.error('❌ Update user error:', error);

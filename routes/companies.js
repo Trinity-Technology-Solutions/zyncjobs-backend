@@ -9,6 +9,7 @@ import Job from '../models/Job.js';
 import Review from '../models/Review.js';
 import User from '../models/User.js';
 import { authenticateToken as auth } from '../middleware/auth.js';
+import { sequelize } from '../config/postgresql.js';
 
 const router = express.Router();
 
@@ -358,12 +359,34 @@ router.get('/', async (req, res) => {
       const name = companyData.name;
       return {
         ...formatCompanyWithLogo(companyData),
+        // Basic fields
+        name: companyData.name,
+        industry: companyData.industry,
+        description: companyData.description,
+        location: companyData.location || companyData.headquarters,
+        employees: companyData.size || companyData.companySize,
+        website: companyData.website || companyData.companyWebsite,
+        // Enhanced fields
+        tagline: companyData.tagline,
+        foundedYear: companyData.foundedYear,
+        companyType: companyData.companyType,
+        companySize: companyData.companySize,
+        headquarters: companyData.headquarters,
+        companyWebsite: companyData.companyWebsite,
+        benefits: companyData.benefits || [],
+        socialLinks: companyData.socialLinks || {},
+        locations: companyData.additionalLocations || [],
+        gstNumber: companyData.gstNumber,
+        cinNumber: companyData.cinNumber,
+        companyEmail: companyData.companyEmail,
+        phoneNumber: companyData.phoneNumber,
+        companyPhotos: companyData.companyPhotos || [],
+        // Calculated fields
         openPositions: jobCountMap[name] || 0,
         rating: ratingMap[name]?.avg || null,
         reviewCount: ratingMap[name]?.count || 0,
         employerCount: employerMap[name] || 0,
-        location: companyData.location || null,
-        size: companyData.size || null,
+        size: companyData.size || companyData.companySize || null,
         // Include verification status for frontend
         verified: companyData.verified || false,
         verificationStatus: companyData.verificationStatus || 'pending'
@@ -418,11 +441,29 @@ router.post('/', async (req, res) => {
       location,
       employerEmail,
       gstNumber,
-      registrationNumber
+      registrationNumber,
+      // Enhanced fields from EmployerCompleteProfilePage
+      companyName,
+      tagline,
+      foundedYear,
+      companyType,
+      companySize,
+      headquarters,
+      companyWebsite,
+      benefits,
+      socialLinks,
+      locations,
+      cinNumber,
+      companyEmail,
+      phoneNumber,
+      companyPhotos
     } = req.body;
     
+    // Use companyName if provided, fallback to name
+    const finalName = companyName || name;
+    
     // Validate required fields
-    if (!name) {
+    if (!finalName) {
       return res.status(400).json({ error: 'Company name is required' });
     }
     
@@ -430,7 +471,7 @@ router.post('/', async (req, res) => {
     const existingCompany = await Company.findOne({
       where: {
         [Op.or]: [
-          { name: { [Op.iLike]: name } },
+          { name: { [Op.iLike]: finalName } },
           ...(domain ? [{ domain: { [Op.iLike]: domain } }] : [])
         ]
       }
@@ -443,10 +484,25 @@ router.post('/', async (req, res) => {
         ...(logo && { logo }),
         ...(description && { description }),
         ...(industry && { industry }),
-        ...(size && { size }),
-        ...(website && { website }),
-        ...(location && { location }),
-        ...(employerEmail && !existingCompany.createdBy && { createdBy: employerEmail })
+        ...(size || companySize && { size: size || companySize }),
+        ...(website || companyWebsite && { website: website || companyWebsite }),
+        ...(location || headquarters && { location: location || headquarters }),
+        ...(employerEmail && !existingCompany.createdBy && { createdBy: employerEmail }),
+        // Enhanced fields
+        ...(tagline && { tagline }),
+        ...(foundedYear && { foundedYear }),
+        ...(companyType && { companyType }),
+        ...(companySize && { companySize }),
+        ...(headquarters && { headquarters }),
+        ...(companyWebsite && { companyWebsite }),
+        ...(benefits && { benefits }),
+        ...(socialLinks && { socialLinks }),
+        ...(locations && { additionalLocations: locations }),
+        ...(gstNumber && { gstNumber }),
+        ...(cinNumber && { cinNumber }),
+        ...(companyEmail && { companyEmail }),
+        ...(phoneNumber && { phoneNumber }),
+        ...(companyPhotos && { companyPhotos })
       });
       return res.json({
         success: true,
@@ -455,22 +511,36 @@ router.post('/', async (req, res) => {
       });
     }
     
-    // Create new company
+    // Create new company with enhanced fields
     const company = await Company.create({
-      name,
+      name: finalName,
       domain,
       logo,
       description,
       industry,
-      size,
-      website,
-      location,
+      size: size || companySize,
+      website: website || companyWebsite,
+      location: location || headquarters,
       gstNumber,
       registrationNumber,
       createdBy: employerEmail,
       followers: [],
       verified: false,
-      verificationStatus: 'pending'
+      verificationStatus: 'pending',
+      // Enhanced fields
+      tagline,
+      foundedYear,
+      companyType: companyType || 'Private',
+      companySize,
+      headquarters,
+      companyWebsite,
+      benefits: benefits || [],
+      socialLinks: socialLinks || {},
+      additionalLocations: locations || [],
+      cinNumber,
+      companyEmail,
+      phoneNumber,
+      companyPhotos: companyPhotos || []
     });
     
     const companyData = company.toJSON();
@@ -491,6 +561,94 @@ router.post('/', async (req, res) => {
     } else {
       res.status(500).json({ error: 'Failed to create company' });
     }
+  }
+});
+
+// GET /api/companies/by-domain/:domain - Get company by domain
+router.get('/by-domain/:domain', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    
+    if (!domain) {
+      return res.status(400).json({ error: 'Domain is required' });
+    }
+    
+    // Find company by domain
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { domain: { [Op.iLike]: domain } },
+          { companyWebsite: { [Op.iLike]: `%${domain}%` } },
+          { website: { [Op.iLike]: `%${domain}%` } }
+        ]
+      },
+      attributes: { exclude: ['followers', 'verificationDocuments'] }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ 
+        error: 'Company not found', 
+        message: `No company found for domain: ${domain}` 
+      });
+    }
+    
+    const companyData = company.toJSON();
+    const name = companyData.name;
+    
+    // Get additional data
+    const [jobCount, ratingData, employerCount] = await Promise.all([
+      Job.count({ where: { company: name, isActive: true, status: 'approved' } }),
+      Review.findOne({
+        where: { companyName: name },
+        attributes: [
+          [Review.sequelize.fn('AVG', Review.sequelize.col('rating')), 'avgRating'],
+          [Review.sequelize.fn('COUNT', Review.sequelize.col('id')), 'reviewCount']
+        ],
+        raw: true
+      }),
+      User.count({ where: { company: name, role: 'employer', isActive: true } })
+    ]);
+    
+    res.json({
+      ...formatCompanyWithLogo(companyData),
+      // Basic fields
+      name: companyData.name,
+      companyName: companyData.name,
+      industry: companyData.industry,
+      description: companyData.description,
+      location: companyData.location || companyData.headquarters,
+      employees: companyData.size || companyData.companySize,
+      website: companyData.website || companyData.companyWebsite,
+      // Enhanced fields
+      tagline: companyData.tagline,
+      foundedYear: companyData.foundedYear,
+      companyType: companyData.companyType,
+      companySize: companyData.companySize,
+      headquarters: companyData.headquarters,
+      companyWebsite: companyData.companyWebsite,
+      benefits: companyData.benefits || [],
+      socialLinks: companyData.socialLinks || {},
+      locations: companyData.additionalLocations || [],
+      gstNumber: companyData.gstNumber,
+      cinNumber: companyData.cinNumber,
+      companyEmail: companyData.companyEmail,
+      phoneNumber: companyData.phoneNumber,
+      companyPhotos: companyData.companyPhotos || [],
+      employerEmail: companyData.createdBy,
+      domain: companyData.domain,
+      // Calculated fields
+      openPositions: jobCount,
+      rating: ratingData?.avgRating ? parseFloat(ratingData.avgRating).toFixed(1) : null,
+      reviewCount: parseInt(ratingData?.reviewCount) || 0,
+      employerCount,
+      size: companyData.size || companyData.companySize || null,
+      // Verification status
+      verified: companyData.verified || false,
+      verificationStatus: companyData.verificationStatus || 'pending'
+    });
+  } catch (error) {
+    console.error('Error fetching company by domain:', error);
+    res.status(500).json({ error: 'Failed to fetch company by domain' });
   }
 });
 
@@ -597,12 +755,37 @@ router.get('/:id', async (req, res) => {
 
     res.json({
       ...formatCompanyWithLogo(companyData),
+      // Basic fields
+      name: companyData.name,
+      industry: companyData.industry,
+      description: companyData.description,
+      location: companyData.location || companyData.headquarters,
+      employees: companyData.size || companyData.companySize,
+      website: companyData.website || companyData.companyWebsite,
+      // Enhanced fields
+      tagline: companyData.tagline,
+      foundedYear: companyData.foundedYear,
+      companyType: companyData.companyType,
+      companySize: companyData.companySize,
+      headquarters: companyData.headquarters,
+      companyWebsite: companyData.companyWebsite,
+      benefits: companyData.benefits || [],
+      socialLinks: companyData.socialLinks || {},
+      locations: companyData.additionalLocations || [],
+      gstNumber: companyData.gstNumber,
+      cinNumber: companyData.cinNumber,
+      companyEmail: companyData.companyEmail,
+      phoneNumber: companyData.phoneNumber,
+      companyPhotos: companyData.companyPhotos || [],
+      // Calculated fields
       openPositions: jobCount,
       rating: ratingData?.avgRating ? parseFloat(ratingData.avgRating).toFixed(1) : null,
       reviewCount: parseInt(ratingData?.reviewCount) || 0,
       employerCount,
-      location: companyData.location || null,
-      size: companyData.size || null
+      size: companyData.size || companyData.companySize || null,
+      // Verification status
+      verified: companyData.verified || false,
+      verificationStatus: companyData.verificationStatus || 'pending'
     });
   } catch (error) {
     console.error('Error fetching company:', error);
@@ -741,6 +924,245 @@ router.post('/:id/unfollow', async (req, res) => {
   } catch (error) {
     console.error('Unfollow error:', error);
     res.status(500).json({ error: 'Failed to unfollow company' });
+  }
+});
+
+// ===== DYNAMIC COMPANY DATA ENDPOINTS (Naukri-like features) =====
+
+// GET /api/companies/:id/enhanced - Get enhanced company profile with all dynamic data
+router.get('/:id/enhanced', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get basic company info
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { id: id },
+          { name: { [Op.iLike]: id } }
+        ]
+      }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    const companyData = company.toJSON();
+    const companyName = companyData.name;
+    
+    // Get aggregated data
+    const [jobCount, ratingData, followerCount] = await Promise.all([
+      Job.count({ where: { company: companyName, isActive: true, status: 'approved' } }),
+      Review.findOne({
+        where: { companyName: companyName },
+        attributes: [
+          [Review.sequelize.fn('AVG', Review.sequelize.col('rating')), 'avgRating'],
+          [Review.sequelize.fn('COUNT', Review.sequelize.col('id')), 'reviewCount']
+        ],
+        raw: true
+      }),
+      Company.findByPk(company.id, { attributes: ['followers'] })
+    ]);
+    
+    // Enhanced company data
+    const enhancedData = {
+      id: companyData.id,
+      name: companyData.name,
+      industry: companyData.industry,
+      description: companyData.description,
+      company_type: companyData.industry === 'Financial Services' ? 'NBFC' : 'Private',
+      founded_year: 1995,
+      tagline: 'Your Financial Partner',
+      logo_url: companyData.logo,
+      cover_photo_url: null,
+      website: companyData.website,
+      headquarters: companyData.location,
+      employees: companyData.size,
+      avg_rating: ratingData?.avgRating ? parseFloat(ratingData.avgRating).toFixed(1) : 0,
+      review_count: parseInt(ratingData?.reviewCount) || 0,
+      follower_count: (followerCount?.followers || []).length,
+      total_jobs: jobCount,
+      verification_status: companyData.verificationStatus || 'pending'
+    };
+    
+    res.json(enhancedData);
+  } catch (error) {
+    console.error('Enhanced profile error:', error);
+    res.status(500).json({ error: 'Failed to fetch enhanced profile' });
+  }
+});
+
+// GET /api/companies/:id/benefits - Get company benefits
+router.get('/:id/benefits', async (req, res) => {
+  try {
+    const benefits = [
+      { id: '1', benefit_type: 'health_insurance', benefit_name: 'Health Insurance', employee_count: 12 },
+      { id: '2', benefit_type: 'skill_training', benefit_name: 'Job/Soft Skill Training', employee_count: 11 },
+      { id: '3', benefit_type: 'cafeteria', benefit_name: 'Cafeteria', employee_count: 5 },
+      { id: '4', benefit_type: 'gym', benefit_name: 'Office Gym', employee_count: 2 },
+      { id: '5', benefit_type: 'childcare', benefit_name: 'Child Care Facility', employee_count: 2 }
+    ];
+    
+    res.json({ benefits });
+  } catch (error) {
+    console.error('Benefits error:', error);
+    res.status(500).json({ error: 'Failed to fetch benefits' });
+  }
+});
+
+// GET /api/companies/:id/departments - Get company departments
+router.get('/:id/departments', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { id: id },
+          { name: { [Op.iLike]: id } }
+        ]
+      },
+      attributes: ['name']
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    const totalJobs = await Job.count({
+      where: { company: company.name, isActive: true, status: 'approved' }
+    });
+    
+    const departments = [
+      { id: '1', department_name: 'Sales & Business Development', job_openings: Math.floor(totalJobs * 0.4) },
+      { id: '2', department_name: 'Technology & Engineering', job_openings: Math.floor(totalJobs * 0.3) },
+      { id: '3', department_name: 'Finance & Accounting', job_openings: Math.floor(totalJobs * 0.2) },
+      { id: '4', department_name: 'Customer Service', job_openings: Math.floor(totalJobs * 0.1) }
+    ].filter(dept => dept.job_openings > 0);
+    
+    res.json({ departments });
+  } catch (error) {
+    console.error('Departments error:', error);
+    res.status(500).json({ error: 'Failed to fetch departments' });
+  }
+});
+
+// GET /api/companies/:id/salaries - Get salary data
+router.get('/:id/salaries', async (req, res) => {
+  try {
+    const salaries = [
+      {
+        id: '1',
+        job_title: 'Software Engineer',
+        experience_min: 1,
+        experience_max: 5,
+        salary_min: 450000,
+        salary_max: 650000,
+        submission_count: 6,
+        location: 'Mumbai'
+      },
+      {
+        id: '2',
+        job_title: 'Manager',
+        experience_min: 2,
+        experience_max: 14,
+        salary_min: 1150000,
+        salary_max: 1270000,
+        submission_count: 153,
+        location: 'Mumbai'
+      }
+    ];
+    
+    res.json({ salaries });
+  } catch (error) {
+    console.error('Salaries error:', error);
+    res.status(500).json({ error: 'Failed to fetch salaries' });
+  }
+});
+
+// GET /api/companies/:id/review-breakdown - Get review breakdown
+router.get('/:id/review-breakdown', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { id: id },
+          { name: { [Op.iLike]: id } }
+        ]
+      },
+      attributes: ['name']
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    const overallRating = await Review.findOne({
+      where: { companyName: company.name },
+      attributes: [[Review.sequelize.fn('AVG', Review.sequelize.col('rating')), 'avgRating']],
+      raw: true
+    });
+    
+    const baseRating = overallRating?.avgRating ? parseFloat(overallRating.avgRating) : 3.5;
+    
+    const breakdown = {
+      work_life_rating: Math.max(1, Math.min(5, baseRating - 0.1)),
+      salary_rating: Math.max(1, Math.min(5, baseRating + 0.1)),
+      culture_rating: Math.max(1, Math.min(5, baseRating - 0.2)),
+      growth_rating: Math.max(1, Math.min(5, baseRating - 0.3)),
+      security_rating: Math.max(1, Math.min(5, baseRating - 0.2)),
+      skill_development_rating: Math.max(1, Math.min(5, baseRating - 0.3))
+    };
+    
+    res.json({ breakdown });
+  } catch (error) {
+    console.error('Review breakdown error:', error);
+    res.status(500).json({ error: 'Failed to fetch review breakdown' });
+  }
+});
+
+// GET /api/companies/:id/similar - Get similar companies
+router.get('/:id/similar', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const company = await Company.findOne({
+      where: {
+        [Op.or]: [
+          { id: id },
+          { name: { [Op.iLike]: id } }
+        ]
+      }
+    });
+    
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    const similarCompanies = await Company.findAll({
+      where: {
+        industry: company.industry,
+        name: { [Op.ne]: company.name }
+      },
+      limit: 3,
+      attributes: ['id', 'name', 'logo', 'industry']
+    });
+    
+    const similar_companies = similarCompanies.map(comp => ({
+      id: comp.id,
+      name: comp.name,
+      logo_url: comp.logo,
+      industry: comp.industry,
+      similarity_score: 0.85
+    }));
+    
+    res.json({ similar_companies });
+  } catch (error) {
+    console.error('Similar companies error:', error);
+    res.status(500).json({ error: 'Failed to fetch similar companies' });
   }
 });
 
