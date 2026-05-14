@@ -2,12 +2,45 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Op } from 'sequelize';
 import Resume from '../models/Resume.js';
 import User from '../models/User.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const PLACEHOLDERS = ['resume_from_quick_apply', 'resume_from_profile', 'resume_uploaded'];
+
+// GET /api/resume/presigned?email= - Return proxy view URL by candidate email
+router.get('/presigned', async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ error: 'email query param required' });
+
+    const resume = await Resume.findOne({
+      where: { email: { [Op.iLike]: email } },
+      order: [['createdAt', 'DESC']]
+    });
+
+    let fileUrl = null;
+    if (resume?.fileUrl && !PLACEHOLDERS.includes(resume.fileUrl)) {
+      fileUrl = resume.fileUrl;
+    } else {
+      const user = await User.findOne({ where: { email: { [Op.iLike]: email } } });
+      if (user?.resumeUrl && !PLACEHOLDERS.includes(user.resumeUrl)) fileUrl = user.resumeUrl;
+    }
+
+    if (!fileUrl) return res.status(404).json({ error: 'No resume found for this candidate.' });
+
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    res.json({
+      presignedUrl: `${backendUrl}/api/resume-viewer/candidate/${encodeURIComponent(email)}/stream`,
+      downloadUrl: `${backendUrl}/api/resume-viewer/candidate/${encodeURIComponent(email)}/stream?download=1`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // POST /api/resume/attach - Copy resume file for application
 router.post('/attach', async (req, res) => {
