@@ -7,39 +7,54 @@ import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import nodemailer from 'nodemailer';
 import TalentCandidate from '../models/TalentCandidate.js';
+import { uploadResumeToS3 } from '../services/s3Service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 // ── Storage ──────────────────────────────────────────────────────
-const uploadsDir = path.join(__dirname, '../uploads/talent-resumes');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`)
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.pdf', '.doc', '.docx', '.txt'];
+    allowed.includes(path.extname(file.originalname).toLowerCase()) ? cb(null, true) : cb(new Error('PDF, DOC, DOCX, TXT only'));
+  }, 
+  limits: { fileSize: 10 * 1024 * 1024 } 
 });
-const upload = multer({ storage, fileFilter: (req, file, cb) => {
-  const allowed = ['.pdf', '.doc', '.docx', '.txt'];
-  allowed.includes(path.extname(file.originalname).toLowerCase()) ? cb(null, true) : cb(new Error('PDF, DOC, DOCX, TXT only'));
-}, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ── POST /api/admin/talent/upload ─────────────────────────────────
 router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 200), async (req, res) => {
-  if (!req.files || !req.files.length) return res.status(400).json({ error: 'No files uploaded' });
+  // Handle both file uploads and S3 URLs
+  const resumeUrls = req.body.resumeUrls ? (Array.isArray(req.body.resumeUrls) ? req.body.resumeUrls : [req.body.resumeUrls]) : [];
+  const fileNames = req.body.fileNames ? (Array.isArray(req.body.fileNames) ? req.body.fileNames : [req.body.fileNames]) : [];
+  const uploadedFiles = req.files || [];
+  
+  if (!uploadedFiles.length && !resumeUrls.length) {
+    return res.status(400).json({ error: 'No files or URLs provided' });
+  }
 
   const pdfTextExtractor = (await import('../services/pdfTextExtractor.js')).default;
   const { resumeParser } = await import('../utils/resumeParserAI.js');
+  const { getResumeStreamFromS3 } = await import('../services/s3Service.js');
   const results = [];
 
   // OpenRouter free tier: ~20 req/min → process 5 at a time with delay between batches
   const CONCURRENCY = 5;
   const BATCH_DELAY_MS = 15000; // 15s between batches to stay under rate limit
 
-  async function parseAndSave(file) {
+  async function parseAndSaveFromS3(s3Url, fileName) {
     try {
-      const buffer = fs.readFileSync(file.path);
+      // Get file stream from S3
+      const { stream } = await getResumeStreamFromS3(s3Url);
+      const chunks = [];
+      
+      // Read stream into buffer
+      for await (const chunk of stream) {
+        chunks.push(chunk);
+      }
+      const buffer = Buffer.concat(chunks);
+      
       const text = await pdfTextExtractor.extractTextFromBuffer(buffer);
       const parsed = await resumeParser.parseResumeToProfile(text);
       const candidate = await TalentCandidate.create({
@@ -50,8 +65,36 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
         skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : '',
         experience: parsed.workExperiences?.length ? `${parsed.workExperiences.length} role(s)` : '',
         jobTitle: parsed.title || '',
-        resumePath: file.path,
-        resumeFile: file.filename,
+        resumePath: s3Url, // S3 URL
+        resumeFile: fileName,
+        status: parsed.email ? 'Parsed' : 'Error',
+        source: 'uploaded_resume',
+        rawText: text.substring(0, 500)
+      });
+      return { file: fileName, status: 'ok', name: candidate.name, email: candidate.email };
+    } catch (err) {
+      return { file: fileName, status: 'error', error: err.message };
+    }
+  }
+
+  async function parseAndSaveFromFile(file) {
+    try {
+      // Upload to S3 first
+      const fileUrl = await uploadResumeToS3(file.buffer, file.originalname);
+      console.log('☁️ Talent resume uploaded to S3:', fileUrl);
+      
+      const text = await pdfTextExtractor.extractTextFromBuffer(file.buffer);
+      const parsed = await resumeParser.parseResumeToProfile(text);
+      const candidate = await TalentCandidate.create({
+        id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name: parsed.name || '',
+        email: parsed.email || '',
+        phone: parsed.phone || '',
+        skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : '',
+        experience: parsed.workExperiences?.length ? `${parsed.workExperiences.length} role(s)` : '',
+        jobTitle: parsed.title || '',
+        resumePath: fileUrl, // S3 URL instead of local path
+        resumeFile: file.originalname,
         status: parsed.email ? 'Parsed' : 'Error',
         source: 'uploaded_resume',
         rawText: text.substring(0, 500)
@@ -62,12 +105,24 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
     }
   }
 
-  for (let i = 0; i < req.files.length; i += CONCURRENCY) {
-    const batch = req.files.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(batch.map(parseAndSave));
+  // Process S3 URLs
+  const s3Tasks = resumeUrls.map((url, index) => {
+    const fileName = fileNames[index] || `resume_${index + 1}`;
+    return () => parseAndSaveFromS3(url, fileName);
+  });
+  
+  // Process uploaded files
+  const fileTasks = uploadedFiles.map(file => () => parseAndSaveFromFile(file));
+  
+  // Combine all tasks
+  const allTasks = [...s3Tasks, ...fileTasks];
+
+  for (let i = 0; i < allTasks.length; i += CONCURRENCY) {
+    const batch = allTasks.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(batch.map(task => task()));
     results.push(...batchResults);
     // Wait between batches (skip delay after last batch)
-    if (i + CONCURRENCY < req.files.length) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+    if (i + CONCURRENCY < allTasks.length) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
   }
 
   res.json({ success: true, processed: results.length, results });
