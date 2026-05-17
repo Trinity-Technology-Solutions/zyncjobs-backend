@@ -9,6 +9,9 @@ import pdfTextExtractor from '../services/pdfTextExtractor.js';
 
 const router = express.Router();
 
+// In-memory storage for processing status (in production, use Redis or database)
+const processingJobs = new Map();
+
 // Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -27,6 +30,87 @@ const upload = multer({
     } else {
       cb(new Error('Only PDF and DOC files are allowed'), false);
     }
+  }
+});
+
+// GET /api/resume/processing-status - Check global processing status
+router.get('/processing-status', authenticateToken, async (req, res) => {
+  try {
+    // Check if there are any active processing jobs
+    const activeJobs = Array.from(processingJobs.values()).filter(job => !job.completed);
+    
+    if (activeJobs.length === 0) {
+      return res.json({
+        isProcessing: false,
+        status: 'No active processing jobs',
+        progress: 0
+      });
+    }
+    
+    // Calculate overall progress
+    const totalProgress = activeJobs.reduce((sum, job) => sum + job.progress, 0);
+    const averageProgress = Math.round(totalProgress / activeJobs.length);
+    
+    res.json({
+      isProcessing: true,
+      status: `Processing ${activeJobs.length} job(s)`,
+      progress: averageProgress,
+      activeJobs: activeJobs.length
+    });
+  } catch (error) {
+    console.error('Error checking processing status:', error);
+    res.status(500).json({ error: 'Failed to check processing status' });
+  }
+});
+
+// GET /api/resume/processing-status/:jobId - Check specific job status
+router.get('/processing-status/:jobId', authenticateToken, async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const job = processingJobs.get(jobId);
+    
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    res.json({
+      jobId,
+      status: job.status,
+      progress: job.progress,
+      completed: job.completed,
+      results: job.results || [],
+      errors: job.errors || 0
+    });
+  } catch (error) {
+    console.error('Error checking job status:', error);
+    res.status(500).json({ error: 'Failed to check job status' });
+  }
+});
+
+// POST /api/resume/start-processing - Start a new processing job
+router.post('/start-processing', authenticateToken, async (req, res) => {
+  try {
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    
+    // Create new processing job
+    processingJobs.set(jobId, {
+      id: jobId,
+      status: 'Starting processing...',
+      progress: 0,
+      completed: false,
+      startTime: new Date(),
+      results: [],
+      errors: 0
+    });
+    
+    res.json({
+      success: true,
+      jobId,
+      message: 'Processing job started'
+    });
+  } catch (error) {
+    console.error('Error starting processing job:', error);
+    res.status(500).json({ error: 'Failed to start processing job' });
   }
 });
 
