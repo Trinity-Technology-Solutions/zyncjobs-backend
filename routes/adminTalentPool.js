@@ -258,6 +258,11 @@ router.post('/email', authenticateToken, requireRole(['admin']), async (req, res
   res.json({ success: true, sent, failed, errors });
 });
 
+// ── GET /api/admin/talent/processing-status ─────────────────────
+router.get('/processing-status', authenticateToken, requireRole(['admin']), (req, res) => {
+  res.json({ isProcessing: false, status: '', progress: 0 });
+});
+
 // ── GET /api/admin/talent/stats ───────────────────────────────────
 router.get('/stats', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { Op } = await import('sequelize');

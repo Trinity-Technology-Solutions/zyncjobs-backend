@@ -206,6 +206,64 @@ router.post('/register', registrationGuard, [
       console.log(`✅ Team member activated: ${email} under ${teamInvite.employerId}`);
     }
     
+    // 🔥 FIX: Auto-create Company record for employers
+    if (finalRole === 'employer' && finalCompanyName) {
+      try {
+        const Company = (await import('../models/Company.js')).default;
+        
+        // Check if company already exists
+        const existingCompany = await Company.findOne({
+          where: { name: { [Op.iLike]: finalCompanyName } }
+        });
+        
+        if (!existingCompany) {
+          // Create new company record
+          const companyData = {
+            name: finalCompanyName,
+            domain: email.split('@')[1],
+            createdBy: email.toLowerCase(),
+            verified: finalVerificationStatus === 'verified',
+            verificationStatus: finalVerificationStatus || 'pending',
+            followers: [],
+            logo: finalCompanyLogo || '',
+            website: finalCompanyWebsite || '',
+            companyWebsite: finalCompanyWebsite || '',
+            companyType: 'Private'
+          };
+          
+          // Add enhanced company data if available
+          if (finalCompanyProfile) {
+            Object.assign(companyData, {
+              industry: finalCompanyProfile.industry,
+              description: finalCompanyProfile.description,
+              size: finalCompanyProfile.companySize,
+              companySize: finalCompanyProfile.companySize,
+              location: finalCompanyProfile.headquarters,
+              headquarters: finalCompanyProfile.headquarters,
+              tagline: finalCompanyProfile.tagline,
+              foundedYear: finalCompanyProfile.foundedYear,
+              benefits: finalCompanyProfile.benefits || [],
+              socialLinks: finalCompanyProfile.socialLinks || {},
+              additionalLocations: finalCompanyProfile.locations || [],
+              gstNumber: finalCompanyProfile.gstNumber,
+              cinNumber: finalCompanyProfile.cinNumber,
+              companyEmail: finalCompanyProfile.companyEmail,
+              phoneNumber: finalCompanyProfile.phoneNumber,
+              companyPhotos: finalCompanyProfile.companyPhotos || []
+            });
+          }
+          
+          const newCompany = await Company.create(companyData);
+          console.log(`✅ Company record created: ${finalCompanyName} (ID: ${newCompany.id})`);
+        } else {
+          console.log(`ℹ️ Company already exists: ${finalCompanyName}`);
+        }
+      } catch (companyError) {
+        console.error('❌ Failed to create company record:', companyError.message);
+        // Don't fail user registration if company creation fails
+      }
+    }
+    
     console.log('✅ User created successfully:', email, 'Status:', verificationStatus);
 
     // Send welcome email asynchronously (don't wait for it)
