@@ -39,12 +39,13 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
   const { getResumeStreamFromS3 } = await import('../services/s3Service.js');
   const results = [];
 
-  // OpenRouter free tier: ~20 req/min → process 5 at a time with delay between batches
-  const CONCURRENCY = 5;
-  const BATCH_DELAY_MS = 15000; // 15s between batches to stay under rate limit
+  // OpenRouter free tier: ~20 req/min → process 3 at a time with longer delay
+  const CONCURRENCY = 3;
+  const BATCH_DELAY_MS = 20000; // 20s between batches to stay under rate limit
 
   async function parseAndSaveFromS3(s3Url, fileName) {
     try {
+      console.log(`[TALENT] Parsing: ${fileName} from ${s3Url}`);
       // Get file stream from S3
       const { stream } = await getResumeStreamFromS3(s3Url);
       const chunks = [];
@@ -54,9 +55,12 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
         chunks.push(chunk);
       }
       const buffer = Buffer.concat(chunks);
+      console.log(`[TALENT] Downloaded ${buffer.length} bytes for ${fileName}`);
       
       const text = await pdfTextExtractor.extractTextFromBuffer(buffer, fileName);
+      console.log(`[TALENT] Extracted ${text.length} chars from ${fileName}`);
       const parsed = await resumeParser.parseResumeToProfile(text);
+      console.log(`[TALENT] Parsed: name=${parsed.name}, email=${parsed.email}`);
       const candidate = await TalentCandidate.create({
         id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         name: parsed.name || '',
@@ -82,6 +86,7 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       });
       return { file: fileName, status: 'ok', name: candidate.name, email: candidate.email };
     } catch (err) {
+      console.error(`[TALENT] FAILED ${fileName}:`, err.message, err.stack?.split('\n')[1]);
       return { file: fileName, status: 'error', error: err.message };
     }
   }
