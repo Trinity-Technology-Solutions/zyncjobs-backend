@@ -10,8 +10,29 @@ import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import NotificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { runAutoRejection } from './aiRejectionSettings.js';
+import { getSignedResumeUrl, getResumeStreamFromS3 } from '../services/s3Service.js';
 
 const router = express.Router();
+const PLACEHOLDERS = ['resume_from_quick_apply', 'resume_from_profile', 'resume_uploaded'];
+
+async function resolveResumeFileUrl(application) {
+  const resume = await Resume.findOne({
+    where: {
+      [Op.or]: [
+        ...(application.candidateId ? [{ userId: application.candidateId }] : []),
+        { email: application.candidateEmail }
+      ]
+    },
+    order: [['createdAt', 'DESC']]
+  });
+  if (resume?.fileUrl && !PLACEHOLDERS.includes(resume.fileUrl)) return resume.fileUrl;
+
+  const user = await User.findOne({ where: { email: { [Op.iLike]: application.candidateEmail } } });
+  if (user?.resumeUrl && !PLACEHOLDERS.includes(user.resumeUrl)) return user.resumeUrl;
+
+  if (application.resumeUrl && !PLACEHOLDERS.includes(application.resumeUrl)) return application.resumeUrl;
+  return null;
+}
 
 // POST /api/applications - Submit job application (login required)
 router.post('/', authenticateToken, [
@@ -416,6 +437,53 @@ router.put('/:id', [
 
     await application.update({ coverLetter });
     res.json({ message: 'Application updated successfully', application });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/applications/:id/resume - Return proxy view URL for employer (no direct S3 URL)
+router.get('/:id/resume', async (req, res) => {
+  try {
+    const application = await Application.findByPk(req.params.id);
+    if (!application) return res.status(404).json({ error: 'Application not found' });
+
+    const fileUrl = await resolveResumeFileUrl(application);
+    if (!fileUrl) return res.status(404).json({ error: 'No resume found for this candidate.' });
+
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    res.json({
+      presignedUrl: `${backendUrl}/api/resume-viewer/view/${application.id}`,
+      downloadUrl: `${backendUrl}/api/resume-viewer/download/${application.id}`,
+      candidateName: application.candidateName
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/applications/:id/resume/download - Stream resume file to employer
+router.get('/:id/resume/download', async (req, res) => {
+  try {
+    const application = await Application.findByPk(req.params.id);
+    if (!application) return res.status(404).json({ error: 'Application not found' });
+
+    const fileUrl = await resolveResumeFileUrl(application);
+    if (!fileUrl) return res.status(404).json({ error: 'No resume found for this candidate.' });
+
+    const fileName = fileUrl.split('/').pop() || 'resume.pdf';
+    const isS3 = fileUrl.includes('amazonaws.com');
+
+    if (isS3) {
+      const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${application.candidateName?.replace(/\s+/g, '_') || 'candidate'}_resume.pdf"`);
+      if (contentLength) res.setHeader('Content-Length', contentLength);
+      stream.on('error', () => res.end());
+      stream.pipe(res);
+    } else {
+      res.redirect(fileUrl);
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -45,12 +45,6 @@ const upload = multer({
 // Resume upload endpoint
 router.post('/resume', upload.single('resume'), async (req, res) => {
   try {
-    console.log('📤 Resume upload hit:', {
-      hasFile: !!req.file,
-      hasAuth: !!req.headers.authorization,
-      bodyKeys: Object.keys(req.body)
-    });
-
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
@@ -104,11 +98,8 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Resume upload error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message || 'Failed to upload resume'
-    });
+    console.error('Resume upload error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -121,6 +112,33 @@ router.post('/profile-photo', uploadPhoto.single('photo'), async (req, res) => {
     res.json({ success: true, photoUrl });
   } catch (error) {
     console.error('Photo upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Talent resume upload endpoint (for talent pool)
+router.post('/talent-resume', upload.single('resume'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const fileUrl = await uploadResumeToS3(req.file.buffer, req.file.originalname);
+    console.log('☁️ Talent resume uploaded to S3:', fileUrl);
+
+    res.json({
+      success: true,
+      fileUrl,
+      file: {
+        name: req.file.originalname,
+        size: req.file.size,
+        type: req.file.mimetype,
+        url: fileUrl,
+        uploadDate: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Talent resume upload error:', error);
     res.status(500).json({ error: error.message });
   }
 });

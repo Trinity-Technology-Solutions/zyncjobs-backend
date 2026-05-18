@@ -3,7 +3,7 @@ import { Op } from 'sequelize';
 import Application from '../models/Application.js';
 import Resume from '../models/Resume.js';
 import User from '../models/User.js';
-import { getResumeStreamFromS3, getSignedResumeUrl } from '../services/s3Service.js';
+import { getResumeStreamFromS3 } from '../services/s3Service.js';
 
 const router = express.Router();
 
@@ -100,6 +100,47 @@ router.get('/download/:applicationId', async (req, res) => {
     }
   } catch (error) {
     console.error('Resume download error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/resume-viewer/candidate/:candidateEmail/stream - Stream resume by email
+router.get('/candidate/:candidateEmail/stream', async (req, res) => {
+  try {
+    const decodedEmail = decodeURIComponent(req.params.candidateEmail);
+    const forceDownload = req.query.download === '1';
+
+    const resume = await Resume.findOne({
+      where: { email: { [Op.iLike]: decodedEmail } },
+      order: [['createdAt', 'DESC']]
+    });
+
+    let fileUrl = null;
+    let fileName = 'resume.pdf';
+    if (resume?.fileUrl && !PLACEHOLDERS.includes(resume.fileUrl)) {
+      fileUrl = resume.fileUrl;
+      fileName = resume.fileName || fileName;
+    } else {
+      const user = await User.findOne({ where: { email: { [Op.iLike]: decodedEmail } } });
+      if (user?.resumeUrl && !PLACEHOLDERS.includes(user.resumeUrl)) fileUrl = user.resumeUrl;
+    }
+
+    if (!fileUrl) return res.status(404).json({ error: 'No resume found for this candidate.' });
+
+    const isS3 = fileUrl.includes('amazonaws.com');
+    if (isS3) {
+      const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `${forceDownload ? 'attachment' : 'inline'}; filename="${fileName}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      if (contentLength) res.setHeader('Content-Length', contentLength);
+      stream.on('error', () => res.end());
+      stream.pipe(res);
+    } else {
+      res.redirect(fileUrl);
+    }
+  } catch (error) {
+    console.error('Resume stream by email error:', error);
     res.status(500).json({ error: error.message });
   }
 });
