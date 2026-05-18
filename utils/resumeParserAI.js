@@ -185,7 +185,10 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
 
     // Skills: common tech keywords
     const techKeywords = ['JavaScript','TypeScript','Python','Java','React','Angular','Vue','Node.js','Express','Django','Flask','Spring','SQL','MySQL','PostgreSQL','MongoDB','Redis','AWS','Azure','GCP','Docker','Kubernetes','Git','HTML','CSS','REST','GraphQL','C++','C#','PHP','Ruby','Go','Rust','Kotlin','Swift','Flutter','TensorFlow','PyTorch','Pandas','NumPy','Selenium','Jenkins','Terraform','Linux','Agile','Scrum'];
-    const skills = techKeywords.filter(k => new RegExp(`\\b${k.replace('.', '\\.')}\\b`, 'i').test(resumeText));
+    const skills = techKeywords.filter(k => {
+      const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`\\b${escaped}\\b`, 'i').test(resumeText);
+    });
 
     // Experience count from year patterns
     const expMatch = resumeText.match(/(\d+)\+?\s*years?\s*(?:of\s*)?(?:experience|exp)/i);
