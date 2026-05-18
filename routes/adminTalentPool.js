@@ -55,7 +55,7 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       }
       const buffer = Buffer.concat(chunks);
       
-      const text = await pdfTextExtractor.extractTextFromBuffer(buffer);
+      const text = await pdfTextExtractor.extractTextFromBuffer(buffer, fileName);
       const parsed = await resumeParser.parseResumeToProfile(text);
       const candidate = await TalentCandidate.create({
         id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -65,9 +65,18 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
         skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : '',
         experience: parsed.workExperiences?.length ? `${parsed.workExperiences.length} role(s)` : '',
         jobTitle: parsed.title || '',
-        resumePath: s3Url, // S3 URL
+        summary: parsed.summary || '',
+        location: parsed.location || '',
+        country: parsed.country || '',
+        tools: Array.isArray(parsed.tools) ? parsed.tools.join(', ') : '',
+        softSkills: Array.isArray(parsed.softSkills) ? parsed.softSkills.join(', ') : '',
+        workExperiences: JSON.stringify(parsed.workExperiences || []),
+        educations: JSON.stringify(parsed.educations || []),
+        projects: JSON.stringify(parsed.projects || []),
+        certifications: JSON.stringify(parsed.certifications || []),
+        resumePath: s3Url,
         resumeFile: fileName,
-        status: parsed.email ? 'Parsed' : 'Error',
+        status: (parsed.name || parsed.email) ? 'Parsed' : 'Error',
         source: 'uploaded_resume',
         rawText: text.substring(0, 500)
       });
@@ -83,7 +92,7 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       const fileUrl = await uploadResumeToS3(file.buffer, file.originalname);
       console.log('☁️ Talent resume uploaded to S3:', fileUrl);
       
-      const text = await pdfTextExtractor.extractTextFromBuffer(file.buffer);
+      const text = await pdfTextExtractor.extractTextFromBuffer(file.buffer, file.originalname);
       const parsed = await resumeParser.parseResumeToProfile(text);
       const candidate = await TalentCandidate.create({
         id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -93,9 +102,18 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
         skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : '',
         experience: parsed.workExperiences?.length ? `${parsed.workExperiences.length} role(s)` : '',
         jobTitle: parsed.title || '',
-        resumePath: fileUrl, // S3 URL instead of local path
+        summary: parsed.summary || '',
+        location: parsed.location || '',
+        country: parsed.country || '',
+        tools: Array.isArray(parsed.tools) ? parsed.tools.join(', ') : '',
+        softSkills: Array.isArray(parsed.softSkills) ? parsed.softSkills.join(', ') : '',
+        workExperiences: JSON.stringify(parsed.workExperiences || []),
+        educations: JSON.stringify(parsed.educations || []),
+        projects: JSON.stringify(parsed.projects || []),
+        certifications: JSON.stringify(parsed.certifications || []),
+        resumePath: fileUrl,
         resumeFile: file.originalname,
-        status: parsed.email ? 'Parsed' : 'Error',
+        status: (parsed.name || parsed.email) ? 'Parsed' : 'Error',
         source: 'uploaded_resume',
         rawText: text.substring(0, 500)
       });
