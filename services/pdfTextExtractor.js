@@ -37,6 +37,21 @@ class PDFTextExtractor {
   async _extractFromDocx(buffer, fileName) {
     try {
       console.log('[EXTRACTOR] Extracting DOCX/DOC:', fileName);
+      const ext = path.extname(fileName).toLowerCase();
+
+      // Old .doc binary format — mammoth can't handle it, extract raw text from buffer
+      if (ext === '.doc') {
+        const raw = buffer.toString('latin1');
+        // Extract readable ASCII text from binary .doc
+        const text = raw
+          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/g, ' ')
+          .replace(/\s{3,}/g, '\n')
+          .trim();
+        if (!text || text.length < 20) throw new Error('Could not extract readable text from .doc file');
+        return this.cleanExtractedText(text);
+      }
+
+      // .docx — use mammoth
       const result = await mammoth.extractRawText({ buffer });
       if (!result.value.trim()) throw new Error('No text content found in DOCX');
       return this.cleanExtractedText(result.value);
