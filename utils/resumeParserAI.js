@@ -99,7 +99,10 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
           content = response.data?.choices?.[0]?.message?.content;
           if (content) { console.log('[RESUME_AI] Success with model:', model); break; }
         } catch (modelErr) {
-          console.warn('[RESUME_AI] Model failed:', model, modelErr.response?.status || modelErr.message);
+          const status = modelErr.response?.status;
+          console.warn('[RESUME_AI] Model failed:', model, status || modelErr.message);
+          // On rate limit, wait 10s before trying next model
+          if (status === 429) await new Promise(r => setTimeout(r, 10000));
         }
       }
       if (!content) {
@@ -149,14 +152,61 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
 
   getFallbackParsing(resumeText = '') {
     console.warn('[RESUME_AI] Using fallback regex parsing');
+
     const emailMatch = resumeText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    const phoneMatch = resumeText.match(/[+]?[6-9]\d{9}/);
+    const phoneMatch = resumeText.match(/(?:\+91[\s-]?)?[6-9]\d{9}/);
+
+    // Name: first non-empty line that looks like a name (2-4 words, no special chars)
+    const lines = resumeText.split('\n').map(l => l.trim()).filter(Boolean);
+    let name = '';
+    for (const line of lines.slice(0, 10)) {
+      if (/^[A-Z][a-zA-Z]+(\s[A-Z][a-zA-Z]+){1,3}$/.test(line) && line.length < 50) {
+        name = line; break;
+      }
+    }
+
+    // Title: look for common job title patterns
+    const titlePatterns = [
+      /(?:position|role|title|applying for)[:\s]+([^\n]{5,60})/i,
+      /(?:software|senior|junior|lead|full.?stack|front.?end|back.?end|data|devops|cloud|mobile)[\s\w]{3,40}(?:engineer|developer|architect|analyst|manager|designer)/i,
+    ];
+    let title = '';
+    for (const p of titlePatterns) {
+      const m = resumeText.match(p);
+      if (m) { title = (m[1] || m[0]).trim().substring(0, 60); break; }
+    }
+
+    // Location: Indian cities
+    const cities = ['Chennai','Bangalore','Bengaluru','Mumbai','Hyderabad','Pune','Delhi','Noida','Gurgaon','Kolkata','Ahmedabad','Coimbatore','Kochi','Jaipur','Indore','Bhopal','Nagpur','Surat','Lucknow','Visakhapatnam','Mysore','Madurai','Trichy','Vellore','Pondicherry'];
+    let location = '';
+    for (const city of cities) {
+      if (new RegExp(`\\b${city}\\b`, 'i').test(resumeText)) { location = city; break; }
+    }
+
+    // Skills: common tech keywords
+    const techKeywords = ['JavaScript','TypeScript','Python','Java','React','Angular','Vue','Node.js','Express','Django','Flask','Spring','SQL','MySQL','PostgreSQL','MongoDB','Redis','AWS','Azure','GCP','Docker','Kubernetes','Git','HTML','CSS','REST','GraphQL','C++','C#','PHP','Ruby','Go','Rust','Kotlin','Swift','Flutter','TensorFlow','PyTorch','Pandas','NumPy','Selenium','Jenkins','Terraform','Linux','Agile','Scrum'];
+    const skills = techKeywords.filter(k => new RegExp(`\\b${k.replace('.', '\\.')}\\b`, 'i').test(resumeText));
+
+    // Experience count from year patterns
+    const expMatch = resumeText.match(/(\d+)\+?\s*years?\s*(?:of\s*)?(?:experience|exp)/i);
+    const expYears = expMatch ? `${expMatch[1]} years` : '';
+
     return {
-      name: '', email: emailMatch?.[0] || '', phone: phoneMatch?.[0] || '',
-      location: '', country: '', title: '', summary: '',
-      skills: [], softSkills: [], tools: [],
-      workExperiences: [], educations: [],
-      projects: [], certifications: [], competitions: []
+      name,
+      email: emailMatch?.[0] || '',
+      phone: phoneMatch?.[0] || '',
+      location,
+      country: location ? 'India' : '',
+      title,
+      summary: expYears ? `${expYears} of experience.` : '',
+      skills,
+      softSkills: [],
+      tools: [],
+      workExperiences: [],
+      educations: [],
+      projects: [],
+      certifications: [],
+      competitions: []
     };
   }
 }
