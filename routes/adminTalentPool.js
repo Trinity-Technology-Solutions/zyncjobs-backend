@@ -55,7 +55,7 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       }
       const buffer = Buffer.concat(chunks);
       
-      const text = await pdfTextExtractor.extractTextFromBuffer(buffer);
+      const text = await pdfTextExtractor.extractTextFromBuffer(buffer, fileName);
       const parsed = await resumeParser.parseResumeToProfile(text);
       const candidate = await TalentCandidate.create({
         id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -83,7 +83,7 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       const fileUrl = await uploadResumeToS3(file.buffer, file.originalname);
       console.log('☁️ Talent resume uploaded to S3:', fileUrl);
       
-      const text = await pdfTextExtractor.extractTextFromBuffer(file.buffer);
+      const text = await pdfTextExtractor.extractTextFromBuffer(file.buffer, file.originalname);
       const parsed = await resumeParser.parseResumeToProfile(text);
       const candidate = await TalentCandidate.create({
         id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
