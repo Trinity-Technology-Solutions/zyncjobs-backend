@@ -7,7 +7,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import nodemailer from 'nodemailer';
 import TalentCandidate from '../models/TalentCandidate.js';
-import { uploadResumeToS3 } from '../services/s3Service.js';
+import { uploadResumeToS3, uploadTalentResumeToS3 } from '../services/s3Service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,24 +39,29 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
   const { getResumeStreamFromS3 } = await import('../services/s3Service.js');
   const results = [];
 
-  // OpenRouter free tier: ~20 req/min → process 5 at a time with delay between batches
-  const CONCURRENCY = 5;
-  const BATCH_DELAY_MS = 15000; // 15s between batches to stay under rate limit
+  // OpenRouter free tier: ~20 req/min → process 3 at a time with longer delay
+  const CONCURRENCY = 3;
+  const BATCH_DELAY_MS = 20000; // 20s between batches to stay under rate limit
 
   async function parseAndSaveFromS3(s3Url, fileName) {
     try {
-      // Get file stream from S3
+      // Skip if this S3 URL was already parsed and saved
+      const existing = await TalentCandidate.findOne({ where: { resumePath: s3Url } });
+      if (existing) {
+        console.log(`[TALENT] Already parsed, skipping: ${fileName}`);
+        return { file: fileName, status: 'ok', name: existing.name, email: existing.email, skipped: true };
+      }
+
+      console.log(`[TALENT] Parsing: ${fileName} from ${s3Url}`);
       const { stream } = await getResumeStreamFromS3(s3Url);
       const chunks = [];
-      
-      // Read stream into buffer
-      for await (const chunk of stream) {
-        chunks.push(chunk);
-      }
+      for await (const chunk of stream) chunks.push(chunk);
       const buffer = Buffer.concat(chunks);
-      
+      console.log(`[TALENT] Downloaded ${buffer.length} bytes for ${fileName}`);
       const text = await pdfTextExtractor.extractTextFromBuffer(buffer, fileName);
+      console.log(`[TALENT] Extracted ${text.length} chars from ${fileName}`);
       const parsed = await resumeParser.parseResumeToProfile(text);
+      console.log(`[TALENT] Parsed: name=${parsed.name}, email=${parsed.email}`);
       const candidate = await TalentCandidate.create({
         id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         name: parsed.name || '',
@@ -82,16 +87,24 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       });
       return { file: fileName, status: 'ok', name: candidate.name, email: candidate.email };
     } catch (err) {
+      console.error(`[TALENT] FAILED ${fileName}:`, err.message, err.stack?.split('\n')[1]);
       return { file: fileName, status: 'error', error: err.message };
     }
   }
 
   async function parseAndSaveFromFile(file) {
     try {
-      // Upload to S3 first
-      const fileUrl = await uploadResumeToS3(file.buffer, file.originalname);
-      console.log('☁️ Talent resume uploaded to S3:', fileUrl);
-      
+      // Upload using hash-based key — no duplicate S3 objects
+      const { fileUrl, alreadyExists } = await uploadTalentResumeToS3(file.buffer, file.originalname);
+      console.log(`☁️ Talent resume ${alreadyExists ? 'already existed' : 'uploaded'}: ${fileUrl}`);
+
+      // Skip parsing if this exact file was already parsed
+      const existing = await TalentCandidate.findOne({ where: { resumePath: fileUrl } });
+      if (existing) {
+        console.log(`[TALENT] Already parsed, skipping: ${file.originalname}`);
+        return { file: file.originalname, status: 'ok', name: existing.name, email: existing.email, skipped: true };
+      }
+
       const text = await pdfTextExtractor.extractTextFromBuffer(file.buffer, file.originalname);
       const parsed = await resumeParser.parseResumeToProfile(text);
       const candidate = await TalentCandidate.create({

@@ -1,6 +1,6 @@
 import express from 'express';
 import User from '../models/User.js';
-import { generateAccessToken, generateRefreshToken, verifyToken } from '../utils/jwt.js';
+import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt.js';
 
 const router = express.Router();
 
@@ -9,7 +9,7 @@ router.post('/refresh', async (req, res) => {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(401).json({ error: 'Refresh token required' });
 
-    const decoded = verifyToken(refreshToken);
+    const decoded = verifyRefreshToken(refreshToken);
     if (decoded.type !== 'refresh') return res.status(403).json({ error: 'Invalid token type' });
 
     const user = await User.findByPk(decoded.userId);

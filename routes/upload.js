@@ -6,7 +6,7 @@ import fs from 'fs';
 import Resume from '../models/Resume.js';
 import User from '../models/User.js';
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
-import { uploadResumeToS3 } from '../services/s3Service.js';
+import { uploadResumeToS3, uploadTalentResumeToS3 } from '../services/s3Service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -123,12 +123,15 @@ router.post('/talent-resume', upload.single('resume'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const fileUrl = await uploadResumeToS3(req.file.buffer, req.file.originalname);
-    console.log('☁️ Talent resume uploaded to S3:', fileUrl);
+    // Use hash from frontend header if provided, otherwise backend computes it
+    const fileHash = req.headers['x-file-hash'] || null;
+    const { fileUrl, alreadyExists } = await uploadTalentResumeToS3(req.file.buffer, req.file.originalname, fileHash);
+    console.log(`☁️ Talent resume ${alreadyExists ? 'already existed' : 'uploaded'} on S3:`, fileUrl);
 
     res.json({
       success: true,
       fileUrl,
+      alreadyExists,
       file: {
         name: req.file.originalname,
         size: req.file.size,
