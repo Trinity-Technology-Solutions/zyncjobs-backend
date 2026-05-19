@@ -5,9 +5,10 @@ const s3 = new AWS.S3({ region: process.env.AWS_REGION || 'ap-south-1' });
 const BUCKET = process.env.S3_BUCKET || 'qa-zync-jobs';
 
 export async function uploadResumeToS3(buffer, originalName) {
-  // Sanitize filename — remove spaces and special chars to avoid S3 key issues
-  const safeName = originalName.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._\-]/g, '');
-  const key = `resumes/${Date.now()}-${safeName}`;
+  const ext = originalName.substring(originalName.lastIndexOf('.')).toLowerCase() || '.pdf';
+  const safeName = originalName.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._\-]/g, '').replace(ext, '');
+  const shortId = Date.now().toString(36); // short unique suffix
+  const key = `resumes/${safeName}_${shortId}${ext}`;
   await s3.upload({ Bucket: BUCKET, Key: key, Body: buffer }).promise();
   return `https://${BUCKET}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
 }
@@ -15,9 +16,11 @@ export async function uploadResumeToS3(buffer, originalName) {
 // Hash-based upload for talent resumes — same file always gets same S3 key, no duplicates
 export async function uploadTalentResumeToS3(buffer, originalName, fileHash) {
   const ext = originalName.substring(originalName.lastIndexOf('.')).toLowerCase() || '.pdf';
-  // Use hash as key — uploading same file again just overwrites the same object
+  const safeName = originalName.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._\-]/g, '').replace(ext, '');
   const hash = fileHash || crypto.createHash('sha256').update(buffer).digest('hex');
-  const key = `talent-resumes/${hash}${ext}`;
+  const shortHash = hash.substring(0, 8); // first 8 chars enough for uniqueness
+  // Key format: talent-resumes/John_Doe_Resume_a1b2c3d4.pdf — readable + unique
+  const key = `talent-resumes/${safeName}_${shortHash}${ext}`;
 
   // Check if already exists in S3 — skip upload entirely if so
   try {
