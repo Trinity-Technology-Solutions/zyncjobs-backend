@@ -1,9 +1,9 @@
 // Shared email base template for ZyncJobs
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://zyncjobs.com';
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://zyncjobs.com').trim();
 
-// Use hosted logo URL — base64 causes Gmail to block/spam
-const LOGO_URL = `${process.env.BACKEND_URL || 'https://api.zyncjobs.com'}/images/zyncjobs-logo.png`;
+// S3 public URL — always reachable by email clients, no backend dependency
+const LOGO_URL = 'https://zyncjobs.com/images/zyncjobs-logo.png';
 
 // ─── BASE TEMPLATE ────────────────────────────────────────────────────────────
 // Design: blue rounded header with logo + paper-plane, light grey body, dark navy footer
@@ -113,8 +113,8 @@ export const ctaButton = (text, url, color = '#4F46E5') => `
 // Bordered card with icon, title, desc — matches the 3-column card row in the image
 export const featureCard = (icon, title, desc) => `
 <td style="width:33%;padding:6px;vertical-align:top;">
-  <div style="background:#FFFFFF;border:1.5px solid #D8DCF0;border-radius:14px;padding:14px 10px;text-align:center;">
-    <div style="font-size:28px;margin-bottom:8px;">${icon}</div>
+  <div style="background:#FFFFFF;border:1.5px solid #D8DCF0;border-radius:14px;padding:14px 10px;text-align:center;height:110px;box-sizing:border-box;display:table-cell;vertical-align:middle;">
+    <div style="margin-bottom:8px;">${icon}</div>
     <p style="color:#1F2937;font-size:12px;font-weight:700;margin:0 0 4px;">${title}</p>
     <p style="color:#6B7280;font-size:11px;margin:0;line-height:1.5;">${desc}</p>
   </div>
