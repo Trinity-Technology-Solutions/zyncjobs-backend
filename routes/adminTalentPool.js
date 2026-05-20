@@ -8,28 +8,28 @@ import { requireRole } from '../middleware/roleAuth.js';
 import nodemailer from 'nodemailer';
 import TalentCandidate from '../models/TalentCandidate.js';
 import { uploadResumeToS3, uploadTalentResumeToS3 } from '../services/s3Service.js';
+import { baseTemplate, ctaButton, divider, featureCard, FRONTEND_URL } from '../services/emailTemplates.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const router = express.Router();
 
-// ── Storage ──────────────────────────────────────────────────────
-const upload = multer({ 
+// Storage
+const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     const allowed = ['.pdf', '.doc', '.docx', '.txt'];
     allowed.includes(path.extname(file.originalname).toLowerCase()) ? cb(null, true) : cb(new Error('PDF, DOC, DOCX, TXT only'));
-  }, 
-  limits: { fileSize: 10 * 1024 * 1024 } 
+  },
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// ── POST /api/admin/talent/upload ─────────────────────────────────
+// POST /api/admin/talent/upload
 router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 200), async (req, res) => {
-  // Handle both file uploads and S3 URLs
   const resumeUrls = req.body.resumeUrls ? (Array.isArray(req.body.resumeUrls) ? req.body.resumeUrls : [req.body.resumeUrls]) : [];
   const fileNames = req.body.fileNames ? (Array.isArray(req.body.fileNames) ? req.body.fileNames : [req.body.fileNames]) : [];
   const uploadedFiles = req.files || [];
-  
+
   if (!uploadedFiles.length && !resumeUrls.length) {
     return res.status(400).json({ error: 'No files or URLs provided' });
   }
@@ -39,29 +39,23 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
   const { getResumeStreamFromS3 } = await import('../services/s3Service.js');
   const results = [];
 
-  // OpenRouter free tier: ~20 req/min → process 3 at a time with longer delay
   const CONCURRENCY = 3;
-  const BATCH_DELAY_MS = 20000; // 20s between batches to stay under rate limit
+  const BATCH_DELAY_MS = 20000;
 
   async function parseAndSaveFromS3(s3Url, fileName) {
     try {
-      // Skip if this S3 URL was already parsed and saved
       const existing = await TalentCandidate.findOne({ where: { resumePath: s3Url } });
       if (existing) {
         console.log(`[TALENT] Already parsed, skipping: ${fileName}`);
         return { file: fileName, status: 'ok', name: existing.name, email: existing.email, skipped: true };
       }
-
       console.log(`[TALENT] Parsing: ${fileName} from ${s3Url}`);
       const { stream } = await getResumeStreamFromS3(s3Url);
       const chunks = [];
       for await (const chunk of stream) chunks.push(chunk);
       const buffer = Buffer.concat(chunks);
-      console.log(`[TALENT] Downloaded ${buffer.length} bytes for ${fileName}`);
       const text = await pdfTextExtractor.extractTextFromBuffer(buffer, fileName);
-      console.log(`[TALENT] Extracted ${text.length} chars from ${fileName}`);
       const parsed = await resumeParser.parseResumeToProfile(text);
-      console.log(`[TALENT] Parsed: name=${parsed.name}, email=${parsed.email}`);
       const candidate = await TalentCandidate.create({
         id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         name: parsed.name || '',
@@ -87,24 +81,19 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       });
       return { file: fileName, status: 'ok', name: candidate.name, email: candidate.email };
     } catch (err) {
-      console.error(`[TALENT] FAILED ${fileName}:`, err.message, err.stack?.split('\n')[1]);
+      console.error(`[TALENT] FAILED ${fileName}:`, err.message);
       return { file: fileName, status: 'error', error: err.message };
     }
   }
 
   async function parseAndSaveFromFile(file) {
     try {
-      // Upload using hash-based key — no duplicate S3 objects
       const { fileUrl, alreadyExists } = await uploadTalentResumeToS3(file.buffer, file.originalname);
-      console.log(`☁️ Talent resume ${alreadyExists ? 'already existed' : 'uploaded'}: ${fileUrl}`);
-
-      // Skip parsing if this exact file was already parsed
+      console.log(`Talent resume ${alreadyExists ? 'already existed' : 'uploaded'}: ${fileUrl}`);
       const existing = await TalentCandidate.findOne({ where: { resumePath: fileUrl } });
       if (existing) {
-        console.log(`[TALENT] Already parsed, skipping: ${file.originalname}`);
         return { file: file.originalname, status: 'ok', name: existing.name, email: existing.email, skipped: true };
       }
-
       const text = await pdfTextExtractor.extractTextFromBuffer(file.buffer, file.originalname);
       const parsed = await resumeParser.parseResumeToProfile(text);
       const candidate = await TalentCandidate.create({
@@ -136,119 +125,174 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
     }
   }
 
-  // Process S3 URLs
   const s3Tasks = resumeUrls.map((url, index) => {
     const fileName = fileNames[index] || `resume_${index + 1}`;
     return () => parseAndSaveFromS3(url, fileName);
   });
-  
-  // Process uploaded files
   const fileTasks = uploadedFiles.map(file => () => parseAndSaveFromFile(file));
-  
-  // Combine all tasks
   const allTasks = [...s3Tasks, ...fileTasks];
 
   for (let i = 0; i < allTasks.length; i += CONCURRENCY) {
     const batch = allTasks.slice(i, i + CONCURRENCY);
     const batchResults = await Promise.all(batch.map(task => task()));
     results.push(...batchResults);
-    // Wait between batches (skip delay after last batch)
     if (i + CONCURRENCY < allTasks.length) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
   }
 
   res.json({ success: true, processed: results.length, results });
 });
 
-// ── GET /api/admin/talent/candidates ─────────────────────────────
+// GET /api/admin/talent/candidates
 router.get('/candidates', authenticateToken, requireRole(['admin']), async (req, res) => {
   const candidates = await TalentCandidate.findAll({ order: [['addedDate', 'DESC']] });
   res.json({ candidates });
 });
 
-// ── DELETE /api/admin/talent/candidates/:id ───────────────────────
+// DELETE /api/admin/talent/candidates/:id
 router.delete('/candidates/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   await TalentCandidate.destroy({ where: { id: req.params.id } });
   res.json({ success: true });
 });
 
-// ── POST /api/admin/talent/email ──────────────────────────────────
-router.post('/email', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { candidateIds, template, batchSize = 100 } = req.body;
-  if (!candidateIds?.length) return res.status(400).json({ error: 'No candidates selected' });
+// SVG icons used in feature cards
+const SVG_BRIEFCASE = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="7" width="20" height="14" rx="2" stroke="#5C6BC8" stroke-width="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" stroke="#5C6BC8" stroke-width="2"/></svg>';
+const SVG_AI       = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="#5C6BC8" stroke-width="2"/><path d="M12 8v4l3 3" stroke="#5C6BC8" stroke-width="2" stroke-linecap="round"/></svg>';
+const SVG_DOC      = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#5C6BC8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="14 2 14 8 20 8" stroke="#5C6BC8" stroke-width="2"/></svg>';
+const SVG_BOLT     = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" stroke="#5C6BC8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const SVG_TARGET   = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="#5C6BC8" stroke-width="2"/><circle cx="12" cy="12" r="6" stroke="#5C6BC8" stroke-width="2"/><circle cx="12" cy="12" r="2" stroke="#5C6BC8" stroke-width="2"/></svg>';
+const SVG_CHECK    = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12" stroke="#5C6BC8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-  const TEMPLATES = {
-    invite: {
-      subject: 'Exciting Opportunities at ZyncJobs 🚀',
-      html: (name) => `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          <div style="background:linear-gradient(135deg,#2563eb,#7c3aed);padding:32px 24px;text-align:center;">
-            <h1 style="color:white;margin:0;font-size:28px;">ZyncJobs</h1>
-            <p style="color:rgba(255,255,255,0.85);margin:8px 0 0;">Your Smart Career Platform</p>
-          </div>
-          <div style="padding:36px 32px;background:#fff;">
-            <h2 style="color:#111;margin-top:0;">Hi ${name || 'there'} 👋</h2>
-            <p style="color:#444;line-height:1.7;">We came across your profile and found it impressive.</p>
-            <p style="color:#444;line-height:1.7;">We are building <strong>ZyncJobs</strong> – a smart job platform with top opportunities tailored for professionals like you.</p>
-            <div style="text-align:center;margin:32px 0;">
-              <a href="${process.env.FRONTEND_URL || 'https://zyncjobs.com'}/register"
-                style="background:linear-gradient(135deg,#2563eb,#7c3aed);color:white;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:16px;display:inline-block;">
-                👉 Register on ZyncJobs
-              </a>
-            </div>
-            <p style="color:#444;line-height:1.7;">Start exploring jobs matched to your skills today.</p>
-          </div>
-          <div style="background:#f8f9fa;padding:20px;text-align:center;border-top:1px solid #e9ecef;">
-            <p style="color:#888;margin:0;font-size:12px;">© 2025 ZyncJobs. All rights reserved.</p>
-            <p style="color:#aaa;margin:4px 0 0;font-size:11px;">You received this because your resume was shared with us.</p>
-          </div>
-        </div>`
-    },
-    followup: {
-      subject: 'Still looking for your next opportunity? 👀',
-      html: (name) => `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          <div style="background:linear-gradient(135deg,#2563eb,#7c3aed);padding:32px 24px;text-align:center;">
-            <h1 style="color:white;margin:0;">ZyncJobs</h1>
-          </div>
-          <div style="padding:36px 32px;background:#fff;">
-            <h2 style="color:#111;margin-top:0;">Hi ${name || 'there'},</h2>
-            <p style="color:#444;line-height:1.7;">We noticed you haven't joined ZyncJobs yet.</p>
-            <p style="color:#444;line-height:1.7;">Thousands of candidates are already finding their dream jobs on our platform.</p>
-            <div style="text-align:center;margin:32px 0;">
-              <a href="${process.env.FRONTEND_URL || 'https://zyncjobs.com'}/register"
-                style="background:linear-gradient(135deg,#2563eb,#7c3aed);color:white;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;">
-                Join Now — It's Free
-              </a>
-            </div>
-          </div>
-          <div style="background:#f8f9fa;padding:20px;text-align:center;">
-            <p style="color:#888;margin:0;font-size:12px;">© 2025 ZyncJobs. All rights reserved.</p>
-          </div>
-        </div>`
-    },
-    jobs: {
-      subject: 'New Jobs Matching Your Profile on ZyncJobs 💼',
-      html: (name) => `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          <div style="background:linear-gradient(135deg,#2563eb,#7c3aed);padding:32px 24px;text-align:center;">
-            <h1 style="color:white;margin:0;">ZyncJobs</h1>
-          </div>
-          <div style="padding:36px 32px;background:#fff;">
-            <h2 style="color:#111;margin-top:0;">Hi ${name || 'there'},</h2>
-            <p style="color:#444;line-height:1.7;">We have new job openings that match your skills and experience.</p>
-            <div style="text-align:center;margin:32px 0;">
-              <a href="${process.env.FRONTEND_URL || 'https://zyncjobs.com'}/register"
-                style="background:linear-gradient(135deg,#2563eb,#7c3aed);color:white;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;">
-                View Jobs
-              </a>
-            </div>
-          </div>
-          <div style="background:#f8f9fa;padding:20px;text-align:center;">
-            <p style="color:#888;margin:0;font-size:12px;">© 2025 ZyncJobs. All rights reserved.</p>
-          </div>
-        </div>`
+// Talent Pool Bulk Email Templates
+const TEMPLATES = {
+  invite: {
+    subject: "You're Invited to Join ZyncJobs - Your Next Career Move Starts Here",
+    html: () => baseTemplate(`
+      <div style="padding:32px 36px;">
+        <h2 style="color:#1F2937;font-size:18px;font-weight:700;margin:0 0 8px;">Dear Candidate,</h2>
+        <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 20px;">
+          We came across your profile and were genuinely impressed by your background. We believe you could be a strong fit for exciting opportunities on our platform.
+        </p>
+        <div style="text-align:center;margin:0 0 24px;">
+          ${ctaButton('Start Your Journey Now', `${FRONTEND_URL}/register`)}
+        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+          <tr>
+            ${featureCard(SVG_BRIEFCASE, 'Browse Jobs', 'Thousands of verified job openings matched to your skills')}
+            ${featureCard(SVG_AI, 'AI Match', 'Get personalised job recommendations instantly')}
+            ${featureCard(SVG_DOC, 'Easy Apply', 'One-click applications with your uploaded resume')}
+          </tr>
+        </table>
+        ${divider()}
+        <p style="color:#1F2937;font-size:14px;font-weight:700;margin:0 0 12px;">Get started in 3 steps:</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+          <tr><td style="padding:8px 0;color:#4B5563;font-size:14px;"><span style="background:#5C6BC8;color:#fff;border-radius:50%;width:22px;height:22px;display:inline-block;text-align:center;line-height:22px;font-size:12px;font-weight:700;margin-right:10px;">1</span>Create your free profile</td></tr>
+          <tr><td style="padding:8px 0;color:#4B5563;font-size:14px;"><span style="background:#E5E7EB;color:#6B7280;border-radius:50%;width:22px;height:22px;display:inline-block;text-align:center;line-height:22px;font-size:12px;font-weight:700;margin-right:10px;">2</span>Upload your resume</td></tr>
+          <tr><td style="padding:8px 0;color:#4B5563;font-size:14px;"><span style="background:#E5E7EB;color:#6B7280;border-radius:50%;width:22px;height:22px;display:inline-block;text-align:center;line-height:22px;font-size:12px;font-weight:700;margin-right:10px;">3</span>Apply to matching jobs</td></tr>
+        </table>
+        ${divider()}
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr><td style="background:#F0F7FF;border-radius:10px;padding:14px 18px;">
+            <p style="color:#1F2937;font-size:13px;font-weight:700;margin:0 0 4px;">Need help getting started?</p>
+            <p style="color:#6B7280;font-size:13px;margin:0;"><a href="mailto:Admin@zyncjobs.com" style="color:#5C6BC8;">Admin@zyncjobs.com</a></p>
+          </td></tr>
+        </table>
+      </div>`, 'You are invited to join ZyncJobs!')
+  },
+
+  followup: {
+    subject: "Following Up - Exclusive Opportunities Waiting for You on ZyncJobs",
+    html: () => baseTemplate(`
+      <div style="padding:32px 36px;">
+        <h2 style="color:#1F2937;font-size:18px;font-weight:700;margin:0 0 8px;">Dear Candidate,</h2>
+        <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 20px;">
+          We noticed you have not joined ZyncJobs yet. Since our last message, several new positions have been added that closely match your profile.
+        </p>
+        <div style="background:#EEF2FF;border:1px solid #C7D2FE;border-radius:12px;padding:18px 20px;margin:0 0 20px;">
+          <p style="color:#3730A3;font-size:14px;font-weight:700;margin:0 0 10px;">What is waiting for you:</p>
+          <p style="color:#374151;font-size:13px;margin:6px 0;">&#10003; Curated job matches tailored to your skills</p>
+          <p style="color:#374151;font-size:13px;margin:6px 0;">&#10003; Opportunities with companies actively hiring now</p>
+          <p style="color:#374151;font-size:13px;margin:6px 0;">&#10003; Streamlined application process - no lengthy forms</p>
+          <p style="color:#374151;font-size:13px;margin:6px 0;">&#10003; Full visibility into your application pipeline</p>
+        </div>
+        ${divider()}
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton("Join Now - It's Free", `${FRONTEND_URL}/register`)}
+        </div>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr><td style="background:#F0F7FF;border-radius:10px;padding:14px 18px;">
+            <p style="color:#1F2937;font-size:13px;font-weight:700;margin:0 0 4px;">Need help getting started?</p>
+            <p style="color:#6B7280;font-size:13px;margin:0;"><a href="mailto:Admin@zyncjobs.com" style="color:#5C6BC8;">Admin@zyncjobs.com</a></p>
+          </td></tr>
+        </table>
+      </div>`, 'New jobs are waiting for you on ZyncJobs!')
+  },
+
+  jobs: {
+    subject: "New Job Openings Matching Your Profile - Act Now Before They're Filled",
+    html: () => baseTemplate(`
+      <div style="padding:32px 36px;">
+        <h2 style="color:#1F2937;font-size:18px;font-weight:700;margin:0 0 8px;">Dear Candidate,</h2>
+        <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 20px;">
+          We have identified several new job openings on ZyncJobs that closely match your skills and professional background. Roles are filling quickly!
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+          <tr>
+            ${featureCard(SVG_BOLT, 'Hot Roles', 'High-demand positions closing fast')}
+            ${featureCard(SVG_TARGET, 'Skill Match', 'Jobs matched to your exact experience')}
+            ${featureCard(SVG_CHECK, 'Quick Apply', 'Apply in under 2 minutes')}
+          </tr>
+        </table>
+        <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:12px;padding:16px 20px;margin:0 0 20px;">
+          <p style="color:#92400E;font-size:13px;font-weight:700;margin:0 0 6px;">Why act now?</p>
+          <p style="color:#78350F;font-size:13px;margin:4px 0;">&#8226; High-demand roles close fast - early applicants have a significant advantage</p>
+          <p style="color:#78350F;font-size:13px;margin:4px 0;">&#8226; Employers are actively reviewing profiles this week</p>
+          <p style="color:#78350F;font-size:13px;margin:4px 0;">&#8226; Registration takes under 2 minutes</p>
+        </div>
+        ${divider()}
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('View Matching Jobs', `${FRONTEND_URL}/register`)}
+        </div>
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr><td style="background:#F0F7FF;border-radius:10px;padding:14px 18px;">
+            <p style="color:#1F2937;font-size:13px;font-weight:700;margin:0 0 4px;">Need help getting started?</p>
+            <p style="color:#6B7280;font-size:13px;margin:0;"><a href="mailto:Admin@zyncjobs.com" style="color:#5C6BC8;">Admin@zyncjobs.com</a></p>
+          </td></tr>
+        </table>
+      </div>`, 'New jobs matching your profile on ZyncJobs!')
+  }
+};
+
+// POST /api/admin/talent/email
+router.post('/email', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { candidateIds, template, batchSize = 100, testEmail } = req.body;
+
+  // ── Test send: send to a single address without needing candidateIds ──
+  if (testEmail) {
+    const tpl = TEMPLATES[template] || TEMPLATES.invite;
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_SERVER,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: false,
+      auth: { user: process.env.SMTP_EMAIL, pass: process.env.SMTP_PASSWORD }
+    });
+    try {
+      await transporter.sendMail({
+        from: `"ZyncJobs Careers" <${process.env.SMTP_EMAIL}>`,
+        to: testEmail,
+        subject: `[TEST] ${tpl.subject}`,
+        html: tpl.html(),
+        headers: {
+          'List-Unsubscribe': `<mailto:${process.env.SMTP_EMAIL}?subject=unsubscribe>`,
+          'X-Mailer': 'ZyncJobs Mailer'
+        }
+      });
+      return res.json({ success: true, sent: 1, test: true });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
-  };
+  }
+
+  if (!candidateIds?.length) return res.status(400).json({ error: 'No candidates selected' });
 
   const tpl = TEMPLATES[template] || TEMPLATES.invite;
   const { Op } = await import('sequelize');
@@ -260,7 +304,11 @@ router.post('/email', authenticateToken, requireRole(['admin']), async (req, res
     host: process.env.SMTP_SERVER,
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: false,
-    auth: { user: process.env.SMTP_EMAIL, pass: process.env.SMTP_PASSWORD }
+    auth: { user: process.env.SMTP_EMAIL, pass: process.env.SMTP_PASSWORD },
+    pool: true,
+    maxConnections: 5,
+    rateDelta: 1000,
+    rateLimit: 5
   });
 
   let sent = 0, failed = 0;
@@ -271,10 +319,16 @@ router.post('/email', authenticateToken, requireRole(['admin']), async (req, res
     for (const c of batch) {
       try {
         await transporter.sendMail({
-          from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
+          from: `"ZyncJobs Careers" <${process.env.SMTP_EMAIL}>`,
           to: c.email,
           subject: tpl.subject,
-          html: tpl.html(c.name)
+          html: tpl.html(),
+          headers: {
+            'List-Unsubscribe': `<mailto:${process.env.SMTP_EMAIL}?subject=unsubscribe>`,
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            'X-Mailer': 'ZyncJobs Mailer',
+            'Precedence': 'bulk'
+          }
         });
         await c.update({ emailStatus: 'Sent', emailSentAt: new Date() });
         sent++;
@@ -289,12 +343,12 @@ router.post('/email', authenticateToken, requireRole(['admin']), async (req, res
   res.json({ success: true, sent, failed, errors });
 });
 
-// ── GET /api/admin/talent/processing-status ─────────────────────
+// GET /api/admin/talent/processing-status
 router.get('/processing-status', authenticateToken, requireRole(['admin']), (req, res) => {
   res.json({ isProcessing: false, status: '', progress: 0 });
 });
 
-// ── GET /api/admin/talent/stats ───────────────────────────────────
+// GET /api/admin/talent/stats
 router.get('/stats', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { Op } = await import('sequelize');
   const [total, parsed, errors, emailSent] = await Promise.all([
@@ -303,7 +357,6 @@ router.get('/stats', authenticateToken, requireRole(['admin']), async (req, res)
     TalentCandidate.count({ where: { status: 'Error' } }),
     TalentCandidate.count({ where: { emailStatus: 'Sent' } })
   ]);
-
   res.json({ total, parsed, errors, emailSent, notSent: total - emailSent });
 });
 

@@ -71,14 +71,14 @@ export const sendOTPEmail = async (email, name, userType) => {
     const content = `
       <!-- Hero -->
       <div style="background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);padding:36px 40px;text-align:center;">
-        <div style="font-size:44px;margin-bottom:10px;">🔐</div>
+        <div style="margin-bottom:10px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="white" stroke-width="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
         <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Verify Your Email</h1>
         <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">One-time verification code</p>
       </div>
 
       <!-- Body -->
       <div style="padding:36px 40px;">
-        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name || 'there'}! 👋</h2>
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name || 'there'}!</h2>
         <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 28px;">
           Use the code below to verify your email and complete your ${userType === 'employer' ? 'employer' : 'job seeker'} registration on ZyncJobs.
         </p>
@@ -87,11 +87,11 @@ export const sendOTPEmail = async (email, name, userType) => {
         <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:14px;padding:28px;text-align:center;margin:0 0 24px;">
           <p style="color:#6B7280;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin:0 0 16px;">Your Verification Code</p>
           <div style="margin-bottom:16px;">${digits}</div>
-          <p style="color:#9CA3AF;font-size:12px;margin:0;">⏰ Expires in <strong style="color:#EF4444;">10 minutes</strong></p>
+          <p style="color:#9CA3AF;font-size:12px;margin:0;">Expires in <strong style="color:#EF4444;">10 minutes</strong></p>
         </div>
 
         <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:10px;padding:14px 18px;margin-bottom:24px;">
-          <p style="color:#92400E;font-size:13px;margin:0;">⚠️ Never share this code with anyone. ZyncJobs will never ask for your OTP.</p>
+          <p style="color:#92400E;font-size:13px;margin:0;">Never share this code with anyone. ZyncJobs will never ask for your OTP.</p>
         </div>
 
         ${divider()}
