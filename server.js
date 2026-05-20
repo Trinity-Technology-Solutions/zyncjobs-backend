@@ -260,9 +260,9 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      // Allow framing from frontend origins AND the API domain itself
       'frame-ancestors': ["'self'", ...ALLOWED_ORIGINS, ...(apiOrigin ? [apiOrigin] : [])],
       'frame-src': ["'self'", ...ALLOWED_ORIGINS, ...(apiOrigin ? [apiOrigin] : [])],
+      'img-src': ["'self'", 'data:', '*'],
     },
   },
   crossOriginResourcePolicy: { policy: 'cross-origin' },
