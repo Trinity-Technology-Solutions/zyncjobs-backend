@@ -39,27 +39,35 @@ router.post('/forgot-password', async (req, res) => {
     const frontendBase = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim().replace(/\/+$/, '');
     const resetLink = `${frontendBase}/reset-password/${resetToken}`;
 
+    const { baseTemplate, ctaButton, divider } = await import('../services/emailTemplates.js');
+
+    const resetContent = `
+      <div style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);padding:28px 32px;text-align:center;">
+        <div style="margin-bottom:8px;"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="white" stroke-width="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Password Reset</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">We received a reset request</p>
+      </div>
+      <div style="padding:32px 36px;">
+        <p style="color:#374151;font-size:15px;line-height:1.7;margin:0 0 16px;">
+          Click the button below to reset your ZyncJobs password. This link expires in <strong>1 hour</strong>.
+        </p>
+        <div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:10px;padding:12px 16px;margin:0 0 24px;">
+          <p style="color:#92400E;font-size:13px;margin:0;">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('Reset My Password', resetLink)}
+        </div>
+        ${divider()}
+        <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:0;">Or copy this link:<br/>
+          <a href="${resetLink}" style="color:#5C6BC8;word-break:break-all;font-size:11px;">${resetLink}</a>
+        </p>
+      </div>`;
+
     const mailOptions = {
       from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
       to: email,
       subject: 'ZyncJobs - Password Reset Request',
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-          <div style="background:#6366f1;padding:30px 20px;text-align:center;">
-            <h1 style="color:white;margin:0;">ZyncJobs</h1>
-          </div>
-          <div style="background:white;padding:40px 30px;">
-            <h2 style="color:#333;">Password Reset Request</h2>
-            <p style="color:#555;">We received a request to reset your ZyncJobs password.</p>
-            <p style="color:#555;">Click the button below — this link expires in <strong>1 hour</strong>.</p>
-            <div style="text-align:center;margin:30px 0;">
-              <a href="${resetLink}" style="background:#6366f1;color:white;padding:14px 32px;text-decoration:none;border-radius:6px;font-size:16px;display:inline-block;">Reset Password</a>
-            </div>
-            <p style="color:#888;font-size:13px;">Or copy this link:<br/><a href="${resetLink}" style="color:#6366f1;word-break:break-all;">${resetLink}</a></p>
-            <p style="color:#aaa;font-size:12px;margin-top:30px;">If you didn't request this, ignore this email.</p>
-          </div>
-        </div>
-      `
+      html: baseTemplate(resetContent, 'Reset your ZyncJobs password — link expires in 1 hour.')
     };
 
     transporter.sendMail(mailOptions)
