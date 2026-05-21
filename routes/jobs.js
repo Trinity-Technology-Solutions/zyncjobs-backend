@@ -328,21 +328,34 @@ router.get('/employer/:employerId', async (req, res) => {
   }
 });
 
-// GET /api/jobs/employer/email/:email - Get jobs by employer email
+// GET /api/jobs/employer/email/:email - Get jobs by employer email (company-wide)
 router.get('/employer/email/:email', async (req, res) => {
   try {
+    // Use the email parameter as the company identifier
+    const employerEmail = req.params.email;
+    
     const jobs = await Job.findAll({ 
       where: {
-        employerEmail: req.params.email,
+        employerEmail: employerEmail,
         isActive: true,
         status: { [Op.in]: ['approved', 'pending'] }
       },
       order: [['createdAt', 'DESC']]
     });
+    
     const jobsWithLogos = jobs.map(job => {
       const jobJson = job.toJSON();
-      return { ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
+      return { 
+        ...jobJson, 
+        companyLogo: getCompanyLogo(job.company), 
+        salary: { 
+          min: jobJson.salaryMin, 
+          max: jobJson.salaryMax, 
+          currency: jobJson.currency || 'INR' 
+        } 
+      };
     });
+    
     res.json(jobsWithLogos);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -82,6 +82,9 @@ import employerRoutes from './routes/employers.js';
 import ogTagsRoutes from './routes/ogTags.js';
 import socialShareRoutes from './routes/socialShare.js';
 import teamRoutes from './routes/team.js';
+import companyVerificationRoutes from './routes/companyVerification.js';
+import accessControlRoutes from './routes/accessControl.js';
+import teamAuthRoutes from './routes/teamAuth.js';
 import aiRejectionSettingsRoutes from './routes/aiRejectionSettings.js';
 import credentialingRoutes from './routes/credentialing.js';
 import salaryInsightsRoutes from './routes/salaryInsights.js';
@@ -166,6 +169,16 @@ connectDB().then(async () => {
     console.log('✅ Enhanced company fields migration completed');
   } catch (migrationError) {
     console.warn('⚠️ Migration warning:', migrationError.message);
+    // Don't fail server startup if migration fails
+  }
+  
+  // Run team invitation columns migration
+  try {
+    const { migrateTeamInvitationColumns } = await import('./scripts/migrateTeamInvitationColumns.js');
+    await migrateTeamInvitationColumns();
+    console.log('✅ Team invitation columns migration completed');
+  } catch (migrationError) {
+    console.warn('⚠️ Team invitation migration warning:', migrationError.message);
     // Don't fail server startup if migration fails
   }
   
@@ -431,6 +444,9 @@ app.use('/api/user-preferences', userPreferencesRoutes);
 app.use('/api/job-session', jobSessionRoutes);
 app.use('/api/employers', employerRoutes);
 app.use('/api/team', teamRoutes);
+app.use('/api/company-verification', companyVerificationRoutes);
+app.use('/api/access', accessControlRoutes);
+app.use('/api/team-auth', teamAuthRoutes);
 app.use('/api/social', socialShareRoutes);
 app.use('/api/ai-rejection-settings/preview', aiRejectionSettingsRoutes);
 app.use('/api/ai-rejection-settings/bulk-reject', aiRejectionSettingsRoutes);

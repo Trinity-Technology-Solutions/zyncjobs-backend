@@ -124,6 +124,16 @@ const User = sequelize.define('User', {
   inviteTokenExpiry: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  isFirstLogin: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    comment: 'Flag to prompt password change on first login'
+  },
+  companyDomain: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Company domain extracted from email'
   }
 }, {
   tableName: 'users',

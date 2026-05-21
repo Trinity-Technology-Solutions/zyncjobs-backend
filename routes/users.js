@@ -15,6 +15,62 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
+// Helper function to get team member permissions
+function getTeamMemberPermissions(role) {
+  const permissions = {
+    'Owner': {
+      canPostJobs: true,
+      canManageApplications: true,
+      canInviteMembers: true,
+      canRemoveMembers: true,
+      canChangeRoles: true,
+      canViewAnalytics: true,
+      canAccessTeam: true,
+      canAccessDashboard: true,
+      canAccessJobPosting: true,
+      canAccessJobManagement: true,
+      canAccessApplications: true,
+      canAccessCandidateRanking: true,
+      canAccessInterviews: true,
+      canAccessPostedJobs: true
+    },
+    'Recruiter': {
+      canPostJobs: true,
+      canManageApplications: true,
+      canInviteMembers: false,
+      canRemoveMembers: false,
+      canChangeRoles: false,
+      canViewAnalytics: false,
+      canAccessTeam: false,
+      canAccessDashboard: true,
+      canAccessJobPosting: true,
+      canAccessJobManagement: true,
+      canAccessApplications: true,
+      canAccessCandidateRanking: false,
+      canAccessInterviews: true,
+      canAccessPostedJobs: true
+    },
+    'Viewer': {
+      canPostJobs: false,
+      canManageApplications: false,
+      canInviteMembers: false,
+      canRemoveMembers: false,
+      canChangeRoles: false,
+      canViewAnalytics: true,
+      canAccessTeam: false,
+      canAccessDashboard: true,
+      canAccessJobPosting: false,
+      canAccessJobManagement: false,
+      canAccessApplications: false,
+      canAccessCandidateRanking: false,
+      canAccessInterviews: false,
+      canAccessPostedJobs: false
+    }
+  };
+  
+  return permissions[role] || permissions['Viewer'];
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Load companies list once
@@ -133,27 +189,31 @@ router.post('/register', registrationGuard, [
     if ((userType || 'candidate') === 'employer') {
       companyDomain = email.split('@')[1]?.toLowerCase();
       
-      if (domainVerification) {
-        // Use frontend verification results
-        verificationStatus = CompanyVerificationService.determineVerificationStatus(domainVerification);
-        domainVerificationMethod = domainVerification.verificationMethod;
-        finalCompanyProfile = domainVerification.companyProfile || companyProfile;
-        
-        verificationNote = CompanyVerificationService.getVerificationStatusMessage(
-          verificationStatus, 
-          domainVerificationMethod
-        );
+      // Check if this is the first employer from this domain
+      const existingEmployerFromDomain = await User.findOne({
+        where: {
+          role: 'employer',
+          email: { [Op.iLike]: `%@${companyDomain}` },
+          isActive: true
+        }
+      });
+      
+      // ALL employers require admin verification (no auto-approval)
+      verificationStatus = 'pending';
+      
+      if (!existingEmployerFromDomain) {
+        verificationNote = 'First employer from domain - requires admin verification';
+        domainVerificationMethod = 'admin_review_required';
+        console.log(`🔒 First employer from ${companyDomain} - admin verification required`);
       } else {
-        // Fallback: perform verification on backend
-        const verificationResult = await CompanyVerificationService.verifyCompanyDomain(
-          email, 
-          companyField
-        );
-        
-        verificationStatus = CompanyVerificationService.determineVerificationStatus(verificationResult);
-        domainVerificationMethod = verificationResult.verificationMethod;
-        finalCompanyProfile = verificationResult.companyProfile;
-        verificationNote = verificationResult.message;
+        verificationNote = 'Additional employer from domain - requires admin verification';
+        domainVerificationMethod = 'admin_review_required';
+        console.log(`🔒 Additional employer from ${companyDomain} - admin verification required`);
+      }
+      
+      if (domainVerification) {
+        // Use frontend verification results if provided
+        finalCompanyProfile = domainVerification.companyProfile || companyProfile;
       }
       
       console.log(`🔍 Employer verification for ${email}: ${verificationStatus} via ${domainVerificationMethod}`);
@@ -372,9 +432,29 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Your employer account has been rejected. Please contact support.' });
     }
 
-    // Block pending employers
+    // Block pending employers - ALL employers need admin verification or OTP
     if (user.role === 'employer' && user.verificationStatus === 'pending') {
-      return res.status(403).json({ error: 'Your account is pending admin verification. You will be notified once approved.' });
+      const userDomain = user.email.split('@')[1]?.toLowerCase();
+      
+      // Check if user is a team member — team members are auto-verified on login
+      const teamMember = await TeamMember.findOne({
+        where: { memberEmail: { [Op.iLike]: user.email }, status: 'active' }
+      });
+      
+      if (teamMember) {
+        // Auto-verify team member and continue login
+        await user.update({ verificationStatus: 'verified' });
+        console.log(`✅ Auto-verified team member on login: ${user.email}`);
+        // Fall through to normal login
+      } else {
+        // Regular employer - requires admin verification (no auto-approval)
+        return res.status(403).json({ 
+          error: 'Your account is pending admin verification. As an employer, admin approval is required for security. You will be notified once approved.',
+          verificationStatus: 'pending',
+          requiresAdminApproval: true,
+          domain: userDomain
+        });
+      }
     }
 
     // Email verification check
@@ -435,16 +515,24 @@ router.post('/login', async (req, res) => {
       if (tm) {
         const owner = await User.findOne({
           where: { email: { [Op.iLike]: tm.employerId } },
-          attributes: ['employerId', 'company', 'companyName', 'companyLogo', 'companyWebsite']
+          attributes: ['id', 'employerId', 'company', 'companyName', 'companyLogo', 'companyWebsite']
         });
         teamMemberData = {
           teamRole: tm.role,
+          ownerEmail: tm.employerId,           // owner's email — used to query team/jobs/apps
           employerId: owner?.employerId || tm.employerId,
           company: owner?.companyName || owner?.company || user.company,
           companyName: owner?.companyName || owner?.company || user.companyName,
           companyLogo: owner?.companyLogo || user.companyLogo,
-          companyWebsite: owner?.companyWebsite || user.companyWebsite
+          companyWebsite: owner?.companyWebsite || user.companyWebsite,
+          permissions: getTeamMemberPermissions(tm.role)
         };
+        
+        // Update user verification status if they're a team member
+        if (user.verificationStatus === 'pending') {
+          await user.update({ verificationStatus: 'verified' });
+          console.log(`✅ Auto-verified team member: ${user.email}`);
+        }
       }
     } catch (e) {
       console.warn('Team member check failed:', e.message);
@@ -466,6 +554,9 @@ router.post('/login', async (req, res) => {
       verificationStatus: user.verificationStatus || 'verified',
       profilePhoto: user.profilePicture || profileData.profilePhoto,
       teamRole: teamMemberData?.teamRole || null,
+      ownerEmail: teamMemberData?.ownerEmail || null,  // owner's email for team members
+      isFirstLogin: user.isFirstLogin || false, // Flag for password change prompt
+      permissions: teamMemberData?.permissions || null, // Team member permissions
       ...profileData
     };
 
@@ -649,6 +740,75 @@ router.get('/check-domain', async (req, res) => {
       });
     }
     res.json({ exists: false });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/users/company-verified?domain=trinitetech.com - Check if domain has verified employer
+router.get('/company-verified', async (req, res) => {
+  try {
+    const { domain } = req.query;
+    if (!domain) return res.status(400).json({ error: 'domain required' });
+
+    const verifiedEmployer = await User.findOne({
+      where: {
+        role: 'employer',
+        verificationStatus: 'verified',
+        isActive: true,
+        email: { [Op.iLike]: `%@${domain.toLowerCase()}` }
+      }
+    });
+
+    res.json({ verified: !!verifiedEmployer });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/users/:id/verify-company - Auto-approve user based on domain verification
+router.put('/:id/verify-company', async (req, res) => {
+  try {
+    const { verificationStatus, autoApproved } = req.body;
+    
+    if (verificationStatus !== 'verified') {
+      return res.status(400).json({ error: 'Only verified status allowed' });
+    }
+
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await user.update({
+      verificationStatus: 'verified',
+      verificationNote: autoApproved ? 'Auto-approved - verified company domain' : 'Manually verified'
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Company verified successfully',
+      verificationStatus: 'verified'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/users/:id/change-password - Change user password
+router.put('/:id/change-password', async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 8);
+    await user.update({ password: hashedPassword });
+
+    res.json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1018,6 +1178,39 @@ router.delete('/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Delete account error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/users/team-permissions - Get current user's team permissions
+router.get('/team-permissions', authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Check if user is a team member
+    const teamMember = await TeamMember.findOne({
+      where: { memberEmail: { [Op.iLike]: user.email }, status: 'active' }
+    });
+
+    if (teamMember) {
+      const permissions = getTeamMemberPermissions(teamMember.role);
+      res.json({
+        isTeamMember: true,
+        role: teamMember.role,
+        permissions,
+        employerId: teamMember.employerId
+      });
+    } else {
+      // Regular employer - full permissions
+      res.json({
+        isTeamMember: false,
+        role: 'Owner',
+        permissions: getTeamMemberPermissions('Owner'),
+        employerId: user.employerId
+      });
+    }
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
