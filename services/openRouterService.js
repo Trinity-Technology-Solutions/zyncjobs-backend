@@ -8,27 +8,22 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const FEATURE_MODELS = {
   'career-coach':       'meta-llama/llama-3.3-70b-instruct:free',
   'ai-recruiter':       'google/gemma-3-27b-it:free',
-  'resume-builder':     'openai/gpt-oss-20b:free',
+  'resume-builder':     'google/gemma-3-12b-it:free',
   'resume-score':       'google/gemma-3-12b-it:free',
-  'skill-assessment':   'nvidia/nemotron-3-super-120b-a12b:free',
-  'ai-rejection':       'arcee-ai/trinity-large-preview:free',
-  'linkedin-parser':    'qwen/qwen3-coder:free',
-  'ai-scoring':         'openai/gpt-oss-120b:free',
+  'skill-assessment':   'meta-llama/llama-3.2-3b-instruct:free',
+  'ai-rejection':       'google/gemma-3-4b-it:free',
+  'linkedin-parser':    'meta-llama/llama-3.2-3b-instruct:free',
+  'ai-scoring':         'google/gemma-3-27b-it:free',
   'default':            'google/gemma-3-4b-it:free',
 };
 
 // Fallback chain — if primary model fails, try these in order
 const FALLBACK_MODELS = [
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'openai/gpt-oss-20b:free',
-  'openai/gpt-oss-120b:free',
-  'google/gemma-3-27b-it:free',
-  'google/gemma-3-12b-it:free',
-  'nvidia/nemotron-3-super-120b-a12b:free',
-  'arcee-ai/trinity-large-preview:free',
-  'qwen/qwen3-coder:free',
   'google/gemma-3-4b-it:free',
+  'google/gemma-3-12b-it:free',
+  'google/gemma-3-27b-it:free',
   'meta-llama/llama-3.2-3b-instruct:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
 ];
 
 export async function callAI({ feature = 'default', messages, maxTokens = 700, temperature = 0.7 }) {
@@ -47,7 +42,7 @@ export async function callAI({ feature = 'default', messages, maxTokens = 700, t
   for (const model of models) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20000);
+      const timeout = setTimeout(() => controller.abort(), 30000);
 
       const res = await fetch(OPENROUTER_URL, {
         method: 'POST',
