@@ -2,11 +2,7 @@
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://zyncjobs.com').trim();
 
-// S3 public URL — always reachable by email clients, no backend dependency
-const LOGO_URL = 'https://zyncjobs.com/images/zyncjobs-logo.png';
-
 // ─── BASE TEMPLATE ────────────────────────────────────────────────────────────
-// Design: blue rounded header with logo + paper-plane, light grey body, dark navy footer
 export const baseTemplate = (content, previewText = '') => `
 <!DOCTYPE html>
 <html lang="en">
@@ -27,40 +23,11 @@ export const baseTemplate = (content, previewText = '') => `
           <table width="100%" cellpadding="0" cellspacing="0"
             style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);border-radius:22px 22px 0 0;">
             <tr>
-              <!-- Logo bar -->
-              <td style="padding:14px 24px 0;text-align:center;">
-                <table width="100%" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="text-align:center;">
-                      <a href="${FRONTEND_URL}" style="text-decoration:none;display:inline-block;">
-                        <img src="${LOGO_URL}" alt="ZyncJobs" width="150" height="40"
-                          style="display:inline-block;width:150px;height:40px;"/>
-                      </a>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            <tr>
-              <!-- Hero text + paper plane -->
-              <td style="padding:18px 32px 36px;text-align:center;position:relative;">
-                <table width="100%" cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="text-align:center;padding-right:50px;">
-                      <h1 style="color:#FFFFFF;font-size:24px;font-weight:800;margin:0 0 6px;letter-spacing:0.2px;line-height:1.3;">Welcome to Zync Jobs</h1>
-                      <p style="color:rgba(255,255,255,0.88);font-size:14px;margin:0;font-weight:400;">Your Career Journey Starts here</p>
-                    </td>
-                    <!-- Paper plane SVG -->
-                    <td style="width:50px;vertical-align:bottom;padding-bottom:4px;">
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="transform:rotate(-20deg);display:inline-block;">
-                        <path d="M22 2L11 13" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                    </td>
-                  </tr>
-                </table>
-                <!-- Decorative swirl line (CSS border trick) -->
-                <div style="position:absolute;bottom:10px;right:30px;width:40px;height:40px;border:2px solid rgba(255,255,255,0.25);border-radius:50%;border-top-color:transparent;"></div>
+              <td style="padding:32px 32px 28px;text-align:center;">
+                <a href="${FRONTEND_URL}" style="text-decoration:none;">
+                  <span style="color:#FFFFFF;font-size:26px;font-weight:900;letter-spacing:1px;">ZyncJobs</span>
+                </a>
+                <p style="color:rgba(255,255,255,0.75);font-size:12px;margin:4px 0 0;letter-spacing:0.5px;">Your Career Journey Starts Here</p>
               </td>
             </tr>
           </table>
