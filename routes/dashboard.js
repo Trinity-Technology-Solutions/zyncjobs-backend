@@ -54,13 +54,14 @@ router.get('/debug', async (req, res) => {
 // GET /api/dashboard/stats - Get dashboard statistics
 router.get('/stats', async (req, res) => {
   try {
-    const { employerId, employerEmail, userName } = req.query;
+    const { employerId, employerEmail, userName, companyName } = req.query;
     
     // Build query conditions, filtering out empty values
     const queryConditions = [];
     if (employerEmail && employerEmail.trim() !== '') queryConditions.push({ employerEmail });
     if (userName && userName.trim() !== '') queryConditions.push({ postedBy: userName });
     if (employerId && employerId.trim() !== '') queryConditions.push({ employerId });
+    if (companyName && companyName.trim() !== '') queryConditions.push({ company: companyName });
     
     // If no valid conditions, return zeros
     if (queryConditions.length === 0) {
@@ -75,10 +76,11 @@ router.get('/stats', async (req, res) => {
       }
     });
     
-    // For applications, only use employerEmail or employerId
+    // For applications, only use employerEmail or employerId or companyName
     const appConditions = [];
     if (employerEmail && employerEmail.trim() !== '') appConditions.push({ employerEmail });
     if (employerId && employerId.trim() !== '') appConditions.push({ employerId });
+    if (companyName && companyName.trim() !== '') appConditions.push({ company: companyName });
     
     const applications = appConditions.length > 0 ? await Application.count({
       where: { [Op.or]: appConditions }
@@ -108,13 +110,14 @@ router.get('/stats', async (req, res) => {
 // GET /api/dashboard/recent-activity - Get recent activity
 router.get('/recent-activity', async (req, res) => {
   try {
-    const { employerId, employerEmail, userName } = req.query;
+    const { employerId, employerEmail, userName, companyName } = req.query;
     
     // Build query conditions, filtering out empty values
     const queryConditions = [];
     if (employerEmail && employerEmail.trim() !== '') queryConditions.push({ employerEmail: employerEmail });
     if (userName && userName.trim() !== '') queryConditions.push({ postedBy: userName });
     if (employerId && employerId.trim() !== '') queryConditions.push({ employerId: employerId });
+    if (companyName && companyName.trim() !== '') queryConditions.push({ company: companyName });
     
     // If no valid conditions, return empty array
     if (queryConditions.length === 0) {
