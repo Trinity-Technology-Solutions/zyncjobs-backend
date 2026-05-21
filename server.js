@@ -139,7 +139,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'x-file-hash'],
   exposedHeaders: ['Content-Range', 'X-Content-Range'],
 };
 app.use(cors(corsOptions));
@@ -265,9 +265,9 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      // Allow framing from frontend origins AND the API domain itself
       'frame-ancestors': ["'self'", ...ALLOWED_ORIGINS, ...(apiOrigin ? [apiOrigin] : [])],
       'frame-src': ["'self'", ...ALLOWED_ORIGINS, ...(apiOrigin ? [apiOrigin] : [])],
+      'img-src': ["'self'", 'data:', '*'],
     },
   },
   crossOriginResourcePolicy: { policy: 'cross-origin' },

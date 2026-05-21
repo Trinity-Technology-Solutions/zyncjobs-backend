@@ -231,32 +231,33 @@ router.post('/', async (req, res) => {
       'Viewer': 'View Analytics only'
     };
 
-    const emailHtml = `
-      <div style="font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px;">
-        <div style="background-color: white; padding: 30px; border-radius: 8px; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #1d4ed8; padding: 24px 20px; text-align: center; border-radius: 6px 6px 0 0; margin: -30px -30px 24px;">
-            <h1 style="color: white; margin: 0; font-size: 24px;">ZyncJobs</h1>
-          </div>
-          <h2 style="color: #333;">You're invited to join a team!</h2>
-          <p style="color: #555; font-size: 15px;">Hi <strong>${memberName || memberEmail}</strong>,</p>
-          <p style="color: #555; font-size: 15px;">
-            <strong>${companyName || employerId}</strong> has invited you to join their ZyncJobs team as a <strong>${role || 'Recruiter'}</strong>.
-          </p>
-          <div style="background-color: #eff6ff; padding: 16px; border-left: 4px solid #1d4ed8; border-radius: 4px; margin: 20px 0;">
-            <p style="margin: 0; color: #444; font-size: 14px;"><strong>Your Role:</strong> ${role || 'Recruiter'}</p>
-            <p style="margin: 8px 0 0; color: #444; font-size: 14px;"><strong>Permissions:</strong> ${rolePermissions[role || 'Recruiter']}</p>
-          </div>
-          <p style="color: #555; font-size: 14px;">Click the button below to accept your invitation. You'll be automatically signed in — no password needed.</p>
-          <div style="text-align: center; margin: 28px 0;">
-            <a href="${inviteLink}" style="background-color: #1d4ed8; color: white; padding: 14px 36px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold; font-size: 15px;">
-              Accept Invitation
-            </a>
-          </div>
-          <p style="color: #888; font-size: 13px;">Or copy this link: <a href="${inviteLink}" style="color: #1d4ed8;">${inviteLink}</a></p>
-          <p style="color: #aaa; font-size: 12px;">This link expires after use. If you did not expect this, ignore this email.</p>
-        </div>
+    const { baseTemplate, ctaButton, infoBox, divider } = await import('../services/emailTemplates.js');
+
+    const teamInviteContent = `
+      <div style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);padding:28px 32px;text-align:center;">
+        <div style="margin-bottom:10px;"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="7" r="4" stroke="white" stroke-width="2"/><path d="M23 21v-2a4 4 0 0 0-3-3.87" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 3.13a4 4 0 0 1 0 7.75" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">You're Invited to Join a Team!</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">Team invitation from ${companyName || employerId}</p>
       </div>
-    `;
+      <div style="padding:32px 36px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${memberName || memberEmail}!</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
+          <strong>${companyName || employerId}</strong> has invited you to join their ZyncJobs team as a <strong>${role || 'Recruiter'}</strong>.
+        </p>
+        ${infoBox(`
+          <table cellpadding="0" cellspacing="0" width="100%">
+            <tr><td style="padding:4px 0;width:100px;"><span style="color:#6B7280;font-size:13px;">Your Role</span></td><td style="padding:4px 0;"><strong style="color:#1F2937;font-size:14px;">${role || 'Recruiter'}</strong></td></tr>
+            <tr><td style="padding:4px 0;"><span style="color:#6B7280;font-size:13px;">Permissions</span></td><td style="padding:4px 0;"><span style="color:#4B5563;font-size:13px;">${rolePermissions[role || 'Recruiter']}</span></td></tr>
+          </table>
+        `)}
+        <p style="color:#4B5563;font-size:14px;line-height:1.7;margin:0 0 24px;">Click the button below to accept your invitation. You'll be automatically signed in.</p>
+        ${divider()}
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('Accept Invitation', inviteLink)}
+        </div>
+        <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:0;">Or copy this link: <a href="${inviteLink}" style="color:#5C6BC8;word-break:break-all;font-size:11px;">${inviteLink}</a></p>
+        <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:8px 0 0;">This link expires after use. If you did not expect this, ignore this email.</p>
+      </div>`;
 
     try {
       const transporter = createTransporter();
@@ -264,7 +265,7 @@ router.post('/', async (req, res) => {
         from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
         to: memberEmail,
         subject: `You've been invited to join ${companyName || employerId} on ZyncJobs`,
-        html: emailHtml
+        html: baseTemplate(teamInviteContent, `You've been invited to join ${companyName || employerId} on ZyncJobs`)
       });
       console.log(`✅ Invitation email sent to ${memberEmail}`);
     } catch (emailError) {

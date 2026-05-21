@@ -1,37 +1,12 @@
-// Shared premium email base template for ZyncJobs
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+// Shared email base template for ZyncJobs
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://zyncjobs.com';
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://zyncjobs.com').trim();
 
-// Inline logo as base64 so it works in all email clients regardless of hosting
-const __dirname_email = dirname(fileURLToPath(import.meta.url));
-let LOGO_BASE64;
-try {
-  const logoPath = join(__dirname_email, '../public/images/zyncjobs-logo.png');
-  const logoData = readFileSync(logoPath);
-  LOGO_BASE64 = `data:image/png;base64,${logoData.toString('base64')}`;
-} catch {
-  LOGO_BASE64 = '';
-}
+// S3 public URL — always reachable by email clients, no backend dependency
+const LOGO_URL = 'https://zyncjobs.com/images/zyncjobs-logo.png';
 
-// Brand colors
-const BRAND = {
-  primary: '#4F46E5',
-  primaryDark: '#3730A3',
-  gradient: 'linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)',
-  accent: '#F59E0B',
-  success: '#10B981',
-  danger: '#EF4444',
-  text: '#1F2937',
-  muted: '#6B7280',
-  bg: '#F9FAFB',
-  white: '#FFFFFF',
-  border: '#E5E7EB',
-};
-
-// Base wrapper used by all emails
+// ─── BASE TEMPLATE ────────────────────────────────────────────────────────────
+// Design: blue rounded header with logo + paper-plane, light grey body, dark navy footer
 export const baseTemplate = (content, previewText = '') => `
 <!DOCTYPE html>
 <html lang="en">
@@ -40,42 +15,80 @@ export const baseTemplate = (content, previewText = '') => `
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
   <title>ZyncJobs</title>
-  ${previewText ? `<span style="display:none;max-height:0;overflow:hidden;">${previewText}</span>` : ''}
+  ${previewText ? `<span style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${previewText}&nbsp;&zwnj;</span>` : ''}
 </head>
-<body style="margin:0;padding:0;background-color:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F3F4F6;padding:32px 16px;">
+<body style="margin:0;padding:0;background-color:#E9EBF0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#E9EBF0;padding:28px 16px 36px;">
     <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+      <table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;">
 
-        <!-- HEADER -->
-        <tr><td style="background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);border-radius:16px 16px 0 0;padding:24px 40px;text-align:center;">
-          <a href="${FRONTEND_URL}" style="text-decoration:none;display:inline-block;">
-            <img src="${LOGO_BASE64}" alt="ZyncJobs" width="180" height="50"
-              style="display:block;width:180px;height:50px;margin:0 auto;"/>
-          </a>
-          <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:12px;letter-spacing:0.5px;">AI-Powered Hiring Platform</p>
+        <!-- ═══ HEADER ═══ -->
+        <tr><td style="padding:0;">
+          <table width="100%" cellpadding="0" cellspacing="0"
+            style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);border-radius:22px 22px 0 0;">
+            <tr>
+              <!-- Logo bar -->
+              <td style="padding:14px 24px 0;text-align:center;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="text-align:center;">
+                      <a href="${FRONTEND_URL}" style="text-decoration:none;display:inline-block;">
+                        <img src="${LOGO_URL}" alt="ZyncJobs" width="150" height="40"
+                          style="display:inline-block;width:150px;height:40px;"/>
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <!-- Hero text + paper plane -->
+              <td style="padding:18px 32px 36px;text-align:center;position:relative;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="text-align:center;padding-right:50px;">
+                      <h1 style="color:#FFFFFF;font-size:24px;font-weight:800;margin:0 0 6px;letter-spacing:0.2px;line-height:1.3;">Welcome to Zync Jobs</h1>
+                      <p style="color:rgba(255,255,255,0.88);font-size:14px;margin:0;font-weight:400;">Your Career Journey Starts here</p>
+                    </td>
+                    <!-- Paper plane SVG -->
+                    <td style="width:50px;vertical-align:bottom;padding-bottom:4px;">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="transform:rotate(-20deg);display:inline-block;">
+                        <path d="M22 2L11 13" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </td>
+                  </tr>
+                </table>
+                <!-- Decorative swirl line (CSS border trick) -->
+                <div style="position:absolute;bottom:10px;right:30px;width:40px;height:40px;border:2px solid rgba(255,255,255,0.25);border-radius:50%;border-top-color:transparent;"></div>
+              </td>
+            </tr>
+          </table>
         </td></tr>
 
-        <!-- BODY -->
+        <!-- ═══ BODY ═══ -->
         <tr><td style="background:#FFFFFF;padding:0;">
           ${content}
         </td></tr>
 
-        <!-- FOOTER -->
-        <tr><td style="background:#1F2937;border-radius:0 0 16px 16px;padding:28px 40px;">
+        <!-- ═══ FOOTER ═══ -->
+        <tr><td style="background:#1E2D5A;border-radius:0 0 20px 20px;padding:22px 32px;">
           <table width="100%" cellpadding="0" cellspacing="0">
             <tr>
-              <td style="text-align:center;padding-bottom:16px;">
-                <a href="${FRONTEND_URL}" style="color:#9CA3AF;text-decoration:none;font-size:13px;margin:0 12px;">Home</a>
-                <a href="${FRONTEND_URL}/job-listings" style="color:#9CA3AF;text-decoration:none;font-size:13px;margin:0 12px;">Jobs</a>
-                <a href="${FRONTEND_URL}/privacy" style="color:#9CA3AF;text-decoration:none;font-size:13px;margin:0 12px;">Privacy</a>
-                <a href="mailto:support@zyncjobs.com" style="color:#9CA3AF;text-decoration:none;font-size:13px;margin:0 12px;">Support</a>
+              <td style="text-align:center;padding-bottom:14px;">
+                <a href="${FRONTEND_URL}" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Home</a>
+                <a href="${FRONTEND_URL}/job-listings" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Jobs</a>
+                <a href="${FRONTEND_URL}/privacy" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Privacy</a>
+                <a href="mailto:Admin@zyncjobs.com" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Support</a>
               </td>
             </tr>
             <tr>
-              <td style="text-align:center;border-top:1px solid #374151;padding-top:16px;">
-                <p style="color:#6B7280;font-size:12px;margin:0;">© 2026 ZyncJobs. All rights reserved.</p>
-                <p style="color:#4B5563;font-size:11px;margin:6px 0 0;">ZyncJobs · support@zyncjobs.com</p>
+              <td style="text-align:center;border-top:1px solid #2E3F6E;padding-top:14px;">
+                <p style="color:#6B7A9F;font-size:12px;margin:0;">2026 ZyncJobs. All rights reserved.</p>
+                <p style="font-size:11px;margin:5px 0 0;">
+                  <span style="color:#6B7A9F;">ZyncJobs · </span>
+                  <a href="mailto:Admin@zyncjobs.com" style="color:#7B8FD4;text-decoration:none;">Admin@zyncjobs.com</a>
+                </p>
               </td>
             </tr>
           </table>
@@ -87,45 +100,47 @@ export const baseTemplate = (content, previewText = '') => `
 </body>
 </html>`;
 
-// Big CTA button
+// ─── CTA BUTTON ───────────────────────────────────────────────────────────────
+// Dark teal/slate button matching the "Start Hiring Now" style in the image
 export const ctaButton = (text, url, color = '#4F46E5') => `
 <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
-  <tr><td style="border-radius:10px;background:linear-gradient(135deg,${color},#7C3AED);">
-    <a href="${url}" style="display:inline-block;padding:14px 36px;color:#FFFFFF;font-size:15px;font-weight:700;text-decoration:none;border-radius:10px;letter-spacing:0.3px;">${text}</a>
+  <tr><td style="border-radius:10px;background:linear-gradient(135deg,#3D5568 0%,#2C4455 100%);box-shadow:0 4px 12px rgba(0,0,0,0.2);">
+    <a href="${url}" style="display:inline-block;padding:15px 48px;color:#FFFFFF;font-size:16px;font-weight:800;text-decoration:none;border-radius:10px;letter-spacing:0.4px;">${text}</a>
   </td></tr>
 </table>`;
 
-// Feature card row (icon + title + desc)
+// ─── FEATURE CARD ─────────────────────────────────────────────────────────────
+// Bordered card with icon, title, desc — matches the 3-column card row in the image
 export const featureCard = (icon, title, desc) => `
-<td style="width:33%;padding:8px;vertical-align:top;">
-  <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;padding:16px;text-align:center;">
-    <div style="font-size:28px;margin-bottom:8px;">${icon}</div>
-    <p style="color:#1F2937;font-size:13px;font-weight:700;margin:0 0 4px;">${title}</p>
-    <p style="color:#6B7280;font-size:12px;margin:0;line-height:1.5;">${desc}</p>
+<td style="width:33%;padding:6px;vertical-align:top;">
+  <div style="background:#FFFFFF;border:1.5px solid #D8DCF0;border-radius:14px;padding:14px 10px;text-align:center;height:110px;box-sizing:border-box;display:table-cell;vertical-align:middle;">
+    <div style="margin-bottom:8px;">${icon}</div>
+    <p style="color:#1F2937;font-size:12px;font-weight:700;margin:0 0 4px;">${title}</p>
+    <p style="color:#6B7280;font-size:11px;margin:0;line-height:1.5;">${desc}</p>
   </div>
 </td>`;
 
-// Status badge
+// ─── STATUS BADGE ─────────────────────────────────────────────────────────────
 export const statusBadge = (status) => {
   const map = {
-    applied:     { color: '#3B82F6', bg: '#EFF6FF', label: '📋 Applied' },
-    reviewed:    { color: '#F59E0B', bg: '#FFFBEB', label: '👀 Under Review' },
-    shortlisted: { color: '#10B981', bg: '#ECFDF5', label: '⭐ Shortlisted' },
-    hired:       { color: '#059669', bg: '#D1FAE5', label: '🎉 Hired!' },
-    rejected:    { color: '#EF4444', bg: '#FEF2F2', label: '❌ Not Selected' },
-    scheduled:   { color: '#8B5CF6', bg: '#F5F3FF', label: '📅 Interview Scheduled' },
+    applied:     { color: '#3B82F6', bg: '#EFF6FF', label: 'Applied' },
+    reviewed:    { color: '#F59E0B', bg: '#FFFBEB', label: 'Under Review' },
+    shortlisted: { color: '#10B981', bg: '#ECFDF5', label: 'Shortlisted' },
+    hired:       { color: '#059669', bg: '#D1FAE5', label: 'Hired!' },
+    rejected:    { color: '#EF4444', bg: '#FEF2F2', label: 'Not Selected' },
+    scheduled:   { color: '#8B5CF6', bg: '#F5F3FF', label: 'Interview Scheduled' },
   };
   const s = map[status] || { color: '#6B7280', bg: '#F9FAFB', label: status };
   return `<span style="display:inline-block;background:${s.bg};color:${s.color};border:1px solid ${s.color}33;border-radius:20px;padding:6px 16px;font-size:13px;font-weight:700;">${s.label}</span>`;
 };
 
-// Info box (highlight section)
-export const infoBox = (content, color = '#4F46E5') => `
+// ─── INFO BOX ─────────────────────────────────────────────────────────────────
+export const infoBox = (content, color = '#5C6BC8') => `
 <div style="background:${color}0D;border-left:4px solid ${color};border-radius:0 8px 8px 0;padding:16px 20px;margin:20px 0;">
   ${content}
 </div>`;
 
-// Divider
-export const divider = () => `<hr style="border:none;border-top:1px solid #E5E7EB;margin:24px 0;"/>`;
+// ─── DIVIDER ──────────────────────────────────────────────────────────────────
+export const divider = () => `<hr style="border:none;border-top:1px solid #ECEEF5;margin:24px 0;"/>`;
 
 export { FRONTEND_URL };

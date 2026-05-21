@@ -68,25 +68,25 @@ router.post('/send', authenticateToken, requireRole(['admin', 'super_admin']), a
     notificationQueue.push(notification);
 
     if (type === 'email') {
+      const { baseTemplate, FRONTEND_URL } = await import('../services/emailTemplates.js');
       for (const email of recipients) {
         try {
+          const content = `
+            <div style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);padding:28px 32px;text-align:center;">
+              <div style="margin-bottom:10px;"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="white" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="white" stroke-width="2" stroke-linecap="round"/></svg></div>
+              <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">${subject}</h1>
+              <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">Message from ZyncJobs Admin</p>
+            </div>
+            <div style="padding:32px 36px;">
+              <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">${message.replace(/\n/g, '<br>')}</p>
+              <hr style="border:none;border-top:1px solid #ECEEF5;margin:24px 0;"/>
+              <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:0;">This is an automated message from ZyncJobs Admin Panel</p>
+            </div>`;
           await transporter.sendMail({
-            from: process.env.SMTP_EMAIL,
+            from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
             to: email,
-            subject: subject,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: #f8f9fa; padding: 20px; text-align: center;">
-                  <h1 style="color: #333;">ZyncJobs Notification</h1>
-                </div>
-                <div style="padding: 20px;">
-                  <p>${message}</p>
-                </div>
-                <div style="background: #f8f9fa; padding: 10px; text-align: center; font-size: 12px; color: #666;">
-                  This is an automated message from ZyncJobs Admin Panel
-                </div>
-              </div>
-            `
+            subject,
+            html: baseTemplate(content, subject)
           });
         } catch (emailError) {
           console.error('Email send failed:', emailError);
@@ -126,18 +126,30 @@ router.post('/broadcast', authenticateToken, requireRole(['admin', 'super_admin'
 
     const users = await User.findAll({ where, attributes: ['email'] });
     const emails = users.map(u => u.email);
+    const { baseTemplate, FRONTEND_URL } = await import('../services/emailTemplates.js');
+
+    const broadcastContent = `
+      <div style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);padding:28px 32px;text-align:center;">
+        <div style="margin-bottom:10px;"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.82a16 16 0 0 0 6.29 6.29l.96-.96a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">${subject}</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">Message from ZyncJobs</p>
+      </div>
+      <div style="padding:32px 36px;">
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">${message.replace(/\n/g, '<br>')}</p>
+        <hr style="border:none;border-top:1px solid #ECEEF5;margin:24px 0;"/>
+        <div style="text-align:center;">
+          <a href="${FRONTEND_URL}" style="color:#5C6BC8;font-size:13px;text-decoration:none;">Visit ZyncJobs &rarr;</a>
+        </div>
+      </div>`;
 
     let sent = 0, failed = 0;
     for (const email of emails) {
       try {
         await transporter.sendMail({
-          from: `"ZyncJobs Admin" <${process.env.SMTP_EMAIL}>`,
-          to: email, subject,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
-            <div style="background:#6366f1;padding:20px;text-align:center"><h1 style="color:white;margin:0">ZyncJobs</h1></div>
-            <div style="padding:30px">${message.replace(/\n/g, '<br>')}</div>
-            <div style="background:#f8f9fa;padding:10px;text-align:center;font-size:12px;color:#666">ZyncJobs Admin</div>
-          </div>`
+          from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
+          to: email,
+          subject,
+          html: baseTemplate(broadcastContent, subject)
         });
         sent++;
       } catch { failed++; }
