@@ -2,6 +2,8 @@ import express from 'express';
 import User from '../models/User.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
+import { sendEmployerApprovedEmail, sendEmployerRejectedEmail } from '../services/emailService.js';
+import { Op } from 'sequelize';
 
 const router = express.Router();
 const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
@@ -12,9 +14,7 @@ router.get('/', ...adminGuard, async (req, res) => {
     const { status = 'pending' } = req.query;
     const where = { role: 'employer' };
     if (status === 'pending') {
-      // Only explicitly pending employers (personal email / unknown domain)
-      // Company domain employers are auto-verified and must NOT appear here
-      where.verificationStatus = 'pending';
+      where.verificationStatus = { [Op.in]: ['pending', 'pending_admin'] };
     } else if (status === 'approved') {
       where.verificationStatus = 'verified';
     } else if (status === 'rejected') {
@@ -53,6 +53,7 @@ router.post('/:id/approve', ...adminGuard, async (req, res) => {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     await user.update({ emailVerified: true, isActive: true, verificationStatus: 'verified' });
+    setImmediate(() => sendEmployerApprovedEmail(user.email, user.name).catch(() => {}));
     res.json({ message: 'Employer verified successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -65,6 +66,7 @@ router.post('/:id/reject', ...adminGuard, async (req, res) => {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     await user.update({ emailVerified: false, isActive: false, verificationStatus: 'rejected' });
+    setImmediate(() => sendEmployerRejectedEmail(user.email, user.name).catch(() => {}));
     res.json({ message: 'Verification rejected' });
   } catch (error) {
     res.status(500).json({ error: error.message });

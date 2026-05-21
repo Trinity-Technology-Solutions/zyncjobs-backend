@@ -63,7 +63,11 @@ router.post('/register', registrationGuard, [
       employerId,
       // New company verification fields
       domainVerification,
-      companyProfile
+      companyProfile,
+      // GST verification
+      gstNumber,
+      gstVerification,
+      verificationStatus: requestedStatus
     } = req.body;
 
     const userName = name || fullName || '';
@@ -158,6 +162,12 @@ router.post('/register', registrationGuard, [
       
       console.log(`🔍 Employer verification for ${email}: ${verificationStatus} via ${domainVerificationMethod}`);
       console.log(`🔍 Verification note: ${verificationNote}`);
+      
+      // If frontend sent pending_admin (GST verified), honour it
+      if (requestedStatus === 'pending_admin' && gstVerification?.verified) {
+        verificationStatus = 'pending_admin';
+        verificationNote = 'GST verified — awaiting admin approval';
+      }
     }
     
     // Check if this email was invited as a team member
@@ -197,6 +207,8 @@ router.post('/register', registrationGuard, [
       verificationNote: teamInvite ? 'Team member - auto verified' : verificationNote,
       ...(finalCompanyProfile && { companyProfile: finalCompanyProfile }),
       ...(domainVerificationMethod && { domainVerificationMethod }),
+      ...(gstNumber && { gstNumber }),
+      ...(gstVerification && { gstVerification }),
       verificationRequestedAt: new Date()
     });
 
@@ -370,6 +382,11 @@ router.post('/login', async (req, res) => {
     // Block rejected employers
     if (user.role === 'employer' && user.verificationStatus === 'rejected') {
       return res.status(403).json({ error: 'Your employer account has been rejected. Please contact support.' });
+    }
+
+    // Block pending_admin employers
+    if (user.role === 'employer' && user.verificationStatus === 'pending_admin') {
+      return res.status(403).json({ error: 'Your account is pending admin verification. You will be notified by email once approved.' });
     }
 
     // Block pending employers
