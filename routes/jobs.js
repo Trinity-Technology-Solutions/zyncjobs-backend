@@ -473,15 +473,22 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
       return res.status(400).json({ errors: errors.array() });
     }
 
-    // Team member-a? Owner's employerId use pannanum
-    const employerEmail = req.user.email;
-    let user = await User.findOne({ where: { email: employerEmail } });
+    // Team member? Use owner's employerId + email so jobs appear on owner's dashboard
+    const memberEmail = req.user.email;
+    let user = await User.findOne({ where: { email: memberEmail } });
     let employerId;
+    // ownerEmail: jobs are stored under owner's email so all team members share the same job pool
+    let ownerEmail = memberEmail;
 
-    // Check if this user is a team member — use owner's employerId
     if (req.teamEmployerId) {
+      ownerEmail = req.teamEmployerId;
       const owner = await User.findOne({ where: { email: { [Op.iLike]: req.teamEmployerId } } });
       employerId = owner?.employerId;
+    }
+
+    if (!employerId && user?.employerOwnerId) {
+      const owner = await User.findOne({ where: { email: { [Op.iLike]: user.employerOwnerId } } });
+      if (owner) { employerId = owner.employerId; ownerEmail = owner.email; }
     }
 
     if (!employerId && user?.employerId) {
@@ -492,6 +499,8 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
       employerId = await generateEmployerId();
       if (user) await user.update({ employerId });
     }
+
+    const employerEmail = ownerEmail;
 
     const jobData = { ...req.body };
 

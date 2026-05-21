@@ -55,6 +55,12 @@ router.get('/accept/:token', async (req, res) => {
 
     await invite.update({ status: 'active', inviteToken: null });
 
+    // Fetch owner's data to inherit company info
+    const owner = await User.findOne({
+      where: { email: invite.employerId },
+      attributes: ['employerId', 'companyName', 'company', 'companyLogo', 'companyWebsite']
+    });
+
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
 
@@ -68,9 +74,12 @@ router.get('/accept/:token', async (req, res) => {
         name: user.name,
         role: 'employer',
         userType: 'employer',
-        companyName: invite.companyName || invite.employerId,
+        companyName: owner?.companyName || owner?.company || invite.companyName || invite.employerId,
+        companyLogo: owner?.companyLogo || '',
+        companyWebsite: owner?.companyWebsite || '',
         teamRole: invite.role,
-        employerId: invite.employerId
+        employerId: owner?.employerId || invite.employerId,
+        employerOwnerId: invite.employerId
       }
     });
   } catch (error) {
@@ -91,6 +100,12 @@ router.post('/accept/:token', async (req, res) => {
     const invite = await TeamMember.findOne({ where: { inviteToken: token } });
     if (!invite) return res.status(404).json({ success: false, error: 'Invalid or expired invitation link.' });
 
+    // Fetch owner's data to inherit company info
+    const owner = await User.findOne({
+      where: { email: invite.employerId },
+      attributes: ['employerId', 'companyName', 'company', 'companyLogo', 'companyWebsite']
+    });
+
     let user = await User.findOne({ where: { email: invite.memberEmail } });
     if (!user) {
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -99,7 +114,10 @@ router.post('/accept/:token', async (req, res) => {
         password: hashedPassword,
         name: invite.memberName,
         role: 'employer',
-        companyName: invite.companyName || invite.employerId,
+        companyName: owner?.companyName || owner?.company || invite.companyName || invite.employerId,
+        companyLogo: owner?.companyLogo || '',
+        companyWebsite: owner?.companyWebsite || '',
+        employerId: owner?.employerId || null,
         verificationStatus: 'verified'
       });
     }
@@ -119,9 +137,12 @@ router.post('/accept/:token', async (req, res) => {
         name: user.name,
         role: 'employer',
         userType: 'employer',
-        companyName: invite.companyName || invite.employerId,
+        companyName: owner?.companyName || owner?.company || invite.companyName || invite.employerId,
+        companyLogo: owner?.companyLogo || '',
+        companyWebsite: owner?.companyWebsite || '',
         teamRole: invite.role,
-        employerId: invite.employerId
+        employerId: owner?.employerId || invite.employerId,
+        employerOwnerId: invite.employerId
       }
     });
   } catch (error) {

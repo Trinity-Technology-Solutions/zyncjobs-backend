@@ -444,24 +444,77 @@ router.post('/login', async (req, res) => {
     const refreshToken = generateRefreshToken(user.id);
 
     // Check if this user is a team member — get their role + owner's company
+    // Check both active AND pending status (user may have been invited but logged in directly)
     let teamMemberData = null;
     try {
       const tm = await TeamMember.findOne({
-        where: { memberEmail: { [Op.iLike]: user.email }, status: 'active' }
+        where: { memberEmail: { [Op.iLike]: user.email } }
       });
       if (tm) {
+        // Auto-activate if they're logging in directly
+        if (tm.status === 'pending') {
+          await tm.update({ status: 'active', inviteToken: null });
+        }
         const owner = await User.findOne({
           where: { email: { [Op.iLike]: tm.employerId } },
-          attributes: ['employerId', 'company', 'companyName', 'companyLogo', 'companyWebsite']
+          attributes: ['employerId', 'company', 'companyName', 'companyLogo', 'companyWebsite', 'email']
         });
         teamMemberData = {
           teamRole: tm.role,
           employerId: owner?.employerId || tm.employerId,
+          employerOwnerId: tm.employerId,
           company: owner?.companyName || owner?.company || user.company,
           companyName: owner?.companyName || owner?.company || user.companyName,
           companyLogo: owner?.companyLogo || user.companyLogo,
           companyWebsite: owner?.companyWebsite || user.companyWebsite
         };
+      } else {
+        // Fallback: domain-based lookup — find owner with same email domain
+        const genericDomains = ['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com','live.com'];
+        const userDomain = user.email.split('@')[1]?.toLowerCase();
+        if (userDomain && !genericDomains.includes(userDomain)) {
+          const domainOwner = await User.findOne({
+            where: {
+              role: 'employer',
+              isActive: true,
+              id: { [Op.ne]: user.id }
+            },
+            attributes: ['id', 'email', 'employerId', 'company', 'companyName', 'companyLogo', 'companyWebsite']
+          });
+          // Find the owner with same domain
+          const allSameDomain = await User.findAll({
+            where: { role: 'employer', isActive: true },
+            attributes: ['id', 'email', 'employerId', 'company', 'companyName', 'companyLogo', 'companyWebsite']
+          });
+          const owner = allSameDomain.find(u =>
+            u.email !== user.email &&
+            u.email.split('@')[1]?.toLowerCase() === userDomain &&
+            (u.employerId || u.companyName)
+          );
+          if (owner) {
+            // Auto-create team member record for this user
+            await TeamMember.findOrCreate({
+              where: { employerId: owner.email, memberEmail: user.email },
+              defaults: {
+                employerId: owner.email,
+                memberEmail: user.email,
+                memberName: user.name || user.email.split('@')[0],
+                role: 'Recruiter',
+                status: 'active',
+                companyName: owner.companyName || owner.company
+              }
+            });
+            teamMemberData = {
+              teamRole: 'Recruiter',
+              employerId: owner.employerId || owner.email,
+              employerOwnerId: owner.email,
+              company: owner.companyName || owner.company || user.company,
+              companyName: owner.companyName || owner.company || user.companyName,
+              companyLogo: owner.companyLogo || user.companyLogo,
+              companyWebsite: owner.companyWebsite || user.companyWebsite
+            };
+          }
+        }
       }
     } catch (e) {
       console.warn('Team member check failed:', e.message);
@@ -479,6 +532,7 @@ router.post('/login', async (req, res) => {
       companyLogo: teamMemberData?.companyLogo || user.companyLogo,
       companyWebsite: teamMemberData?.companyWebsite || user.companyWebsite,
       employerId: teamMemberData?.employerId || user.employerId,
+      employerOwnerId: teamMemberData?.employerOwnerId || user.employerOwnerId || null,
       location: user.location,
       verificationStatus: user.verificationStatus || 'verified',
       profilePhoto: user.profilePicture || profileData.profilePhoto,
@@ -500,8 +554,8 @@ router.post('/login', async (req, res) => {
     res.json({ 
       message: 'Login successful',
       user: userResponse,
-      accessToken
-      // refreshToken sent via httpOnly cookie only
+      accessToken,
+      refreshToken  // send in body so frontend can store in localStorage
     });
   } catch (error) {
     console.error('❌ Login error:', error);

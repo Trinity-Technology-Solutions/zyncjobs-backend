@@ -134,6 +134,11 @@ const User = sequelize.define('User', {
   inviteTokenExpiry: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  employerOwnerId: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Email of the owner employer — set for team members'
   }
 }, {
   tableName: 'users',

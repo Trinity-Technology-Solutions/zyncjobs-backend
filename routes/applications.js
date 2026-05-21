@@ -492,12 +492,13 @@ router.get('/:id/resume/download', async (req, res) => {
 // GET /api/applications - Get all applications
 router.get('/', async (req, res) => {
   try {
-    const { status, jobId, employerId, page, limit } = req.query;
+    const { status, jobId, employerId, employerEmail, page, limit } = req.query;
     const where = {};
     
     if (status) where.status = status;
     if (jobId) where.jobId = jobId;
     if (employerId) where.employerId = employerId;
+    if (employerEmail) where.employerEmail = { [Op.iLike]: employerEmail };
 
     // If no pagination params, return all
     if (!page && !limit) {
