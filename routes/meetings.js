@@ -1,7 +1,51 @@
 import express from 'express';
 import { meetingService } from '../services/meetingService.js';
+import User from '../models/User.js';
 
 const router = express.Router();
+
+// GET /api/meetings/google-meet/connect - Start Google OAuth flow
+router.get('/google-meet/connect', (req, res) => {
+  try {
+    const { employerId } = req.query;
+    if (!employerId) return res.status(400).json({ error: 'employerId required' });
+    const authUrl = meetingService.getGoogleMeetAuthUrl(employerId);
+    res.redirect(authUrl);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/meetings/google-meet/callback - Handle OAuth callback
+router.get('/google-meet/callback', async (req, res) => {
+  try {
+    const { code, state: employerId } = req.query;
+    if (!code) return res.status(400).send('Missing code');
+    const tokens = await meetingService.getGoogleMeetTokens(code);
+    // Save tokens to user
+    await User.update(
+      { googleMeetAccessToken: tokens.access_token, googleMeetRefreshToken: tokens.refresh_token || null },
+      { where: { id: employerId } }
+    );
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(`${frontendUrl}/employer/dashboard?googleMeetConnected=true`);
+  } catch (error) {
+    console.error('Google Meet callback error:', error.message);
+    res.status(500).send('OAuth failed: ' + error.message);
+  }
+});
+
+// GET /api/meetings/google-meet/status - Check if employer has connected Google
+router.get('/google-meet/status', async (req, res) => {
+  try {
+    const { employerId } = req.query;
+    if (!employerId) return res.json({ connected: false });
+    const user = await User.findOne({ where: { id: employerId }, attributes: ['googleMeetAccessToken'] });
+    res.json({ connected: !!(user?.googleMeetAccessToken) });
+  } catch {
+    res.json({ connected: false });
+  }
+});
 
 // Create meeting (supports both Zoom and Google Meet)
 router.post('/create', async (req, res) => {
