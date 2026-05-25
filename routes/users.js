@@ -8,6 +8,7 @@ import { generateAccessToken, generateRefreshToken, verifyToken, verifyRefreshTo
 import { authenticateToken } from '../middleware/auth.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
+import { logAdminAction } from './adminAudit.js';
 import { registrationGuard, emailVerificationGuard } from '../middleware/settingsMiddleware.js';
 import { CompanyVerificationService } from '../services/companyVerificationService.js';
 import TeamMember from '../models/TeamMember.js';
@@ -551,6 +552,11 @@ router.post('/login', async (req, res) => {
     console.log('✅ Login successful for:', email);
     // GDPR: update activity timestamp
     updateLastActive(user.id).catch(() => {});
+    // Audit log for admin logins
+    if (['admin', 'super_admin'].includes(user.role)) {
+      req.user = user;
+      logAdminAction(req, 'login', user.email, 'Admin login').catch(() => {});
+    }
     res.json({ 
       message: 'Login successful',
       user: userResponse,
