@@ -123,6 +123,8 @@ const ALLOWED_ORIGINS = [
   'https://www.zyncjobs.com',
   'https://zyncjobs.com',
   'https://qa.zyncjobs.com',
+  'https://trinitetech.com',
+  'https://www.trinitetech.com',
   'http://localhost:5173',
   'http://localhost:3000',
 ];
@@ -146,7 +148,7 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [].filter(Boolean),
+    origin: ALLOWED_ORIGINS,
     credentials: true
   }
 });

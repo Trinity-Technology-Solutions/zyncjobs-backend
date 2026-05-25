@@ -1,5 +1,6 @@
 import express from 'express';
 import User from '../models/User.js';
+import TeamMember from '../models/TeamMember.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import { sendEmployerApprovedEmail, sendEmployerRejectedEmail } from '../services/emailService.js';
@@ -28,7 +29,17 @@ router.get('/', ...adminGuard, async (req, res) => {
       limit: 100,
     });
 
-    const verifications = employers.map(e => ({
+    // Exclude team members — users who are listed under another employer in team_members
+    const allEmails = employers.map(e => e.email.toLowerCase());
+    const teamRows = await TeamMember.findAll({
+      where: { memberEmail: { [Op.in]: allEmails } },
+      attributes: ['memberEmail'],
+    });
+    const teamEmails = new Set(teamRows.map(t => t.memberEmail.toLowerCase()));
+
+    const filtered = employers.filter(e => !teamEmails.has(e.email.toLowerCase()));
+
+    const verifications = filtered.map(e => ({
       id: e.id,
       employerName: e.name,
       email: e.email,
@@ -68,6 +79,18 @@ router.post('/:id/reject', ...adminGuard, async (req, res) => {
     await user.update({ emailVerified: false, isActive: false, verificationStatus: 'rejected' });
     setImmediate(() => sendEmployerRejectedEmail(user.email, user.name).catch(() => {}));
     res.json({ message: 'Verification rejected' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/admin/verifications/:id
+router.delete('/:id', ...adminGuard, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await user.destroy();
+    res.json({ message: 'Verification deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
