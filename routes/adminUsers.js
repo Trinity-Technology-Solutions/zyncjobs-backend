@@ -264,8 +264,8 @@ router.put('/:id/ban', ...adminGuard, async (req, res) => {
   }
 });
 
-// DELETE /api/admin/users/:id — delete admin user (super admin only)
-router.delete('/:id', ...superAdminGuard, async (req, res) => {
+// DELETE /api/admin/users/:id — delete/deactivate user (admin or super admin)
+router.delete('/:id', ...adminGuard, async (req, res) => {
   try {
     // Prevent self-deletion
     if (req.params.id === req.user.id) {
