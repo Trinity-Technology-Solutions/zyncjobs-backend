@@ -1,6 +1,6 @@
 // Shared email base template for ZyncJobs
 
-const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://zyncjobs.com').trim();
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://www.zyncjobs.com').split(',')[0].trim();
 
 // ─── BASE TEMPLATE ────────────────────────────────────────────────────────────
 export const baseTemplate = (content, previewText = '') => `
