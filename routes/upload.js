@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-console.log('☁️ S3 storage enabled for resume uploads (bucket: zync-jobs)');
+console.log('☁️ S3 storage enabled for resume uploads (bucket: zyncjobs.com)');
 
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['.pdf', '.doc', '.docx', '.rtf'];
@@ -42,7 +42,7 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }
 });
 
-// Resume upload endpoint
+// POST /api/upload/resume — candidate resume upload → S3 resumes/ folder
 router.post('/resume', upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) {
@@ -82,7 +82,6 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
       });
       await User.update({ resumeUrl: fileUrl }, { where: { id: resolvedUserId } });
       console.log(`✅ Resume saved to DB for user ${resolvedUserId}`);
-      // GDPR: track activity on resume upload
       updateLastActive(resolvedUserId).catch(() => {});
     }
 
@@ -103,7 +102,7 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
   }
 });
 
-// Profile photo upload endpoint
+// POST /api/upload/profile-photo
 router.post('/profile-photo', uploadPhoto.single('photo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
@@ -116,14 +115,13 @@ router.post('/profile-photo', uploadPhoto.single('photo'), async (req, res) => {
   }
 });
 
-// Talent resume upload endpoint (for talent pool)
+// POST /api/upload/talent-resume — talent pool bulk upload → S3 talent-resumes/ folder
 router.post('/talent-resume', upload.single('resume'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Use hash from frontend header if provided, otherwise backend computes it
     const fileHash = req.headers['x-file-hash'] || null;
     const { fileUrl, alreadyExists } = await uploadTalentResumeToS3(req.file.buffer, req.file.originalname, fileHash);
     console.log(`☁️ Talent resume ${alreadyExists ? 'already existed' : 'uploaded'} on S3:`, fileUrl);
