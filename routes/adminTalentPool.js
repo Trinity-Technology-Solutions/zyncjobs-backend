@@ -25,7 +25,7 @@ const upload = multer({
 });
 
 // POST /api/admin/talent/upload
-router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 200), async (req, res) => {
+router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 2000), async (req, res) => {
   const resumeUrls = req.body.resumeUrls ? (Array.isArray(req.body.resumeUrls) ? req.body.resumeUrls : [req.body.resumeUrls]) : [];
   const fileNames = req.body.fileNames ? (Array.isArray(req.body.fileNames) ? req.body.fileNames : [req.body.fileNames]) : [];
   const uploadedFiles = req.files || [];
@@ -39,8 +39,8 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
   const { getResumeStreamFromS3 } = await import('../services/s3Service.js');
   const results = [];
 
-  const CONCURRENCY = 3;
-  const BATCH_DELAY_MS = 20000;
+  const CONCURRENCY = 5;
+  const BATCH_DELAY_MS = 500;
 
   async function parseAndSaveFromS3(s3Url, fileName) {
     try {
