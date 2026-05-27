@@ -38,7 +38,7 @@ router.get('/slug/:slug', async (req, res) => {
     const job = await Job.findOne({ where: { slug: req.params.slug, isActive: true } });
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -174,15 +174,15 @@ function getJobHeaderImage(jobTitle, skills = []) {
 }
 
 // Helper function to get company logo
-function getCompanyLogo(companyName) {
+function getCompanyLogo(companyName, dbLogo = null) {
+  // Always prefer the actual uploaded logo stored in DB
+  if (dbLogo) return dbLogo;
   if (!companyName) return null;
-  
-  const company = companiesData.find(c => 
+  const company = companiesData.find(c =>
     c.name.toLowerCase().trim() === companyName.toLowerCase().trim() ||
     c.name.toLowerCase().includes(companyName.toLowerCase()) ||
     companyName.toLowerCase().includes(c.name.toLowerCase())
   );
-  
   return company ? company.logo : null;
 }
 
@@ -291,7 +291,7 @@ router.get('/', async (req, res) => {
       const jobJson = job.toJSON();
       return { 
         ...jobJson, 
-        companyLogo: getCompanyLogo(job.company), 
+        companyLogo: getCompanyLogo(job.company, job.companyLogo), 
         salary: { 
           min: jobJson.salaryMin, 
           max: jobJson.salaryMax, 
@@ -320,7 +320,7 @@ router.get('/employer/:employerId', async (req, res) => {
     });
     const jobsWithLogos = jobs.map(job => {
       const jobJson = job.toJSON();
-      return { ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
+      return { ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
     });
     res.json(jobsWithLogos);
   } catch (error) {
@@ -341,7 +341,7 @@ router.get('/employer/email/:email', async (req, res) => {
     });
     const jobsWithLogos = jobs.map(job => {
       const jobJson = job.toJSON();
-      return { ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
+      return { ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
     });
     res.json(jobsWithLogos);
   } catch (error) {
@@ -355,7 +355,7 @@ router.get('/position/:positionId', async (req, res) => {
     const job = await Job.findOne({ where: { positionId: req.params.positionId, isActive: true } });
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -392,7 +392,7 @@ router.get('/search/query', async (req, res) => {
       const jobJson = job.toJSON();
       return {
         ...jobJson,
-        companyLogo: getCompanyLogo(job.company),
+        companyLogo: getCompanyLogo(job.company, job.companyLogo),
         salary: {
           min: jobJson.salaryMin,
           max: jobJson.salaryMax,
@@ -436,7 +436,7 @@ router.get('/search', async (req, res) => {
       const jobJson = job.toJSON();
       return {
         ...jobJson,
-        companyLogo: getCompanyLogo(job.company),
+        companyLogo: getCompanyLogo(job.company, job.companyLogo),
         salary: {
           min: jobJson.salaryMin,
           max: jobJson.salaryMax,
@@ -579,6 +579,7 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
     const jobCreateData = {
       jobTitle: jobData.jobTitle,
       company: jobData.company,
+      companyLogo: user?.companyLogo || null,
       location: jobData.location,
       jobType: jobData.jobType, // This should be a string now
       workSetting: jobData.workSetting,
@@ -637,7 +638,7 @@ router.get('/:id', async (req, res) => {
     }
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -724,7 +725,7 @@ router.put('/:id', authenticateToken, requireRole(['employer', 'admin']), requir
     // Re-index after update (non-blocking)
     vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
