@@ -6,24 +6,26 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 // Each feature gets its own model — if one provider is rate limited,
 // other features still work
 const FEATURE_MODELS = {
-  'career-coach':       'meta-llama/llama-3.3-70b-instruct:free',
-  'ai-recruiter':       'google/gemma-3-27b-it:free',
-  'resume-builder':     'google/gemma-3-12b-it:free',
-  'resume-score':       'google/gemma-3-12b-it:free',
-  'skill-assessment':   'meta-llama/llama-3.2-3b-instruct:free',
-  'ai-rejection':       'google/gemma-3-4b-it:free',
-  'linkedin-parser':    'meta-llama/llama-3.2-3b-instruct:free',
-  'ai-scoring':         'google/gemma-3-27b-it:free',
-  'default':            'google/gemma-3-4b-it:free',
+  'career-coach':       'openai/gpt-oss-20b:free',
+  'ai-recruiter':       'nvidia/nemotron-3-super-120b-a12b:free',
+  'resume-builder':     'openai/gpt-oss-20b:free',
+  'resume-score':       'openai/gpt-oss-20b:free',
+  'skill-assessment':   'openai/gpt-oss-20b:free',
+  'ai-rejection':       'nvidia/nemotron-3-super-120b-a12b:free',
+  'linkedin-parser':    'openai/gpt-oss-20b:free',
+  'ai-scoring':         'nvidia/nemotron-3-super-120b-a12b:free',
+  'default':            'openai/gpt-oss-20b:free',
 };
 
-// Fallback chain — if primary model fails, try these in order
+// Fallback chain — confirmed working models first, rate-limited ones as last resort
 const FALLBACK_MODELS = [
-  'google/gemma-3-4b-it:free',
-  'google/gemma-3-12b-it:free',
-  'google/gemma-3-27b-it:free',
-  'meta-llama/llama-3.2-3b-instruct:free',
+  'openai/gpt-oss-20b:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'nvidia/nemotron-nano-9b-v2:free',
   'meta-llama/llama-3.3-70b-instruct:free',
+  'meta-llama/llama-3.2-3b-instruct:free',
+  'nousresearch/hermes-3-llama-3.1-405b:free',
+  'google/gemma-4-26b-a4b-it:free',
 ];
 
 export async function callAI({ feature = 'default', messages, maxTokens = 700, temperature = 0.7 }) {
@@ -42,7 +44,7 @@ export async function callAI({ feature = 'default', messages, maxTokens = 700, t
   for (const model of models) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
+      const timeout = setTimeout(() => controller.abort(), 10000);
 
       const res = await fetch(OPENROUTER_URL, {
         method: 'POST',
@@ -65,6 +67,11 @@ export async function callAI({ feature = 'default', messages, maxTokens = 700, t
           console.log(`[AI] ${feature} — success with model: ${model}`);
           return reply;
         }
+      } else if (res.status === 429) {
+        console.warn(`[AI] ${feature} — model ${model} rate limited, skipping`);
+        // skip immediately, no delay
+      } else if (res.status === 404) {
+        console.warn(`[AI] ${feature} — model ${model} not found, skipping`);
       } else {
         const err = await res.text();
         console.warn(`[AI] ${feature} — model ${model} failed (${res.status}):`, err.substring(0, 200));
