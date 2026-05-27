@@ -1,13 +1,60 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
 import multer from 'multer';
+import { Op } from 'sequelize';
 import { authenticateToken } from '../middleware/auth.js';
 import pdfService from '../services/pdfService.js';
 import aiService from '../services/aiService.js';
 import resumeParserService from '../services/resumeParserService.js';
 import pdfTextExtractor from '../services/pdfTextExtractor.js';
+import Resume from '../models/Resume.js';
+import User from '../models/User.js';
+import { getResumeStreamFromS3 } from '../services/s3Service.js';
 
 const router = express.Router();
+
+const PLACEHOLDERS = ['resume_from_quick_apply', 'resume_from_profile', 'resume_uploaded'];
+
+// GET /api/resume/presigned?email= — stream resume inline for employer view modal
+router.get('/presigned', async (req, res) => {
+  try {
+    const email = req.query.email;
+    if (!email) return res.status(400).json({ error: 'email query param required' });
+
+    const resume = await Resume.findOne({
+      where: { email: { [Op.iLike]: email } },
+      order: [['createdAt', 'DESC']]
+    });
+
+    let fileUrl = null;
+    let fileName = 'resume.pdf';
+    if (resume?.fileUrl && !PLACEHOLDERS.includes(resume.fileUrl)) {
+      fileUrl = resume.fileUrl;
+      fileName = resume.fileName || fileName;
+    } else {
+      const user = await User.findOne({ where: { email: { [Op.iLike]: email } } });
+      if (user?.resumeUrl && !PLACEHOLDERS.includes(user.resumeUrl)) fileUrl = user.resumeUrl;
+    }
+
+    if (!fileUrl) return res.status(404).json({ error: 'No resume found for this candidate.' });
+
+    const isS3 = fileUrl.includes('amazonaws.com');
+    if (isS3) {
+      const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      if (contentLength) res.setHeader('Content-Length', contentLength);
+      stream.on('error', () => res.end());
+      stream.pipe(res);
+    } else {
+      res.redirect(fileUrl);
+    }
+  } catch (error) {
+    console.error('[RESUME_PRESIGNED] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // In-memory storage for processing status (in production, use Redis or database)
 const processingJobs = new Map();
