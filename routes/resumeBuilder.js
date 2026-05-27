@@ -3,19 +3,8 @@ import { callAI as callOpenRouter } from '../services/openRouterService.js';
 
 const router = express.Router();
 
-// Models that don't support system role — merge into user message
-const NO_SYSTEM_ROLE = [
-  'google/gemma-3-4b-it:free',
-  'google/gemma-3-12b-it:free',
-  'google/gemma-3-27b-it:free',
-];
-
 async function callAI(prompt, systemMsg = 'You are a professional resume writer.', maxTokens = 1200) {
-  const primaryModel = 'openai/gpt-oss-20b:free';
-  const useSystem = !NO_SYSTEM_ROLE.includes(primaryModel);
-  const messages = useSystem
-    ? [{ role: 'system', content: systemMsg }, { role: 'user', content: prompt }]
-    : [{ role: 'user', content: `${systemMsg}\n\n${prompt}` }];
+  const messages = [{ role: 'user', content: `${systemMsg}\n\n${prompt}` }];
   return callOpenRouter({ feature: 'resume-builder', messages, maxTokens, temperature: 0.7 });
 }
 
