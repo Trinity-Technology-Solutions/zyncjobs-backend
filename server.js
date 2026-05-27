@@ -698,6 +698,10 @@ app.post('/api/parse-job-post', async (req, res) => {
     // Pre-extract company and location with regex before sending to AI
     const preExtract = preExtractJobFields(text);
 
+    // Pre-extract job title from first non-empty line
+    const firstLine = text.split('\n').map(l => l.trim()).find(l => l.length > 3 && l.length < 120);
+    if (firstLine && !preExtract.jobTitle) preExtract.jobTitle = firstLine.replace(/^(job title|position|role)[:\s]*/i, '').trim();
+
     const prompt = `You are a precise job post parser. Extract structured data from the job posting below.
 Return ONLY valid JSON, no markdown, no explanation.
 
@@ -853,6 +857,8 @@ JSON:
 
     // If description is empty, use original text
     if (!parsed.description) parsed.description = text;
+    // If jobTitle is empty, use pre-extracted
+    if (!parsed.jobTitle) parsed.jobTitle = preExtract.jobTitle || '';
 
     console.log('✅ Job post parsed - company:', parsed.company, '| title:', parsed.jobTitle, '| location:', parsed.location);
     res.json({ success: true, data: parsed });
@@ -1052,7 +1058,7 @@ function buildFallbackParsed(text, preExtract) {
 
   return {
     company: preExtract.company || '',
-    jobTitle,
+    jobTitle: jobTitle || preExtract.jobTitle || '',
     location: preExtract.location || '',
     jobType: ['Full-time'],
     workSetting: /remote/i.test(text) ? 'Remote' : /hybrid/i.test(text) ? 'Hybrid' : 'On-site',

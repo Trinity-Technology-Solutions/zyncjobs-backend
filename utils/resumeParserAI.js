@@ -161,8 +161,10 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
     const lines = resumeText.split('\n').map(l => l.trim()).filter(Boolean);
     let name = '';
     for (const line of lines.slice(0, 10)) {
-      if (/^[A-Z][a-zA-Z]+(\s[A-Z][a-zA-Z]+){1,3}$/.test(line) && line.length < 50) {
-        name = line; break;
+      // Strip pipe-separated contact info: "John Smith | john@email.com"
+      const stripped = line.split('|')[0].trim();
+      if (/^[A-Z][a-zA-Z]+(\s[A-Z][a-zA-Z]+){1,3}$/.test(stripped) && stripped.length < 50) {
+        name = stripped; break;
       }
     }
 
