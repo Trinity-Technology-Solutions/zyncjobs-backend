@@ -21,13 +21,7 @@
     "migrate:company-profiles": "node scripts/migrateCompanyProfiles.js",
     "migrate:talent-pool": "node scripts/migrateTalentPool.js"
   },
-  "keywords": [
-    "job-portal",
-    "api",
-    "nodejs",
-    "postgresql",
-    "express"
-  ],
+  "keywords": ["job-portal", "api", "nodejs", "postgresql", "express"],
   "author": "Trinity Tech",
   "license": "ISC",
   "dependencies": {
