@@ -74,10 +74,11 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
       console.log('[RESUME_AI] Calling OpenRouter with model:', this.model);
       
       const freeModels = [
+        'openai/gpt-oss-20b:free',
+        'nvidia/nemotron-3-super-120b-a12b:free',
         'meta-llama/llama-3.3-70b-instruct:free',
-        'google/gemma-3-27b-it:free',
-        'google/gemma-3-12b-it:free',
-        'google/gemma-3-4b-it:free',
+        'nvidia/nemotron-nano-9b-v2:free',
+        'nousresearch/hermes-3-llama-3.1-405b:free',
       ];
 
       let content = null;
@@ -165,15 +166,34 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
       }
     }
 
-    // Title: look for common job title patterns
+    // Title: extract from first few lines or common patterns
     const titlePatterns = [
-      /(?:position|role|title|applying for)[:\s]+([^\n]{5,60})/i,
-      /(?:software|senior|junior|lead|full.?stack|front.?end|back.?end|data|devops|cloud|mobile)[\s\w]{3,40}(?:engineer|developer|architect|analyst|manager|designer)/i,
+      /(?:position|role|title|applying for|designation)[:\s]+([^\n]{5,80})/i,
+      /^([A-Z][\w\s\-/&,()]{5,80})$/m,
     ];
     let title = '';
-    for (const p of titlePatterns) {
-      const m = resumeText.match(p);
-      if (m) { title = (m[1] || m[0]).trim().substring(0, 60); break; }
+    // First try: look in first 10 lines for a standalone title line
+    for (const line of lines.slice(0, 15)) {
+      if (
+        line.length > 5 && line.length < 100 &&
+        !line.includes('@') && !line.match(/^\+?\d/) &&
+        !line.match(/^(http|www)/i) &&
+        line !== name &&
+        /[A-Za-z]/.test(line)
+      ) {
+        // Skip lines that look like addresses or contact info
+        if (!line.match(/\d{5,}/) && !line.match(/linkedin|github/i)) {
+          title = line.trim().substring(0, 80);
+          break;
+        }
+      }
+    }
+    // Fallback: regex patterns
+    if (!title) {
+      for (const p of titlePatterns) {
+        const m = resumeText.match(p);
+        if (m) { title = (m[1] || m[0]).trim().substring(0, 80); break; }
+      }
     }
 
     // Location: Indian cities

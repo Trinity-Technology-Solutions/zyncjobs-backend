@@ -68,7 +68,7 @@ Extract and return JSON with:
 `;
 
   const response = await axios.post(MISTRAL_API_URL, {
-    model: 'google/gemma-3-4b-it:free',
+    model: 'openai/gpt-oss-20b:free',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3
   }, {
@@ -79,7 +79,9 @@ Extract and return JSON with:
   });
 
   try {
-    return JSON.parse(response.data.choices[0].message.content);
+    const content = response.data.choices[0].message.content;
+    const match = content.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : JSON.parse(content);
   } catch (e) {
     return {
       requiredSkills: [],
@@ -118,7 +120,7 @@ Extract and return JSON with:
 `;
 
   const response = await axios.post(MISTRAL_API_URL, {
-    model: 'google/gemma-3-4b-it:free',
+    model: 'openai/gpt-oss-20b:free',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.3
   }, {
@@ -129,7 +131,9 @@ Extract and return JSON with:
   });
 
   try {
-    return JSON.parse(response.data.choices[0].message.content);
+    const content2 = response.data.choices[0].message.content;
+    const match2 = content2.match(/\{[\s\S]*\}/);
+    return match2 ? JSON.parse(match2[0]) : JSON.parse(content2);
   } catch (e) {
     return {
       skills: [],
@@ -183,7 +187,7 @@ Analyze and return JSON with:
 `;
 
   const response = await axios.post(MISTRAL_API_URL, {
-    model: 'google/gemma-3-4b-it:free',
+    model: 'openai/gpt-oss-20b:free',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.2
   }, {
@@ -242,7 +246,7 @@ Generate JSON report with:
 `;
 
   const response = await axios.post(MISTRAL_API_URL, {
-    model: 'google/gemma-3-4b-it:free',
+    model: 'openai/gpt-oss-20b:free',
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.4
   }, {

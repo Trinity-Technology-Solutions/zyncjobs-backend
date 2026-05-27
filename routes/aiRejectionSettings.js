@@ -132,7 +132,7 @@ Return ONLY valid JSON:
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: process.env.OPENROUTER_MODEL || 'google/gemma-3-4b-it:free',
+          model: process.env.OPENROUTER_MODEL || 'openai/gpt-oss-20b:free',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           max_tokens: 300
