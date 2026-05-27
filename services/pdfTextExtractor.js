@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 class PDFTextExtractor {
   // fileName is optional — used to detect file type when buffer has no header
@@ -25,12 +26,61 @@ class PDFTextExtractor {
 
   async _extractFromPdf(buffer, fileName) {
     try {
-      console.log('[EXTRACTOR] Extracting PDF:', fileName);
-      const data = await pdfParse.default(buffer);
-      if (!data.text.trim()) throw new Error('No text content found in PDF');
-      return this.cleanExtractedText(data.text);
+      console.log('[EXTRACTOR] Extracting PDF with pdfjs:', fileName);
+      const uint8Array = new Uint8Array(buffer);
+      const loadingTask = pdfjsLib.getDocument({ data: uint8Array, useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true });
+      const pdf = await loadingTask.promise;
+      let fullText = '';
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const viewport = page.getViewport({ scale: 1 });
+
+        // Sort items by Y position (top to bottom), then X (left to right)
+        const items = textContent.items
+          .filter(item => item.str && item.str.trim())
+          .map(item => ({
+            str: item.str,
+            x: item.transform[4],
+            y: viewport.height - item.transform[5] // flip Y axis
+          }))
+          .sort((a, b) => {
+            const yDiff = Math.round(a.y / 5) - Math.round(b.y / 5); // group by ~5px rows
+            return yDiff !== 0 ? yDiff : a.x - b.x;
+          });
+
+        // Group into lines by Y proximity
+        const lines = [];
+        let currentLine = [];
+        let lastY = null;
+        for (const item of items) {
+          const rowY = Math.round(item.y / 5);
+          if (lastY === null || rowY === lastY) {
+            currentLine.push(item.str);
+          } else {
+            if (currentLine.length) lines.push(currentLine.join(' '));
+            currentLine = [item.str];
+          }
+          lastY = rowY;
+        }
+        if (currentLine.length) lines.push(currentLine.join(' '));
+        fullText += lines.join('\n') + '\n';
+      }
+
+      if (!fullText.trim()) throw new Error('No text content found in PDF');
+      console.log('[EXTRACTOR] pdfjs extracted, length:', fullText.length);
+      return this.cleanExtractedText(fullText);
     } catch (error) {
-      throw new Error('Failed to extract text from PDF: ' + error.message);
+      // Fallback to pdf-parse if pdfjs fails
+      console.warn('[EXTRACTOR] pdfjs failed, falling back to pdf-parse:', error.message);
+      try {
+        const data = await pdfParse.default(buffer);
+        if (!data.text.trim()) throw new Error('No text content found in PDF');
+        return this.cleanExtractedText(data.text);
+      } catch (fallbackError) {
+        throw new Error('Failed to extract text from PDF: ' + fallbackError.message);
+      }
     }
   }
 

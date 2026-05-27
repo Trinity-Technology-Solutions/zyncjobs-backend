@@ -203,7 +203,8 @@ router.post('/upload-and-parse', upload.single('resume'), async (req, res) => {
     try {
       if (req.file.mimetype === 'application/pdf') {
         resumeText = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer);
-        console.log('[RESUME_UPLOAD] Extracted PDF text, length:', resumeText.length);
+            console.log('[RESUME_UPLOAD] Extracted PDF text, length:', resumeText.length);
+        console.log('[RESUME_UPLOAD] First 500 chars:\n', resumeText.substring(0, 500));
       } else {
         resumeText = req.file.buffer.toString('utf8');
         console.log('[RESUME_UPLOAD] Extracted DOC text, length:', resumeText.length);

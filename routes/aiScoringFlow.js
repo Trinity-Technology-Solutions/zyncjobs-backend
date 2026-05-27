@@ -4,7 +4,7 @@ import { callAI } from '../services/openRouterService.js';
 const router = express.Router();
 
 async function aiCall(prompt, temperature = 0.3) {
-  const raw = await callAI({ feature: 'ai-scoring', messages: [{ role: 'user', content: prompt }], maxTokens: 800, temperature });
+  const raw = await callAI({ feature: 'ai-scoring', messages: [{ role: 'user', content: prompt }], maxTokens: 1200, temperature });
   const match = raw.match(/\{[\s\S]*\}/);
   return match ? JSON.parse(match[0]) : JSON.parse(raw);
 }
