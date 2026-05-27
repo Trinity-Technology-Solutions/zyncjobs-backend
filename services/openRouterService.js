@@ -28,6 +28,10 @@ const FALLBACK_MODELS = [
   'google/gemma-4-26b-a4b-it:free',
 ];
 
+const FEATURE_TIMEOUTS = {
+  'ai-scoring': 30000,
+};
+
 export async function callAI({ feature = 'default', messages, maxTokens = 700, temperature = 0.7 }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -44,7 +48,7 @@ export async function callAI({ feature = 'default', messages, maxTokens = 700, t
   for (const model of models) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
+      const timeout = setTimeout(() => controller.abort(), FEATURE_TIMEOUTS[feature] || 15000);
 
       const res = await fetch(OPENROUTER_URL, {
         method: 'POST',

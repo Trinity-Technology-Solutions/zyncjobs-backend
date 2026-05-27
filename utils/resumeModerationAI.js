@@ -7,7 +7,7 @@ import fs from 'fs';
 export class ResumeModeratorAI {
   constructor() {
     this.apiKey = process.env.OPENROUTER_API_KEY;
-    this.model = 'google/gemma-3-4b-it:free';
+    this.model = 'openai/gpt-oss-20b:free';
   }
 
   async extractTextFromFile(filePath, fileType) {

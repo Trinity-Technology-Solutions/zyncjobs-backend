@@ -41,19 +41,19 @@ PERFORM THESE CHECKS:
 JSON FORMAT (respond with ONLY this JSON):
 {"hasSpam": boolean, "hasInappropriate": boolean, "isFake": boolean, "isDuplicate": boolean, "profileMismatch": boolean, "riskScore": number, "qualityScore": number, "issues": ["specific issues"], "extractedName": "name", "extractedEmail": "email", "recommendation": "approve|flag|reject", "moderationReason": "detailed explanation"}`;
 
-    const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'google/gemma-3-4b-it:free',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-      max_tokens: 400
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL,
-        'X-Title': 'ZyncJobs-Resume-AI'
+    const response = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      { model: 'openai/gpt-oss-20b:free', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 500 },
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+          'X-Title': 'ZyncJobs'
+        },
+        timeout: 30000
       }
-    });
+    );
 
     const aiResponse = response.data.choices[0].message.content.trim();
     

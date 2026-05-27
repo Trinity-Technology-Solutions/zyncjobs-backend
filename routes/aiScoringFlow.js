@@ -1,11 +1,13 @@
 import express from 'express';
-import axios from 'axios';
+import { callAI } from '../services/openRouterService.js';
 
 const router = express.Router();
 
-// Mistral AI Configuration
-const MISTRAL_API_KEY = process.env.OPENROUTER_API_KEY;
-const MISTRAL_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+async function aiCall(prompt, temperature = 0.3) {
+  const raw = await callAI({ feature: 'ai-scoring', messages: [{ role: 'user', content: prompt }], maxTokens: 1200, temperature });
+  const match = raw.match(/\{[\s\S]*\}/);
+  return match ? JSON.parse(match[0]) : JSON.parse(raw);
+}
 
 // AI Scoring Flow Implementation
 router.post('/score-candidate', async (req, res) => {
@@ -67,29 +69,10 @@ Extract and return JSON with:
 }
 `;
 
-  const response = await axios.post(MISTRAL_API_URL, {
-    model: 'google/gemma-3-4b-it:free',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.3
-  }, {
-    headers: {
-      'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-      'Content-Type': 'application/json'
-    }
-  });
-
   try {
-    return JSON.parse(response.data.choices[0].message.content);
+    return await aiCall(prompt, 0.3);
   } catch (e) {
-    return {
-      requiredSkills: [],
-      experienceLevel: "mid",
-      experienceYears: 2,
-      education: [],
-      responsibilities: [],
-      keywords: [],
-      jobLevel: "mid"
-    };
+    return { requiredSkills: [], experienceLevel: 'mid', experienceYears: 2, education: [], responsibilities: [], keywords: [], jobLevel: 'mid' };
   }
 }
 
@@ -117,29 +100,10 @@ Extract and return JSON with:
 }
 `;
 
-  const response = await axios.post(MISTRAL_API_URL, {
-    model: 'google/gemma-3-4b-it:free',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.3
-  }, {
-    headers: {
-      'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-      'Content-Type': 'application/json'
-    }
-  });
-
   try {
-    return JSON.parse(response.data.choices[0].message.content);
+    return await aiCall(prompt, 0.3);
   } catch (e) {
-    return {
-      skills: [],
-      experience: { years: 0, level: "junior", positions: [] },
-      education: [],
-      projects: [],
-      achievements: [],
-      keywords: [],
-      resumeQuality: "average"
-    };
+    return { skills: [], experience: { years: 0, level: 'junior', positions: [] }, education: [], projects: [], achievements: [], keywords: [], resumeQuality: 'average' };
   }
 }
 
@@ -182,28 +146,10 @@ Analyze and return JSON with:
 }
 `;
 
-  const response = await axios.post(MISTRAL_API_URL, {
-    model: 'google/gemma-3-4b-it:free',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.2
-  }, {
-    headers: {
-      'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-      'Content-Type': 'application/json'
-    }
-  });
-
   try {
-    return JSON.parse(response.data.choices[0].message.content);
+    return await aiCall(prompt, 0.2);
   } catch (e) {
-    return {
-      skillMatch: { percentage: 50, matchingSkills: [], missingSkills: [], additionalSkills: [] },
-      experienceMatch: { percentage: 50, levelMatch: false, yearsGap: 0, relevantExperience: false },
-      educationMatch: { percentage: 50, hasRequiredDegree: false, educationLevel: "meets" },
-      keywordRelevance: { percentage: 50, matchingKeywords: [] },
-      resumeQualityScore: 60,
-      overallFit: 50
-    };
+    return { skillMatch: { percentage: 50, matchingSkills: [], missingSkills: [], additionalSkills: [] }, experienceMatch: { percentage: 50, levelMatch: false, yearsGap: 0, relevantExperience: false }, educationMatch: { percentage: 50, hasRequiredDegree: false, educationLevel: 'meets' }, keywordRelevance: { percentage: 50, matchingKeywords: [] }, resumeQualityScore: 60, overallFit: 50 };
   }
 }
 
@@ -241,19 +187,8 @@ Generate JSON report with:
 }
 `;
 
-  const response = await axios.post(MISTRAL_API_URL, {
-    model: 'google/gemma-3-4b-it:free',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.4
-  }, {
-    headers: {
-      'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-      'Content-Type': 'application/json'
-    }
-  });
-
   try {
-    const report = JSON.parse(response.data.choices[0].message.content);
+    const report = await aiCall(prompt, 0.4);
     
     // Calculate weighted overall score
     const weights = {
