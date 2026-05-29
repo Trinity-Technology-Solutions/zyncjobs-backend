@@ -21,7 +21,13 @@
     "migrate:company-profiles": "node scripts/migrateCompanyProfiles.js",
     "migrate:talent-pool": "node scripts/migrateTalentPool.js"
   },
-  "keywords": ["job-portal", "api", "nodejs", "postgresql", "express"],
+  "keywords": [
+    "job-portal",
+    "api",
+    "nodejs",
+    "postgresql",
+    "express"
+  ],
   "author": "Trinity Tech",
   "license": "ISC",
   "dependencies": {
@@ -30,6 +36,7 @@
     "@aws-sdk/lib-storage": "^3.1036.0",
     "@aws-sdk/s3-request-presigner": "^3.1038.0",
     "@sentry/node": "^10.45.0",
+    "archiver": "^8.0.0",
     "aws-sdk": "^2.1693.0",
     "axios": "^1.6.0",
     "bcryptjs": "^2.4.3",
