@@ -719,6 +719,107 @@ router.post('/verify', async (req, res) => {
   }
 });
 
+// GET /api/companies/test-logos - Test if company logos are accessible
+router.get('/test-logos', async (req, res) => {
+  try {
+    const companies = await Company.findAll({
+      attributes: ['id', 'name', 'logo', 'domain']
+    });
+    
+    const logoTests = companies.map(company => ({
+      id: company.id,
+      name: company.name,
+      logo: company.logo,
+      domain: company.domain,
+      hasLogo: !!company.logo,
+      logoType: company.logo ? (
+        company.logo.includes('companieslogo.com') ? 'companieslogo' :
+        company.logo.includes('zoho.com') ? 'official' :
+        company.logo.includes('google.com/s2/favicons') ? 'favicon' :
+        company.logo.includes('clearbit.com') ? 'clearbit_broken' :
+        'other'
+      ) : 'none'
+    }));
+    
+    res.json({
+      success: true,
+      totalCompanies: companies.length,
+      companiesWithLogos: logoTests.filter(c => c.hasLogo).length,
+      logoTests
+    });
+    
+  } catch (error) {
+    console.error('Error testing logos:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to test logos' 
+    });
+  }
+});
+
+// POST /api/companies/update-logos - Update logos for well-known companies
+router.post('/update-logos', async (req, res) => {
+  try {
+    const companies = await Company.findAll();
+    let updatedCount = 0;
+    
+    for (const company of companies) {
+      // Skip if company already has a logo
+      if (company.logo) continue;
+      
+      const companyName = company.name;
+      let logoUrl = null;
+      let domain = company.domain;
+      
+      // Try to get domain from known companies first
+      if (!domain) {
+        const knownDomains = {
+          'Infosys': 'infosys.com',
+          'zoho': 'zoho.com',
+          'Zoho': 'zoho.com',
+          'Google': 'google.com',
+          'Microsoft': 'microsoft.com',
+          'Apple': 'apple.com',
+          'Amazon': 'amazon.com',
+          'Meta': 'meta.com',
+          'Netflix': 'netflix.com',
+          'TCS': 'tcs.com',
+          'Wipro': 'wipro.com',
+          'HCL': 'hcltech.com',
+          'Accenture': 'accenture.com'
+        };
+        domain = knownDomains[companyName];
+      }
+      
+      // If we have a domain, try Clearbit first, then Google favicon
+      if (domain) {
+        logoUrl = `https://logo.clearbit.com/${domain}`;
+        
+        await company.update({
+          domain: domain,
+          logo: logoUrl
+        });
+        
+        console.log(`Updated ${companyName} with logo from ${domain}`);
+        updatedCount++;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Updated ${updatedCount} companies with logos`,
+      updatedCount
+    });
+    
+  } catch (error) {
+    console.error('Error updating company logos:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update company logos' 
+    });
+  }
+});
+
 // GET /api/companies/:id - Get specific company details
 router.get('/:id', async (req, res) => {
   try {
