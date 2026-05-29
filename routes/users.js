@@ -83,9 +83,10 @@ router.post('/register', registrationGuard, [
     });
     
     if (existingUser) {
-      // If account was previously deleted (isActive=false), wipe it and allow fresh registration
-      if (!existingUser.isActive) {
+      // If account was previously deleted (isActive=false or status='deleted'), allow re-registration
+      if (!existingUser.isActive || existingUser.status === 'deleted') {
         await User.destroy({ where: { id: existingUser.id } });
+        console.log('✅ Deleted previous account for re-registration:', email);
       } else {
         console.log('❌ User already exists:', email);
         return res.status(400).json({ error: 'User already exists with this email' });
@@ -380,6 +381,15 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'This account has been deleted. Please register again.' });
     }
 
+    // Check if account status is deleted or suspended
+    if (user.status === 'deleted') {
+      return res.status(403).json({ error: 'This account has been permanently deleted. You cannot log in.' });
+    }
+
+    if (user.status === 'suspended') {
+      return res.status(403).json({ error: 'This account has been suspended. Please contact support.' });
+    }
+
     // Block rejected employers
     if (user.role === 'employer' && user.verificationStatus === 'rejected') {
       return res.status(403).json({ error: 'Your employer account has been rejected. Please contact support.' });
@@ -536,6 +546,7 @@ router.post('/login', async (req, res) => {
       employerOwnerId: teamMemberData?.employerOwnerId || user.employerOwnerId || null,
       location: user.location,
       verificationStatus: user.verificationStatus || 'verified',
+      status: user.status || 'active',
       profilePhoto: user.profilePicture || profileData.profilePhoto,
       teamRole: teamMemberData?.teamRole || null,
       ...profileData
