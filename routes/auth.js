@@ -24,13 +24,20 @@ router.get('/google', (req, res, next) => {
 
 router.get('/google/callback',
   (req, res, next) => {
-    // Log the raw callback params to diagnose AuthorizationError
     if (req.query.error) {
       console.error('❌ Google OAuth error param:', req.query.error, req.query.error_description);
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
       return res.redirect(`${frontendUrl}/login?error=${req.query.error}`);
     }
-    passport.authenticate('google', { session: false })(req, res, next);
+    passport.authenticate('google', { session: false }, (err, user) => {
+      if (err || !user) {
+        console.error('❌ Google OAuth passport error:', err?.message || 'No user');
+        const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
+        return res.redirect(`${frontendUrl}/login?error=oauth_failed`);
+      }
+      req.user = user;
+      next();
+    })(req, res, next);
   },
   async (req, res) => {
     try {

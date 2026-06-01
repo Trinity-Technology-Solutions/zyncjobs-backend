@@ -62,6 +62,12 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: true
   },
+  status: {
+    type: DataTypes.ENUM('active', 'suspended', 'deleted'),
+    defaultValue: 'active',
+    allowNull: false,
+    comment: 'Account status: active, suspended, or deleted'
+  },
   googleId: {
     type: DataTypes.STRING,
     allowNull: true
@@ -84,7 +90,7 @@ const User = sequelize.define('User', {
   },
   lastLogin: DataTypes.DATE,
   verificationStatus: {
-    type: DataTypes.ENUM('pending', 'verified', 'rejected'),
+    type: DataTypes.ENUM('pending', 'pending_admin', 'verified', 'rejected'),
     defaultValue: 'pending',
     allowNull: true
   },
@@ -116,6 +122,16 @@ const User = sequelize.define('User', {
     type: DataTypes.TEXT,
     allowNull: true,
     comment: 'Notes about verification process'
+  },
+  gstNumber: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'GST number provided during registration'
+  },
+  gstVerification: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    comment: 'Surepass GST verification result'
   },
   inviteToken: {
     type: DataTypes.STRING,

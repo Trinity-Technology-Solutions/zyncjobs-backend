@@ -495,7 +495,81 @@ export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, comp
   }
 };
 
-export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendJobAlertEmail, sendWelcomeEmail, sendFollowUpReminderEmail, sendEmployerApplicationEmail };
+// Send employer account rejected email
+export const sendEmployerRejectedEmail = async (employerEmail, employerName) => {
+  try {
+    const { baseTemplate, ctaButton, FRONTEND_URL } = await import('./emailTemplates.js');
+    const name = employerName || 'there';
+    const content = `
+      <div style="background:linear-gradient(135deg,#DC2626 0%,#991B1B 100%);padding:36px 40px;text-align:center;">
+        <div style="margin-bottom:10px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/><path d="M12 8v4" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="1" fill="white"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Verification Unsuccessful</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">Your employer account could not be verified</p>
+      </div>
+      <div style="padding:36px 40px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name},</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
+          Unfortunately, your employer account verification was not approved by our admin team. This may be due to incomplete or unverifiable business information.
+        </p>
+        <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;padding:16px 20px;margin:0 0 20px;">
+          <p style="color:#991B1B;font-size:14px;font-weight:700;margin:0 0 6px;">What you can do:</p>
+          <p style="color:#7F1D1D;font-size:13px;margin:3px 0;">• Contact our support team for clarification</p>
+          <p style="color:#7F1D1D;font-size:13px;margin:3px 0;">• Re-register with valid business documents</p>
+          <p style="color:#7F1D1D;font-size:13px;margin:3px 0;">• Ensure your GST number is active and correct</p>
+        </div>
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('Contact Support', `${FRONTEND_URL}/contact`, '#DC2626')}
+        </div>
+      </div>`;
+    await transporter.sendMail({
+      from: `"ZyncJobs" <${process.env.SMTP_FROM_EMAIL}>`,
+      to: employerEmail,
+      subject: 'ZyncJobs employer account verification update',
+      html: baseTemplate(content, 'Your employer account verification was not approved.')
+    });
+    console.log('✅ Employer rejected email sent to:', employerEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Employer rejected email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Send employer account verified email
+export const sendEmployerApprovedEmail = async (employerEmail, employerName) => {
+  try {
+    const { baseTemplate, ctaButton, FRONTEND_URL } = await import('./emailTemplates.js');
+    const name = employerName || 'there';
+    const content = `
+      <div style="background:linear-gradient(135deg,#059669 0%,#047857 100%);padding:36px 40px;text-align:center;">
+        <div style="margin-bottom:10px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="9 12 11 14 15 10" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Account Verified!</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">Your employer account is now active</p>
+      </div>
+      <div style="padding:36px 40px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name}!</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
+          Your account has been verified by admin. You can now log in and start posting jobs, searching for candidates, and using all employer features on ZyncJobs.
+        </p>
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('Go to Dashboard', `${FRONTEND_URL}/employer-login`, '#059669')}
+        </div>
+      </div>`;
+    await transporter.sendMail({
+      from: `"ZyncJobs" <${process.env.SMTP_FROM_EMAIL}>`,
+      to: employerEmail,
+      subject: 'Your ZyncJobs employer account has been verified ✅',
+      html: baseTemplate(content, 'Your employer account has been verified by admin.')
+    });
+    console.log('✅ Employer approved email sent to:', employerEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Employer approved email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendJobAlertEmail, sendWelcomeEmail, sendFollowUpReminderEmail, sendEmployerApplicationEmail, sendEmployerApprovedEmail };
 
 // Send admin invitation email
 export const sendAdminInviteEmail = async (toEmail, name, role, token) => {

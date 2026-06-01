@@ -288,20 +288,101 @@ router.get('/job/:jobId', async (req, res) => {
       order: [['createdAt', 'DESC']]
     });
     
-    // Enrich with candidate skills from Profile
+    // Get job details for scoring context
+    const job = await Job.findByPk(jobId);
+    
+    // Enrich with candidate skills from Profile and calculate AI scores
     const { Op } = await import('sequelize');
     const Profile = (await import('../models/Profile.js')).default;
     const emails = applications.map(a => a.candidateEmail).filter(Boolean);
     const profiles = emails.length > 0
-      ? await Profile.findAll({ where: { email: { [Op.in]: emails } }, attributes: ['email', 'skills'] })
+      ? await Profile.findAll({ where: { email: { [Op.in]: emails } }, attributes: ['email', 'skills', 'yearsExperience', 'education', 'location', 'jobTitle'] })
       : [];
-    const skillsMap = {};
-    profiles.forEach(p => { skillsMap[p.email.toLowerCase()] = p.skills || []; });
+    const profilesMap = {};
+    profiles.forEach(p => { 
+      profilesMap[p.email.toLowerCase()] = {
+        skills: p.skills || [],
+        yearsExperience: p.yearsExperience || '0',
+        education: p.education || '',
+        location: p.location || '',
+        jobTitle: p.jobTitle || ''
+      };
+    });
 
-    const enriched = applications.map(a => ({
-      ...a.toJSON(),
-      skills: skillsMap[a.candidateEmail?.toLowerCase()] || []
-    }));
+    const enriched = applications.map(a => {
+      const profile = profilesMap[a.candidateEmail?.toLowerCase()] || {};
+      
+      // Calculate AI scores if not already present or if job requirements changed
+      let aiAnalysis = a.aiAnalysis;
+      if (!aiAnalysis && job) {
+        // Import scoring functions
+        const candidateSkills = profile.skills || [];
+        const candidateYearsExp = parseFloat(profile.yearsExperience) || 0;
+        
+        // Simple scoring calculation (same as in aiRejectionSettings.js)
+        const jobSkills = job.skills || [];
+        let skillsScore = 50;
+        if (jobSkills.length > 0 && candidateSkills.length > 0) {
+          const matched = candidateSkills.filter(candidateSkill =>
+            jobSkills.some(jobSkill => 
+              candidateSkill.toLowerCase().includes(jobSkill.toLowerCase()) || 
+              jobSkill.toLowerCase().includes(candidateSkill.toLowerCase()) ||
+              candidateSkill.toLowerCase() === jobSkill.toLowerCase()
+            )
+          );
+          skillsScore = Math.round((matched.length / jobSkills.length) * 100);
+        } else if (jobSkills.length === 0) {
+          skillsScore = 50;
+        } else {
+          skillsScore = 0;
+        }
+        
+        // Experience scoring
+        const EXP_MAP = { Entry: 0, Mid: 2, Senior: 5, Lead: 8 };
+        let requiredYears = EXP_MAP[job.experienceLevel] ?? 2;
+        if (job.experienceRange) {
+          const rangeMatch = job.experienceRange.match(/(\d+)[-+]?\s*(?:to\s*)?(\d+)?\s*years?/i);
+          if (rangeMatch) {
+            requiredYears = parseInt(rangeMatch[1]);
+          }
+        }
+        
+        let experienceScore = 50;
+        if (requiredYears === 0) {
+          experienceScore = candidateYearsExp >= 0 ? 100 : 50;
+        } else if (candidateYearsExp >= requiredYears) {
+          experienceScore = Math.min(100, 85 + Math.min(15, (candidateYearsExp - requiredYears) * 3));
+        } else {
+          const ratio = candidateYearsExp / requiredYears;
+          if (ratio >= 0.8) experienceScore = Math.round(ratio * 80);
+          else if (ratio >= 0.5) experienceScore = Math.round(ratio * 60);
+          else experienceScore = Math.round(ratio * 40);
+        }
+        
+        const overallScore = Math.round((skillsScore * 0.6) + (experienceScore * 0.4));
+        
+        aiAnalysis = {
+          skillsScore,
+          experienceScore,
+          overallScore,
+          reasons: [],
+          feedback: ''
+        };
+      }
+      
+      return {
+        ...a.toJSON(),
+        skills: profile.skills || [],
+        candidateProfile: profile,
+        aiAnalysis: aiAnalysis || {
+          skillsScore: 50,
+          experienceScore: 50,
+          overallScore: 50,
+          reasons: [],
+          feedback: ''
+        }
+      };
+    });
     
     console.log('✅ Found applications:', applications.length);
     
@@ -309,6 +390,188 @@ router.get('/job/:jobId', async (req, res) => {
   } catch (error) {
     console.error('Get job applications error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/applications/job/:jobId/ai-scores - Get applications with AI analysis for a job
+router.get('/job/:jobId/ai-scores', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      return res.status(400).json({ error: 'Valid job ID is required' });
+    }
+
+    const job = await Job.findByPk(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const applications = await Application.findAll({ 
+      where: { jobId },
+      order: [['createdAt', 'DESC']]
+    });
+    
+    // Import the scoring functions from aiRejectionSettings
+    const { runAutoRejection } = await import('./aiRejectionSettings.js');
+    
+    // Calculate or retrieve AI scores for each application
+    const applicationsWithScores = await Promise.all(
+      applications.map(async (app) => {
+        try {
+          // If AI analysis already exists, use it; otherwise calculate it
+          if (app.aiAnalysis && app.aiAnalysis.skillsScore !== undefined) {
+            return {
+              ...app.toJSON(),
+              aiAnalysis: app.aiAnalysis
+            };
+          }
+          
+          // Calculate new AI analysis
+          const result = await runAutoRejection(app, job, true); // dry run
+          const aiAnalysis = result.scores || {
+            skillsScore: 50,
+            experienceScore: 50,
+            overallScore: 50,
+            reasons: [],
+            feedback: ''
+          };
+          
+          return {
+            ...app.toJSON(),
+            aiAnalysis
+          };
+        } catch (error) {
+          console.error(`Error calculating AI score for application ${app.id}:`, error);
+          return {
+            ...app.toJSON(),
+            aiAnalysis: {
+              skillsScore: 0,
+              experienceScore: 0,
+              overallScore: 0,
+              reasons: ['Error calculating score'],
+              feedback: 'Unable to calculate AI score'
+            }
+          };
+        }
+      })
+    );
+    
+    res.json(applicationsWithScores);
+  } catch (error) {
+    console.error('Get AI scores error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/applications/job/:jobId/recalculate-scores - Recalculate AI scores for all applications
+router.post('/job/:jobId/recalculate-scores', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      return res.status(400).json({ error: 'Valid job ID is required' });
+    }
+
+    const job = await Job.findByPk(jobId);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const applications = await Application.findAll({ 
+      where: { jobId },
+      order: [['createdAt', 'DESC']]
+    });
+    
+    // Import the scoring functions from aiRejectionSettings
+    const { runAutoRejection } = await import('./aiRejectionSettings.js');
+    
+    let updatedCount = 0;
+    
+    // Recalculate AI scores for each application
+    for (const app of applications) {
+      try {
+        const result = await runAutoRejection(app, job, true); // dry run to get scores
+        if (result.scores) {
+          await app.update({
+            aiAnalysis: result.scores,
+            aiScore: result.scores.overallScore
+          });
+          updatedCount++;
+        }
+      } catch (error) {
+        console.error(`Error recalculating score for application ${app.id}:`, error);
+      }
+    }
+    
+    res.json({ 
+      message: `Recalculated AI scores for ${updatedCount} applications`,
+      totalApplications: applications.length,
+      updatedCount
+    });
+  } catch (error) {
+    console.error('Recalculate scores error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/applications/job/:jobId/bulk-download-resumes - ZIP all resumes for a job
+router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      return res.status(400).json({ error: 'Valid job ID is required' });
+    }
+
+    const applications = await Application.findAll({ where: { jobId }, order: [['createdAt', 'DESC']] });
+    if (!applications.length) return res.status(404).json({ error: 'No applications found' });
+
+    // Pre-resolve all resume URLs before streaming
+    const resolved = [];
+    for (const app of applications) {
+      const fileUrl = await resolveResumeFileUrl(app);
+      if (fileUrl) resolved.push({ app, fileUrl });
+    }
+    if (!resolved.length) return res.status(404).json({ error: 'No resumes available to download' });
+
+    const job = await Job.findByPk(jobId);
+    const jobTitle = (job?.jobTitle || job?.title || 'job').replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_');
+
+    const { default: archiver } = await import('archiver');
+    const { default: path } = await import('path');
+    const { existsSync } = await import('fs');
+
+    const archive = archiver('zip', { zlib: { level: 6 } });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${jobTitle}_resumes.zip"`);
+    archive.pipe(res);
+
+    for (const { app, fileUrl } of resolved) {
+      const safeName = (app.candidateName || 'candidate').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+      const ext = fileUrl.split('?')[0].split('.').pop()?.toLowerCase() || 'pdf';
+      const entryName = `${safeName}_${String(app.id).slice(0, 8)}.${ext}`;
+      try {
+        if (fileUrl.includes('amazonaws.com')) {
+          const { stream } = await getResumeStreamFromS3(fileUrl);
+          archive.append(stream, { name: entryName });
+        } else {
+          const localPath = fileUrl.startsWith('/')
+            ? fileUrl
+            : path.join(process.cwd(), fileUrl.replace(/^\/api/, ''));
+          if (existsSync(localPath)) {
+            archive.file(localPath, { name: entryName });
+          }
+        }
+      } catch (e) {
+        console.error(`[bulk-download] Skipping ${app.id}:`, e.message);
+      }
+    }
+
+    await archive.finalize();
+  } catch (error) {
+    console.error('Bulk download error:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
   }
 });
 
@@ -533,12 +796,13 @@ router.get('/:id/resume/download', async (req, res) => {
 // GET /api/applications - Get all applications
 router.get('/', async (req, res) => {
   try {
-    const { status, jobId, employerId, page, limit } = req.query;
+    const { status, jobId, employerId, employerEmail, page, limit } = req.query;
     const where = {};
     
     if (status) where.status = status;
     if (jobId) where.jobId = jobId;
     if (employerId) where.employerId = employerId;
+    if (employerEmail) where.employerEmail = { [Op.iLike]: employerEmail };
 
     // If no pagination params, return all
     if (!page && !limit) {

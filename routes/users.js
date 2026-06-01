@@ -8,6 +8,7 @@ import { generateAccessToken, generateRefreshToken, verifyToken, verifyRefreshTo
 import { authenticateToken } from '../middleware/auth.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
+import { logAdminAction } from './adminAudit.js';
 import { registrationGuard, emailVerificationGuard } from '../middleware/settingsMiddleware.js';
 import { CompanyVerificationService } from '../services/companyVerificationService.js';
 import TeamMember from '../models/TeamMember.js';
@@ -119,7 +120,11 @@ router.post('/register', registrationGuard, [
       employerId,
       // New company verification fields
       domainVerification,
-      companyProfile
+      companyProfile,
+      // GST verification
+      gstNumber,
+      gstVerification,
+      verificationStatus: requestedStatus
     } = req.body;
 
     const userName = name || fullName || '';
@@ -134,9 +139,10 @@ router.post('/register', registrationGuard, [
     });
     
     if (existingUser) {
-      // If account was previously deleted (isActive=false), wipe it and allow fresh registration
-      if (!existingUser.isActive) {
+      // If account was previously deleted (isActive=false or status='deleted'), allow re-registration
+      if (!existingUser.isActive || existingUser.status === 'deleted') {
         await User.destroy({ where: { id: existingUser.id } });
+        console.log('✅ Deleted previous account for re-registration:', email);
       } else {
         console.log('❌ User already exists:', email);
         return res.status(400).json({ error: 'User already exists with this email' });
@@ -218,6 +224,12 @@ router.post('/register', registrationGuard, [
       
       console.log(`🔍 Employer verification for ${email}: ${verificationStatus} via ${domainVerificationMethod}`);
       console.log(`🔍 Verification note: ${verificationNote}`);
+      
+      // If frontend sent pending_admin (GST verified), honour it
+      if (requestedStatus === 'pending_admin' && gstVerification?.verified) {
+        verificationStatus = 'pending_admin';
+        verificationNote = 'GST verified — awaiting admin approval';
+      }
     }
     
     // Check if this email was invited as a team member
@@ -257,6 +269,8 @@ router.post('/register', registrationGuard, [
       verificationNote: teamInvite ? 'Team member - auto verified' : verificationNote,
       ...(finalCompanyProfile && { companyProfile: finalCompanyProfile }),
       ...(domainVerificationMethod && { domainVerificationMethod }),
+      ...(gstNumber && { gstNumber }),
+      ...(gstVerification && { gstVerification }),
       verificationRequestedAt: new Date()
     });
 
@@ -427,6 +441,15 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'This account has been deleted. Please register again.' });
     }
 
+    // Check if account status is deleted or suspended
+    if (user.status === 'deleted') {
+      return res.status(403).json({ error: 'This account has been permanently deleted. You cannot log in.' });
+    }
+
+    if (user.status === 'suspended') {
+      return res.status(403).json({ error: 'This account has been suspended. Please contact support.' });
+    }
+
     // Block rejected employers
     if (user.role === 'employer' && user.verificationStatus === 'rejected') {
       return res.status(403).json({ error: 'Your employer account has been rejected. Please contact support.' });
@@ -507,12 +530,17 @@ router.post('/login', async (req, res) => {
     const refreshToken = generateRefreshToken(user.id);
 
     // Check if this user is a team member — get their role + owner's company
+    // Check both active AND pending status (user may have been invited but logged in directly)
     let teamMemberData = null;
     try {
       const tm = await TeamMember.findOne({
-        where: { memberEmail: { [Op.iLike]: user.email }, status: 'active' }
+        where: { memberEmail: { [Op.iLike]: user.email } }
       });
       if (tm) {
+        // Auto-activate if they're logging in directly
+        if (tm.status === 'pending') {
+          await tm.update({ status: 'active', inviteToken: null });
+        }
         const owner = await User.findOne({
           where: { email: { [Op.iLike]: tm.employerId } },
           attributes: ['id', 'employerId', 'company', 'companyName', 'companyLogo', 'companyWebsite']
@@ -521,6 +549,7 @@ router.post('/login', async (req, res) => {
           teamRole: tm.role,
           ownerEmail: tm.employerId,           // owner's email — used to query team/jobs/apps
           employerId: owner?.employerId || tm.employerId,
+          employerOwnerId: tm.employerId,
           company: owner?.companyName || owner?.company || user.company,
           companyName: owner?.companyName || owner?.company || user.companyName,
           companyLogo: owner?.companyLogo || user.companyLogo,
@@ -550,8 +579,10 @@ router.post('/login', async (req, res) => {
       companyLogo: teamMemberData?.companyLogo || user.companyLogo,
       companyWebsite: teamMemberData?.companyWebsite || user.companyWebsite,
       employerId: teamMemberData?.employerId || user.employerId,
+      employerOwnerId: teamMemberData?.employerOwnerId || user.employerOwnerId || null,
       location: user.location,
       verificationStatus: user.verificationStatus || 'verified',
+      status: user.status || 'active',
       profilePhoto: user.profilePicture || profileData.profilePhoto,
       teamRole: teamMemberData?.teamRole || null,
       ownerEmail: teamMemberData?.ownerEmail || null,  // owner's email for team members
@@ -571,6 +602,11 @@ router.post('/login', async (req, res) => {
     console.log('✅ Login successful for:', email);
     // GDPR: update activity timestamp
     updateLastActive(user.id).catch(() => {});
+    // Audit log for admin logins
+    if (['admin', 'super_admin'].includes(user.role)) {
+      req.user = user;
+      logAdminAction(req, 'login', user.email, 'Admin login').catch(() => {});
+    }
     res.json({ 
       message: 'Login successful',
       user: userResponse,

@@ -2,6 +2,9 @@ import express from 'express';
 import { Op } from 'sequelize';
 import Job from '../models/Job.js';
 import { mistralDetector } from '../utils/mistralJobDetector.js';
+import { logAdminAction } from './adminAudit.js';
+import { authenticateToken } from '../middleware/auth.js';
+import { requireRole } from '../middleware/roleAuth.js';
 
 const router = express.Router();
 
@@ -98,7 +101,7 @@ router.get('/:jobId', async (req, res) => {
 });
 
 // POST /api/admin/jobs/:jobId/approve - Approve job
-router.post('/:jobId/approve', async (req, res) => {
+router.post('/:jobId/approve', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
   try {
     const { approved_by, notes } = req.body;
     
@@ -113,7 +116,7 @@ router.post('/:jobId/approve', async (req, res) => {
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
-
+    await logAdminAction(req, 'approve', job.jobTitle || job.title || req.params.jobId, 'Job approved', req.params.jobId);
     res.json({ message: 'Job approved successfully', job });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -121,7 +124,7 @@ router.post('/:jobId/approve', async (req, res) => {
 });
 
 // POST /api/admin/jobs/:jobId/reject - Reject job
-router.post('/:jobId/reject', async (req, res) => {
+router.post('/:jobId/reject', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
   try {
     const { reason, rejected_by } = req.body;
     
@@ -140,7 +143,7 @@ router.post('/:jobId/reject', async (req, res) => {
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
-
+    await logAdminAction(req, 'reject', job.jobTitle || job.title || req.params.jobId, reason, req.params.jobId);
     res.json({ message: 'Job rejected successfully', job, reason });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -279,11 +282,12 @@ router.put('/:jobId', async (req, res) => {
 });
 
 // DELETE /api/admin/jobs/:jobId - Hard delete job (admin only)
-router.delete('/:jobId', async (req, res) => {
+router.delete('/:jobId', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.jobId);
     if (!job) return res.status(404).json({ error: 'Job not found' });
     await job.destroy();
+    await logAdminAction(req, 'delete', job.jobTitle || job.title || req.params.jobId, 'Job deleted', req.params.jobId);
     res.json({ message: 'Job deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -54,13 +54,20 @@ router.get('/view/:applicationId', async (req, res) => {
 
     if (isS3) {
       // Stream S3 file through backend — S3 URL never exposed to client
-      const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
-      res.setHeader('Cache-Control', 'no-store');
-      if (contentLength) res.setHeader('Content-Length', contentLength);
-      stream.on('error', (err) => { console.error('S3 stream error:', err.message); res.end(); });
-      stream.pipe(res);
+      try {
+        const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+        res.setHeader('Cache-Control', 'no-store');
+        if (contentLength) res.setHeader('Content-Length', contentLength);
+        stream.on('error', (err) => { console.error('S3 stream error:', err.message); if (!res.headersSent) res.status(500).json({ error: 'Stream error' }); else res.end(); });
+        stream.pipe(res);
+      } catch (s3Err) {
+        if (s3Err.code === 'NotFound' || s3Err.statusCode === 404) {
+          return res.status(404).json({ error: 'Resume file not found in storage. The candidate may need to re-upload their resume.' });
+        }
+        throw s3Err;
+      }
     } else {
       // Non-S3 file: redirect to local backend URL
       const fullUrl = fileUrl.startsWith('http')

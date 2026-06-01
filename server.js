@@ -92,6 +92,7 @@ import resumeBuilderRoutes from './routes/resumeBuilder.js';
 import gdprRoutes from './routes/gdpr.js';
 import contactRoutes from './routes/contact.js';
 import aiRoutes from './routes/ai.js';
+import gstVerifyRoutes from './routes/gstVerify.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
@@ -125,6 +126,8 @@ const ALLOWED_ORIGINS = [
   'https://www.zyncjobs.com',
   'https://zyncjobs.com',
   'https://qa.zyncjobs.com',
+  'https://trinitetech.com',
+  'https://www.trinitetech.com',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',
@@ -153,7 +156,7 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(",") : [].filter(Boolean),
+    origin: ALLOWED_ORIGINS,
     credentials: true
   }
 });
@@ -457,6 +460,7 @@ app.use('/api/resume-builder', resumeBuilderRoutes);
 app.use('/api/gdpr', gdprRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/verify', gstVerifyRoutes);
 app.use('/', ogTagsRoutes);
 
 // Resume parser with AI
@@ -578,7 +582,7 @@ app.post('/api/chat', async (req, res) => {
         'X-Title': 'ZyncJobs'
       },
       body: JSON.stringify({
-        model: 'google/gemma-3-4b-it:free',
+        model: 'openai/gpt-oss-20b:free',
         messages: [
           {
             role: 'system',
@@ -715,6 +719,10 @@ app.post('/api/parse-job-post', async (req, res) => {
     // Pre-extract company and location with regex before sending to AI
     const preExtract = preExtractJobFields(text);
 
+    // Pre-extract job title from first non-empty line
+    const firstLine = text.split('\n').map(l => l.trim()).find(l => l.length > 3 && l.length < 120);
+    if (firstLine && !preExtract.jobTitle) preExtract.jobTitle = firstLine.replace(/^(job title|position|role)[:\s]*/i, '').trim();
+
     const prompt = `You are a precise job post parser. Extract structured data from the job posting below.
 Return ONLY valid JSON, no markdown, no explanation.
 
@@ -790,7 +798,7 @@ JSON:
         'X-Title': 'ZyncJobs-JobParser'
       },
       body: JSON.stringify({
-        model: 'google/gemma-3-4b-it:free',
+        model: 'openai/gpt-oss-20b:free',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
         max_tokens: 1500
@@ -798,8 +806,42 @@ JSON:
     });
 
     if (!aiRes.ok) {
-      console.warn('⚠️ OpenRouter returned', aiRes.status, '— using fallback');
-      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
+      // Try fallback model
+      const aiRes2 = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+          'X-Title': 'ZyncJobs-JobParser'
+        },
+        body: JSON.stringify({
+          model: 'nvidia/nemotron-3-super-120b-a12b:free',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          max_tokens: 1500
+        })
+      });
+      if (!aiRes2.ok) {
+        console.warn('⚠️ All models failed — using fallback');
+        return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
+      }
+      const data2 = await aiRes2.json();
+      const content2 = data2.choices?.[0]?.message?.content || '';
+      const cleaned2 = content2.trim().replace(/```json|```/g, '');
+      const jsonMatch2 = cleaned2.match(/\{[\s\S]*\}/);
+      if (!jsonMatch2) return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
+      let parsed2;
+      try { parsed2 = JSON.parse(jsonMatch2[0]); } catch { return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) }); }
+      parsed2.company = '';
+      parsed2.location = sanitizeLocation(parsed2.location, preExtract.location);
+      parsed2.salaryMin = 0; parsed2.salaryMax = 0;
+      if (!Array.isArray(parsed2.skills)) parsed2.skills = [];
+      if (!Array.isArray(parsed2.responsibilities)) parsed2.responsibilities = [];
+      if (!Array.isArray(parsed2.requirements)) parsed2.requirements = [];
+      if (!Array.isArray(parsed2.jobType)) parsed2.jobType = ['Full-time'];
+      if (!parsed2.description) parsed2.description = text;
+      return res.json({ success: true, data: parsed2 });
     }
 
     const data = await aiRes.json();
@@ -836,6 +878,8 @@ JSON:
 
     // If description is empty, use original text
     if (!parsed.description) parsed.description = text;
+    // If jobTitle is empty, use pre-extracted
+    if (!parsed.jobTitle) parsed.jobTitle = preExtract.jobTitle || '';
 
     console.log('✅ Job post parsed - company:', parsed.company, '| title:', parsed.jobTitle, '| location:', parsed.location);
     res.json({ success: true, data: parsed });
@@ -1017,9 +1061,25 @@ function sanitizeLocation(aiLocation, preExtracted) {
 
 // Fallback parsed result when AI is unavailable
 function buildFallbackParsed(text, preExtract) {
+  // Try to extract job title from first line or common patterns
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  let jobTitle = '';
+  // First non-empty line that looks like a job title
+  for (const line of lines.slice(0, 5)) {
+    if (line.length > 3 && line.length < 100 && !line.includes('@') && !line.match(/^\d/)) {
+      jobTitle = line.replace(/^(job title|position|role)[:\s]*/i, '').trim();
+      break;
+    }
+  }
+  // Regex fallback
+  if (!jobTitle) {
+    const m = text.match(/(?:job title|position|role)[:\s]+([^\n]{3,80})/i);
+    if (m) jobTitle = m[1].trim();
+  }
+
   return {
     company: preExtract.company || '',
-    jobTitle: '',
+    jobTitle: jobTitle || preExtract.jobTitle || '',
     location: preExtract.location || '',
     jobType: ['Full-time'],
     workSetting: /remote/i.test(text) ? 'Remote' : /hybrid/i.test(text) ? 'Hybrid' : 'On-site',

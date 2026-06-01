@@ -85,6 +85,31 @@ const INDEXES = [
 ];
 
 const applyIndexes = async () => {
+  // Create audit_logs table
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        action VARCHAR(100) NOT NULL,
+        "adminId" VARCHAR(255) NOT NULL,
+        "adminName" VARCHAR(255) DEFAULT '',
+        "adminEmail" VARCHAR(255) DEFAULT '',
+        "targetId" VARCHAR(255) DEFAULT '',
+        "targetName" VARCHAR(255) DEFAULT '',
+        details TEXT DEFAULT '',
+        ip VARCHAR(100) DEFAULT '',
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_createdAt ON audit_logs ("createdAt" DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_adminEmail ON audit_logs ("adminEmail");
+    `);
+    console.log('✅ audit_logs table ready');
+  } catch (e) {
+    console.warn('⚠️  audit_logs table warning:', e.message);
+  }
+
   // Create reviews table if not exists
   try {
     await sequelize.query(`
@@ -174,6 +199,25 @@ const applyIndexes = async () => {
     console.warn('⚠️  gdpr_consents table warning:', e.message);
   }
 
+  // Add pending_admin to verificationStatus enum if missing
+  try {
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_enum
+          JOIN pg_type ON pg_enum.enumtypid = pg_type.oid
+          WHERE pg_type.typname = 'enum_users_verificationStatus'
+          AND pg_enum.enumlabel = 'pending_admin'
+        ) THEN
+          ALTER TYPE "enum_users_verificationStatus" ADD VALUE 'pending_admin';
+        END IF;
+      END $$;
+    `);
+    console.log('\u2705 verificationStatus enum updated with pending_admin');
+  } catch (e) {
+    console.warn('\u26a0\ufe0f  verificationStatus enum warning:', e.message);
+  }
+
   // Add missing columns to jobs if missing
   try {
     await sequelize.query(`
@@ -241,6 +285,15 @@ const connectPostgreSQL = async () => {
   try {
     await sequelize.authenticate();
     console.log('✅ PostgreSQL Connected successfully');
+
+    // Auto-create AuditLog table if it doesn't exist
+    try {
+      const { default: AuditLog } = await import('../models/AuditLog.js');
+      await AuditLog.sync({ alter: false });
+      console.log('✅ audit_logs table synced');
+    } catch (e) {
+      console.warn('⚠️  audit_logs table sync warning:', e.message);
+    }
 
     // Auto-create companies table if it doesn't exist
     try {

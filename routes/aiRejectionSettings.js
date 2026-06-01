@@ -62,34 +62,70 @@ async function getCandidateData(application) {
 const EXP_MAP = { Entry: 0, Mid: 2, Senior: 5, Lead: 8 };
 
 function scoreSkills(candidateSkills = [], jobSkills = []) {
-  if (!jobSkills.length) return 75;
-  const matched = candidateSkills.filter(s =>
-    jobSkills.some(r => s.toLowerCase().includes(r.toLowerCase()) || r.toLowerCase().includes(s.toLowerCase()))
+  if (!jobSkills.length) return 50; // No job skills specified
+  if (!candidateSkills.length) return 0; // No candidate skills
+  
+  const matched = candidateSkills.filter(candidateSkill =>
+    jobSkills.some(jobSkill => 
+      candidateSkill.toLowerCase().includes(jobSkill.toLowerCase()) || 
+      jobSkill.toLowerCase().includes(candidateSkill.toLowerCase()) ||
+      candidateSkill.toLowerCase() === jobSkill.toLowerCase()
+    )
   );
-  return Math.min(100, Math.round((matched.length / jobSkills.length) * 100));
+  
+  const matchPercentage = (matched.length / jobSkills.length) * 100;
+  return Math.round(matchPercentage);
 }
 
-function scoreExperience(yearsExp = 0, experienceLevel = 'Mid') {
-  const required = EXP_MAP[experienceLevel] ?? 2;
-  if (required === 0) return 80;
-  if (yearsExp >= required) return Math.min(100, 80 + (yearsExp - required) * 5);
-  return Math.max(0, Math.round((yearsExp / required) * 80));
+function scoreExperience(candidateYearsExp = 0, jobExperienceLevel = 'Mid', jobExperienceRange = '') {
+  // Parse experience from job requirements
+  let requiredYears = EXP_MAP[jobExperienceLevel] ?? 2;
+  
+  // Try to extract years from experienceRange if available
+  if (jobExperienceRange) {
+    const rangeMatch = jobExperienceRange.match(/(\d+)[-+]?\s*(?:to\s*)?(\d+)?\s*years?/i);
+    if (rangeMatch) {
+      requiredYears = parseInt(rangeMatch[1]);
+    }
+  }
+  
+  const candidateYears = parseFloat(candidateYearsExp) || 0;
+  
+  if (requiredYears === 0) return candidateYears >= 0 ? 100 : 50;
+  if (candidateYears >= requiredYears) {
+    // Bonus for exceeding requirements, but cap at 100
+    return Math.min(100, 85 + Math.min(15, (candidateYears - requiredYears) * 3));
+  }
+  
+  // Penalty for not meeting requirements
+  const ratio = candidateYears / requiredYears;
+  if (ratio >= 0.8) return Math.round(ratio * 80); // 80% if close
+  if (ratio >= 0.5) return Math.round(ratio * 60); // 60% if halfway
+  return Math.round(ratio * 40); // Lower score for significant gaps
 }
 
 // ── AI scoring via Anthropic / OpenRouter fallback ───────────────────────────
 async function getAiScore(candidate, job) {
-  const prompt = `You are a strict technical recruiter. Score this candidate for the job.
+  const prompt = `You are a strict technical recruiter. Score this candidate for the job based on exact requirements.
 
 JOB: ${job.jobTitle} at ${job.company}
-Required Skills: ${(job.skills || []).join(', ')}
-Experience Level: ${job.experienceLevel}
+Required Skills: ${(job.skills || []).join(', ') || 'Not specified'}
+Experience Level: ${job.experienceLevel || 'Mid'}
+Experience Range: ${job.experienceRange || 'Not specified'}
+Job Type: ${job.jobType || 'Full-time'}
+Location: ${job.location || 'Not specified'}
 Description: ${(job.description || '').substring(0, 500)}
+Requirements: ${(job.requirements || '').substring(0, 300)}
 
 CANDIDATE:
-Skills: ${candidate.skills.join(', ') || 'None listed'}
-Years Experience: ${candidate.yearsExp}
+Skills: ${(candidate.skills || []).join(', ') || 'None listed'}
+Years Experience: ${candidate.yearsExp || 0}
 Education: ${candidate.education || 'Not provided'}
 Location: ${candidate.location || 'Not provided'}
+Job Title: ${candidate.profile?.jobTitle || 'Not specified'}
+
+Compare the candidate's skills EXACTLY with job requirements. Count only direct matches or very close variants.
+For experience, compare candidate's years with job's experience level/range requirements.
 
 Return ONLY valid JSON:
 {
@@ -97,8 +133,10 @@ Return ONLY valid JSON:
   "experienceScore": 0-100,
   "overallScore": 0-100,
   "shouldReject": true/false,
-  "reasons": ["reason1", "reason2"],
-  "feedback": "one sentence constructive feedback for candidate"
+  "reasons": ["specific reason1", "specific reason2"],
+  "feedback": "one sentence constructive feedback for candidate",
+  "matchingSkills": ["skill1", "skill2"],
+  "missingSkills": ["skill1", "skill2"]
 }`;
 
   try {
@@ -113,7 +151,7 @@ Return ONLY valid JSON:
         },
         body: JSON.stringify({
           model: 'claude-3-haiku-20240307',
-          max_tokens: 300,
+          max_tokens: 400,
           messages: [{ role: 'user', content: prompt }]
         })
       });
@@ -132,10 +170,10 @@ Return ONLY valid JSON:
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: process.env.OPENROUTER_MODEL || 'google/gemma-3-4b-it:free',
+          model: process.env.OPENROUTER_MODEL || 'openai/gpt-oss-20b:free',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
-          max_tokens: 300
+          max_tokens: 400
         })
       });
       const data = await res.json();
@@ -175,8 +213,8 @@ export const runAutoRejection = async (application, job, dryRun = false) => {
     // Fallback to rule-based
     if (skillsScore === undefined) {
       skillsScore = scoreSkills(candidate.skills, job.skills || []);
-      experienceScore = scoreExperience(candidate.yearsExp, job.experienceLevel);
-      overallScore = Math.round((skillsScore + experienceScore) / 2);
+      experienceScore = scoreExperience(candidate.yearsExp, job.experienceLevel, job.experienceRange);
+      overallScore = Math.round((skillsScore * 0.6) + (experienceScore * 0.4)); // Weight skills more heavily
     }
 
     const shouldReject =
@@ -272,8 +310,8 @@ router.post('/preview/:applicationId', async (req, res) => {
     const aiResult = await getAiScore(candidate, job);
 
     const skillsScore = aiResult?.skillsScore ?? scoreSkills(candidate.skills, job.skills || []);
-    const experienceScore = aiResult?.experienceScore ?? scoreExperience(candidate.yearsExp, job.experienceLevel);
-    const overallScore = aiResult?.overallScore ?? Math.round((skillsScore + experienceScore) / 2);
+    const experienceScore = aiResult?.experienceScore ?? scoreExperience(candidate.yearsExp, job.experienceLevel, job.experienceRange);
+    const overallScore = aiResult?.overallScore ?? Math.round((skillsScore * 0.6) + (experienceScore * 0.4));
 
     res.json({
       applicationId: application.id,

@@ -95,6 +95,16 @@ const Job = sequelize.define('Job', {
     allowNull: false
   },
   postedBy: DataTypes.STRING,
+  postedByEmail: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Email of recruiter/team member who posted this job'
+  },
+  postedByName: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Display name of recruiter/team member who posted this job'
+  },
   companyId: {
     type: DataTypes.UUID,
     allowNull: true,

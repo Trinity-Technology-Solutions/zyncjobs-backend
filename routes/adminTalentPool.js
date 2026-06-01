@@ -25,7 +25,7 @@ const upload = multer({
 });
 
 // POST /api/admin/talent/upload
-router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 200), async (req, res) => {
+router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 2000), async (req, res) => {
   const resumeUrls = req.body.resumeUrls ? (Array.isArray(req.body.resumeUrls) ? req.body.resumeUrls : [req.body.resumeUrls]) : [];
   const fileNames = req.body.fileNames ? (Array.isArray(req.body.fileNames) ? req.body.fileNames : [req.body.fileNames]) : [];
   const uploadedFiles = req.files || [];
@@ -39,8 +39,8 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
   const { getResumeStreamFromS3 } = await import('../services/s3Service.js');
   const results = [];
 
-  const CONCURRENCY = 3;
-  const BATCH_DELAY_MS = 20000;
+  const CONCURRENCY = 5;
+  const BATCH_DELAY_MS = 500;
 
   async function parseAndSaveFromS3(s3Url, fileName) {
     try {
@@ -226,7 +226,7 @@ const TEMPLATES = {
         </table>
 
         <div style="text-align:center;margin:0 0 28px;">
-          ${ctaButton('Claim Your Free Account Now', `${FRONTEND_URL}`)}
+          ${ctaButton('Claim Your Free Account Now', `${FRONTEND_URL}/role-selection`)}
         </div>
 
         <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;padding:12px 16px;margin:0 0 24px;">
@@ -281,7 +281,7 @@ const TEMPLATES = {
         </div>
 
         <div style="text-align:center;margin:0 0 28px;">
-          ${ctaButton("Join Now — It's Free", `${FRONTEND_URL}`)}
+          ${ctaButton("Join Now — It's Free", `${FRONTEND_URL}/role-selection`)}
         </div>
 
         <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:0 0 20px;">This is our follow-up message. If you have already registered, please ignore this email.</p>
@@ -353,7 +353,7 @@ const TEMPLATES = {
         </table>
 
         <div style="text-align:center;margin:0 0 28px;">
-          ${ctaButton('View My Matched Jobs', `${FRONTEND_URL}`)}
+          ${ctaButton('View My Matched Jobs', `${FRONTEND_URL}/job-listings`)}
         </div>
 
         <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:14px 18px;margin:0 0 24px;">

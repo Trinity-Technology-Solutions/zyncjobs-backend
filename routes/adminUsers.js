@@ -9,6 +9,7 @@ import GdprConsent from '../models/GdprConsent.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole, requireSuperAdmin } from '../middleware/roleAuth.js';
 import { sendAdminInviteEmail } from '../services/emailService.js';
+import { logAdminAction } from './adminAudit.js';
 
 const router = express.Router();
 const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
@@ -157,6 +158,7 @@ router.put('/:id/role', ...adminGuard, async (req, res) => {
     if (!updated) return res.status(404).json({ error: 'User not found' });
 
     const user = await User.findByPk(req.params.id, { attributes: { exclude: ['password'] } });
+    await logAdminAction(req, 'update', user?.email || req.params.id, `Role changed to ${role}`, req.params.id);
     res.json({ message: 'Role updated', user });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -202,7 +204,7 @@ router.post('/create-admin', ...superAdminGuard, async (req, res) => {
     // Remove password from response
     const adminResponse = newAdmin.toJSON();
     delete adminResponse.password;
-    
+    await logAdminAction(req, 'create', email, `Created ${role} account`, newAdmin.id);
     res.status(201).json({ 
       message: 'Admin created successfully',
       user: adminResponse 
@@ -254,14 +256,16 @@ router.put('/:id/ban', ...adminGuard, async (req, res) => {
       { where: { id: req.params.id } }
     );
     if (!updated) return res.status(404).json({ error: 'User not found' });
+    const bannedUser = await User.findByPk(req.params.id, { attributes: ['email', 'name'] });
+    await logAdminAction(req, ban ? 'ban' : 'unban', bannedUser?.email || req.params.id, reason || '', req.params.id);
     res.json({ message: ban ? 'User banned' : 'User unbanned' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// DELETE /api/admin/users/:id — delete admin user (super admin only)
-router.delete('/:id', ...superAdminGuard, async (req, res) => {
+// DELETE /api/admin/users/:id — delete/deactivate user (admin or super admin)
+router.delete('/:id', ...adminGuard, async (req, res) => {
   try {
     // Prevent self-deletion
     if (req.params.id === req.user.id) {
@@ -278,9 +282,11 @@ router.delete('/:id', ...superAdminGuard, async (req, res) => {
     // For regular users, just deactivate
     if (['admin', 'super_admin'].includes(target.role)) {
       await User.destroy({ where: { id: req.params.id } });
+      await logAdminAction(req, 'delete', target.email, `Deleted ${target.role} account`, req.params.id);
       res.json({ message: 'Admin user deleted successfully' });
     } else {
       await User.update({ isActive: false }, { where: { id: req.params.id } });
+      await logAdminAction(req, 'delete', target.email, `Deactivated ${target.role} account`, req.params.id);
       res.json({ message: 'User deactivated successfully' });
     }
   } catch (error) {
