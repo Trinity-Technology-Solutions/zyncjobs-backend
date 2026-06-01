@@ -141,10 +141,15 @@ const User = sequelize.define('User', {
     type: DataTypes.DATE,
     allowNull: true
   },
-  employerOwnerId: {
+  isFirstLogin: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    comment: 'Flag to prompt password change on first login'
+  },
+  companyDomain: {
     type: DataTypes.STRING,
     allowNull: true,
-    comment: 'Email of the owner employer — set for team members'
+    comment: 'Company domain extracted from email'
   }
 }, {
   tableName: 'users',
