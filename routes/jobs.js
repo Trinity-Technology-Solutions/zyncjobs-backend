@@ -458,7 +458,7 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {
-    const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'];
+    const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary'];
     // Handle both array and string inputs
     const types = Array.isArray(val) ? val : [val];
     if (!types.length) throw new Error('Job type is required');
@@ -500,7 +500,7 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
       if (user) await user.update({ employerId });
     }
 
-    const employerEmail = ownerEmail;
+    const resolvedEmployerEmail = ownerEmail;
 
     const jobData = { ...req.body };
 
@@ -566,7 +566,7 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
           company = await Company.create({
             name: companyName,
             logo: getCompanyLogo(companyName) || '',
-            createdBy: employerEmail,
+            createdBy: resolvedEmployerEmail,
             followers: []
           });
         }
@@ -598,8 +598,8 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
       employerId,
       positionId: positionId,
       status: getJobStatus(),
-      employerEmail,
-      postedBy: employerEmail,
+      employerEmail: resolvedEmployerEmail,
+      postedBy: resolvedEmployerEmail,
       companyId,
       refreshCount: 0,
       originalPostedAt: new Date()
