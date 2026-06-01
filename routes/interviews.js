@@ -157,7 +157,7 @@ router.post('/schedule', async (req, res) => {
 
     let finalCandidateId = candidateId;
     if (!finalCandidateId && candidateEmail) {
-      const candidate = await User.findOne({ where: { email: candidateEmail } });
+      const candidate = await User.findOne({ where: { email: candidateEmail }, attributes: ['id', 'email', 'name'] });
       if (candidate) {
         finalCandidateId = candidate.id;
         console.log('✅ Found candidate:', finalCandidateId);
@@ -166,7 +166,7 @@ router.post('/schedule', async (req, res) => {
 
     let finalEmployerId = employerId;
     if (employerId && employerId.includes('@')) {
-      const employer = await User.findOne({ where: { email: employerId } });
+      const employer = await User.findOne({ where: { email: employerId }, attributes: ['id', 'email', 'name', 'companyName'] });
       if (employer) {
         finalEmployerId = employer.id;
         console.log('✅ Found employer:', finalEmployerId);
@@ -188,7 +188,7 @@ router.post('/schedule', async (req, res) => {
     let resolvedEmployerEmail = bodyEmployerEmail || (typeof employerId === 'string' && employerId.includes('@') ? employerId : null);
     if (!resolvedEmployerEmail && finalEmployerId) {
       try {
-        const emp = await User.findByPk(finalEmployerId);
+        const emp = await User.findByPk(finalEmployerId, { attributes: ['id', 'email', 'name', 'companyName'] });
         if (emp?.email) resolvedEmployerEmail = emp.email;
       } catch { /* ignore */ }
     }
@@ -209,7 +209,6 @@ router.post('/schedule', async (req, res) => {
       notes,
       round: round || null,
       interviewer: interviewer || null,
-      status: 'scheduled',
       employerConfirmed: true
     });
 
@@ -299,7 +298,6 @@ router.post('/create-with-meeting', async (req, res) => {
       type: type || 'video',
       meetingLink,   // real link saved here
       notes,
-      status: 'scheduled',
       employerConfirmed: true
     });
 
