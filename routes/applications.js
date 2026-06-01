@@ -189,6 +189,47 @@ router.post('/', authenticateToken, [
   }
 });
 
+// GET /api/applications/employer/:employerEmail - Get applications by employer email (company-wide)
+router.get('/employer/:employerEmail', async (req, res) => {
+  try {
+    const employerEmail = decodeURIComponent(req.params.employerEmail);
+    console.log('📋 Fetching company-wide applications for:', employerEmail);
+    
+    const applications = await Application.findAll({ 
+      where: {
+        employerEmail: { [Op.iLike]: employerEmail }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+    
+    // Fetch full job details for each application
+    const applicationsWithJobs = await Promise.all(
+      applications.map(async (app) => {
+        const job = await Job.findByPk(app.jobId);
+        return {
+          ...app.toJSON(),
+          jobId: job ? {
+            _id: job.id,
+            id: job.id,
+            jobTitle: job.jobTitle || job.title,
+            company: job.company,
+            location: job.location,
+            jobDescription: job.jobDescription || job.description,
+            salary: job.salary,
+            skills: job.skills || []
+          } : null
+        };
+      })
+    );
+    
+    console.log('✅ Found company-wide applications:', applications.length);
+    res.json(applicationsWithJobs);
+  } catch (error) {
+    console.error('Error fetching company applications:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/applications/candidate/:email - Get applications by candidate email
 router.get('/candidate/:email', async (req, res) => {
   try {
@@ -485,47 +526,46 @@ router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
     const applications = await Application.findAll({ where: { jobId }, order: [['createdAt', 'DESC']] });
     if (!applications.length) return res.status(404).json({ error: 'No applications found' });
 
+    // Pre-resolve all resume URLs before streaming
+    const resolved = [];
+    for (const app of applications) {
+      const fileUrl = await resolveResumeFileUrl(app);
+      if (fileUrl) resolved.push({ app, fileUrl });
+    }
+    if (!resolved.length) return res.status(404).json({ error: 'No resumes available to download' });
+
     const job = await Job.findByPk(jobId);
     const jobTitle = (job?.jobTitle || job?.title || 'job').replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_');
 
-    const archiver = (await import('archiver')).default;
+    const { default: archiver } = await import('archiver');
+    const { default: path } = await import('path');
+    const { existsSync } = await import('fs');
+
     const archive = archiver('zip', { zlib: { level: 6 } });
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${jobTitle}_resumes.zip"`);
     archive.pipe(res);
 
-    let added = 0;
-    for (const app of applications) {
-      const fileUrl = await resolveResumeFileUrl(app);
-      if (!fileUrl) continue;
-
+    for (const { app, fileUrl } of resolved) {
       const safeName = (app.candidateName || 'candidate').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
-      const ext = fileUrl.split('?')[0].split('.').pop() || 'pdf';
-      const entryName = `${safeName}_${app.id?.toString().slice(0,8)}.${ext}`;
-
+      const ext = fileUrl.split('?')[0].split('.').pop()?.toLowerCase() || 'pdf';
+      const entryName = `${safeName}_${String(app.id).slice(0, 8)}.${ext}`;
       try {
         if (fileUrl.includes('amazonaws.com')) {
           const { stream } = await getResumeStreamFromS3(fileUrl);
           archive.append(stream, { name: entryName });
         } else {
-          // Local file path
-          const path = await import('path');
-          const fs = await import('fs');
-          const localPath = fileUrl.startsWith('/') ? fileUrl : path.default.join(process.cwd(), fileUrl.replace(/^\/api/, ''));
-          if (fs.existsSync(localPath)) {
+          const localPath = fileUrl.startsWith('/')
+            ? fileUrl
+            : path.join(process.cwd(), fileUrl.replace(/^\/api/, ''));
+          if (existsSync(localPath)) {
             archive.file(localPath, { name: entryName });
           }
         }
-        added++;
       } catch (e) {
         console.error(`[bulk-download] Skipping ${app.id}:`, e.message);
       }
-    }
-
-    if (added === 0) {
-      archive.abort();
-      return res.status(404).json({ error: 'No resumes available to download' });
     }
 
     await archive.finalize();

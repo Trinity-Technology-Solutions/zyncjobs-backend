@@ -145,17 +145,12 @@ class MeetingService {
         }
       }
 
-      // If still no tokens, return fallback
+      // If still no tokens, return explicit error (do not fabricate a Meet link by default)
       if (!accessToken) {
-        console.warn('No Google OAuth token available, generating fallback Meet link');
-        const part = (len) => Array.from({length: len}, () => 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]).join('');
-        const roomCode = `${part(3)}-${part(4)}-${part(3)}`;
-        const meetLink = `https://meet.google.com/${roomCode}`;
+        console.warn('No Google OAuth token available for Google Meet creation');
         return {
-          success: true,
-          fallback: true,
-          meeting: { platform: 'googlemeet', meetingId: roomCode, meetLink, join_url: meetLink },
-          message: 'No Google Calendar connected. Please connect at /api/auth/google/meet/connect'
+          success: false,
+          error: 'Google Calendar not connected. Please connect a Google account to create real Meet links.'
         };
       }
 
@@ -212,23 +207,29 @@ class MeetingService {
         }
       };
     } catch (error) {
-      console.error('Error creating Google Meet:', error.message);
-      
-      // Fallback on error
-      const part = (len) => Array.from({length: len}, () => 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]).join('');
-      const roomCode = `${part(3)}-${part(4)}-${part(3)}`;
-      const meetLink = `https://meet.google.com/${roomCode}`;
-      
+      console.error('Error creating Google Meet:', error?.message || error);
+      // By default, do not return fabricated meet links. Offer an explicit error back to caller.
+      // If you need legacy fallback behavior, set environment variable `ALLOW_FALLBACK_MEET=true`.
+      if (process.env.ALLOW_FALLBACK_MEET === 'true') {
+        const part = (len) => Array.from({length: len}, () => 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]).join('');
+        const roomCode = `${part(3)}-${part(4)}-${part(3)}`;
+        const meetLink = `https://meet.google.com/${roomCode}`;
+        return {
+          success: true,
+          fallback: true,
+          meeting: {
+            platform: 'googlemeet',
+            meetingId: roomCode,
+            meetLink,
+            join_url: meetLink
+          },
+          message: 'Using fallback Meet link due to API error (ALLOW_FALLBACK_MEET=true)'
+        };
+      }
+
       return {
-        success: true,
-        fallback: true,
-        meeting: {
-          platform: 'googlemeet',
-          meetingId: roomCode,
-          meetLink,
-          join_url: meetLink
-        },
-        message: 'Using fallback Meet link due to API error'
+        success: false,
+        error: 'Failed to create Google Meet: ' + (error?.message || String(error))
       };
     }
   }

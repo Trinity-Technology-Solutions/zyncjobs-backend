@@ -432,9 +432,12 @@ router.post('/delete-account', authenticateToken, async (req, res) => {
     await GdprConsent.destroy({ where: { userId } });
     console.log(`✅ Deleted GDPR consent records`);
 
-    // Finally delete the user account
-    await User.destroy({ where: { id: userId } });
-    console.log(`✅ Deleted user account: ${userName} (${userEmail})`);
+    // Mark user account as deleted (soft delete) instead of destroying
+    await User.update(
+      { status: 'deleted', isActive: false },
+      { where: { id: userId } }
+    );
+    console.log(`✅ Marked user account as deleted: ${userName} (${userEmail})`);
 
     console.log(`🎉 GDPR full delete completed successfully for: ${userEmail}`);
     

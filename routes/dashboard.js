@@ -2,8 +2,12 @@ import express from 'express';
 import { Op } from 'sequelize';
 import Application from '../models/Application.js';
 import Job from '../models/Job.js';
+import { setCompanyContext } from '../middleware/companyContext.js';
 
 const router = express.Router();
+
+// Apply company context middleware to all dashboard routes
+router.use(setCompanyContext);
 
 // GET /api/dashboard/debug - Debug endpoint to check data
 router.get('/debug', async (req, res) => {
@@ -54,51 +58,39 @@ router.get('/debug', async (req, res) => {
 // GET /api/dashboard/stats - Get dashboard statistics
 router.get('/stats', async (req, res) => {
   try {
-    const { employerId, employerEmail, userName, companyName } = req.query;
+    const { employerEmail } = req.query;
     
-    // Build query conditions, filtering out empty values
-    const queryConditions = [];
-    if (employerEmail && employerEmail.trim() !== '') queryConditions.push({ employerEmail });
-    if (userName && userName.trim() !== '') queryConditions.push({ postedBy: userName });
-    if (employerId && employerId.trim() !== '') queryConditions.push({ employerId });
-    if (companyName && companyName.trim() !== '') queryConditions.push({ company: companyName });
-    
-    // If no valid conditions, return zeros
-    if (queryConditions.length === 0) {
+    // Always use employerEmail as the main company identifier
+    if (!employerEmail || employerEmail.trim() === '') {
       return res.json({ activeJobs: 0, applications: 0, interviews: 0, hired: 0 });
     }
     
+    // Get company-wide data using employerEmail only
     const activeJobs = await Job.count({
       where: {
-        [Op.or]: queryConditions,
+        employerEmail,
         isActive: true,
         status: { [Op.in]: ['approved', 'pending'] }
       }
     });
     
-    // For applications, only use employerEmail or employerId or companyName
-    const appConditions = [];
-    if (employerEmail && employerEmail.trim() !== '') appConditions.push({ employerEmail });
-    if (employerId && employerId.trim() !== '') appConditions.push({ employerId });
-    if (companyName && companyName.trim() !== '') appConditions.push({ company: companyName });
+    const applications = await Application.count({
+      where: { employerEmail }
+    });
     
-    const applications = appConditions.length > 0 ? await Application.count({
-      where: { [Op.or]: appConditions }
-    }) : 0;
-    
-    const interviews = appConditions.length > 0 ? await Application.count({
+    const interviews = await Application.count({
       where: {
-        [Op.or]: appConditions,
+        employerEmail,
         status: { [Op.in]: ['shortlisted', 'interviewed'] }
       }
-    }) : 0;
+    });
     
-    const hired = appConditions.length > 0 ? await Application.count({
+    const hired = await Application.count({
       where: {
-        [Op.or]: appConditions,
+        employerEmail,
         status: 'hired'
       }
-    }) : 0;
+    });
 
     res.json({ activeJobs, applications, interviews, hired });
   } catch (error) {
@@ -110,22 +102,15 @@ router.get('/stats', async (req, res) => {
 // GET /api/dashboard/recent-activity - Get recent activity
 router.get('/recent-activity', async (req, res) => {
   try {
-    const { employerId, employerEmail, userName, companyName } = req.query;
+    const { employerEmail } = req.query;
     
-    // Build query conditions, filtering out empty values
-    const queryConditions = [];
-    if (employerEmail && employerEmail.trim() !== '') queryConditions.push({ employerEmail: employerEmail });
-    if (userName && userName.trim() !== '') queryConditions.push({ postedBy: userName });
-    if (employerId && employerId.trim() !== '') queryConditions.push({ employerId: employerId });
-    if (companyName && companyName.trim() !== '') queryConditions.push({ company: companyName });
-    
-    // If no valid conditions, return empty array
-    if (queryConditions.length === 0) {
+    // Always use employerEmail as the main company identifier
+    if (!employerEmail || employerEmail.trim() === '') {
       return res.json([]);
     }
     
     const recentJobs = await Job.findAll({
-      where: { [Op.or]: queryConditions },
+      where: { employerEmail },
       order: [['createdAt', 'DESC']],
       limit: 3
     });

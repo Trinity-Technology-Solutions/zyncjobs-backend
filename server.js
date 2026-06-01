@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import session from 'express-session';
-import dotenv from 'dotenv';
+// import dotenv from 'dotenv'; // Moved to instrument.mjs
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import fs from 'fs';
@@ -82,6 +82,9 @@ import employerRoutes from './routes/employers.js';
 import ogTagsRoutes from './routes/ogTags.js';
 import socialShareRoutes from './routes/socialShare.js';
 import teamRoutes from './routes/team.js';
+import companyVerificationRoutes from './routes/companyVerification.js';
+import accessControlRoutes from './routes/accessControl.js';
+import teamAuthRoutes from './routes/teamAuth.js';
 import aiRejectionSettingsRoutes from './routes/aiRejectionSettings.js';
 import credentialingRoutes from './routes/credentialing.js';
 import salaryInsightsRoutes from './routes/salaryInsights.js';
@@ -110,7 +113,7 @@ import { sanitizeInput } from './middleware/sanitize.js';
 import * as Sentry from '@sentry/node';
 
 const envFile = process.env.NODE_ENV === 'qa' ? '.env.qa' : process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
-dotenv.config({ path: envFile });
+// dotenv.config({ path: envFile }); // Moved to instrument.mjs
 validateEnv();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -126,12 +129,17 @@ const ALLOWED_ORIGINS = [
   'https://trinitetech.com',
   'https://www.trinitetech.com',
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://localhost:3000',
 ];
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Allow any localhost port in development
+    if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost:\d+$/.test(origin)) {
+      return callback(null, true);
+    }
     console.log('❌ CORS blocked:', origin);
     return callback(new Error('CORS blocked: ' + origin), false);
   },
@@ -164,6 +172,16 @@ connectDB().then(async () => {
     console.log('✅ Enhanced company fields migration completed');
   } catch (migrationError) {
     console.warn('⚠️ Migration warning:', migrationError.message);
+    // Don't fail server startup if migration fails
+  }
+  
+  // Run team invitation columns migration
+  try {
+    const { migrateTeamInvitationColumns } = await import('./scripts/migrateTeamInvitationColumns.js');
+    await migrateTeamInvitationColumns();
+    console.log('✅ Team invitation columns migration completed');
+  } catch (migrationError) {
+    console.warn('⚠️ Team invitation migration warning:', migrationError.message);
     // Don't fail server startup if migration fails
   }
   
@@ -429,6 +447,9 @@ app.use('/api/user-preferences', userPreferencesRoutes);
 app.use('/api/job-session', jobSessionRoutes);
 app.use('/api/employers', employerRoutes);
 app.use('/api/team', teamRoutes);
+app.use('/api/company-verification', companyVerificationRoutes);
+app.use('/api/access', accessControlRoutes);
+app.use('/api/team-auth', teamAuthRoutes);
 app.use('/api/social', socialShareRoutes);
 app.use('/api/ai-rejection-settings/preview', aiRejectionSettingsRoutes);
 app.use('/api/ai-rejection-settings/bulk-reject', aiRejectionSettingsRoutes);
