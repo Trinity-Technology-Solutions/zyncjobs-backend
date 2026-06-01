@@ -500,7 +500,7 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
       if (user) await user.update({ employerId });
     }
 
-    const employerEmail = ownerEmail;
+    const resolvedEmployerEmail = ownerEmail;
 
     const jobData = { ...req.body };
 
@@ -566,7 +566,7 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
           company = await Company.create({
             name: companyName,
             logo: getCompanyLogo(companyName) || '',
-            createdBy: employerEmail,
+            createdBy: resolvedEmployerEmail,
             followers: []
           });
         }
@@ -598,8 +598,8 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
       employerId,
       positionId: positionId,
       status: getJobStatus(),
-      employerEmail,
-      postedBy: employerEmail,
+      employerEmail: resolvedEmployerEmail,
+      postedBy: resolvedEmployerEmail,
       companyId,
       refreshCount: 0,
       originalPostedAt: new Date()
