@@ -458,7 +458,7 @@ router.post('/', authenticateToken, requireRole(['employer', 'admin']), requireT
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {
-    const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'];
+    const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary'];
     // Handle both array and string inputs
     const types = Array.isArray(val) ? val : [val];
     if (!types.length) throw new Error('Job type is required');
