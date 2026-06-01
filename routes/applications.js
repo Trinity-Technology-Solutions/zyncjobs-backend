@@ -189,6 +189,47 @@ router.post('/', authenticateToken, [
   }
 });
 
+// GET /api/applications/employer/:employerEmail - Get applications by employer email (company-wide)
+router.get('/employer/:employerEmail', async (req, res) => {
+  try {
+    const employerEmail = decodeURIComponent(req.params.employerEmail);
+    console.log('📋 Fetching company-wide applications for:', employerEmail);
+    
+    const applications = await Application.findAll({ 
+      where: {
+        employerEmail: { [Op.iLike]: employerEmail }
+      },
+      order: [['createdAt', 'DESC']]
+    });
+    
+    // Fetch full job details for each application
+    const applicationsWithJobs = await Promise.all(
+      applications.map(async (app) => {
+        const job = await Job.findByPk(app.jobId);
+        return {
+          ...app.toJSON(),
+          jobId: job ? {
+            _id: job.id,
+            id: job.id,
+            jobTitle: job.jobTitle || job.title,
+            company: job.company,
+            location: job.location,
+            jobDescription: job.jobDescription || job.description,
+            salary: job.salary,
+            skills: job.skills || []
+          } : null
+        };
+      })
+    );
+    
+    console.log('✅ Found company-wide applications:', applications.length);
+    res.json(applicationsWithJobs);
+  } catch (error) {
+    console.error('Error fetching company applications:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/applications/candidate/:email - Get applications by candidate email
 router.get('/candidate/:email', async (req, res) => {
   try {

@@ -211,94 +211,251 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ── POST /api/team — invite a member ─────────────────────────────────
-router.post('/', async (req, res) => {
+import { canPostJobs, canAccessTeam } from '../middleware/teamAuth.js';
+
+// ── POST /api/team — invite a member (requires canInviteMembers permission) ─────────────────────────────────
+router.post('/', canAccessTeam, async (req, res) => {
   try {
-    const { employerId, memberEmail, memberName, role, companyName, inviteBaseUrl } = req.body;
+    const { employerId, memberEmail, memberName, role, companyName, password } = req.body;
     if (!employerId || !memberEmail) return res.status(400).json({ error: 'employerId and memberEmail required' });
 
     const existing = await TeamMember.findOne({ where: { employerId, memberEmail } });
-    if (existing) return res.status(409).json({ error: 'Member already in team' });
+    if (existing) {
+      // If member exists but is pending, we can resend credentials
+      if (existing.status === 'pending') {
+        console.log(`⚠️ Resending credentials to existing pending member: ${memberEmail}`);
+        // Continue with the invitation process to resend credentials
+      } else {
+        return res.status(409).json({ 
+          error: 'Member already in team',
+          status: existing.status,
+          role: existing.role
+        });
+      }
+    }
 
-    const inviteToken = role === 'Owner' ? null : crypto.randomBytes(32).toString('hex');
+    // Use password from form or generate random one
+    const tempPassword = password || crypto.randomBytes(8).toString('hex');
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-    const member = await TeamMember.create({
-      employerId,
-      memberEmail,
-      memberName: memberName || memberEmail.split('@')[0],
-      role: role || 'Recruiter',
-      status: role === 'Owner' ? 'active' : 'pending',
-      inviteToken,
-      companyName: companyName || employerId
-    });
+    let member;
+    if (existing && existing.status === 'pending') {
+      // Update existing pending member
+      member = existing;
+      await member.update({
+        memberName: memberName || memberEmail.split('@')[0],
+        role: role || 'Recruiter',
+        companyName: companyName || employerId
+      });
+      console.log(`✅ Updated existing pending member: ${memberEmail}`);
+    } else {
+      // Create new team member
+      member = await TeamMember.create({
+        employerId,
+        memberEmail,
+        memberName: memberName || memberEmail.split('@')[0],
+        role: role || 'Recruiter',
+        status: role === 'Owner' ? 'active' : 'pending',
+        inviteToken: null, // No tokens needed for credentials flow
+        companyName: companyName || employerId
+      });
+    }
+
+    // Create user account with temporary password
+    let user = await User.findOne({ where: { email: memberEmail } });
+    if (!user) {
+      try {
+        user = await User.create({
+          email: memberEmail,
+          password: hashedPassword,
+          name: memberName || memberEmail.split('@')[0],
+          role: 'employer',
+          companyName: companyName || employerId,
+          verificationStatus: 'verified',  // team members are pre-verified
+          isFirstLogin: true
+        });
+      } catch (createError) {
+        if (createError.message.includes('isFirstLogin')) {
+          user = await User.create({
+            email: memberEmail,
+            password: hashedPassword,
+            name: memberName || memberEmail.split('@')[0],
+            role: 'employer',
+            companyName: companyName || employerId,
+            verificationStatus: 'verified'
+          });
+        } else {
+          throw createError;
+        }
+      }
+    } else {
+      try {
+        await user.update({
+          password: hashedPassword,
+          companyName: companyName || user.companyName || employerId,
+          verificationStatus: 'verified',
+          isFirstLogin: true
+        });
+      } catch (updateError) {
+        if (updateError.message.includes('isFirstLogin')) {
+          await user.update({ password: hashedPassword, verificationStatus: 'verified' });
+        } else {
+          throw updateError;
+        }
+      }
+    }
 
     // Owner doesn't need an invite email
     if (role === 'Owner') {
+      await member.update({ status: 'active' });
       return res.status(201).json({
         ...member.toJSON(),
-        token: null,
-        inviteLink: null,
         emailSent: false
       });
     }
-    // Use inviteBaseUrl from frontend if provided, otherwise fall back to env
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const baseUrl = inviteBaseUrl || `${frontendUrl}/team/accept`;
-    const inviteLink = `${baseUrl}?token=${inviteToken}`;
 
+    // Send credentials email
+    const ownerUser = await User.findOne({ where: { email: employerId } });
+    const ownerName = ownerUser?.name || employerId;
+    const ownerEmail = employerId;
+    
     const rolePermissions = {
       'Owner': 'Full access — Post Jobs, Manage Applications, Invite Members, Remove Members, Change Roles, View Analytics',
       'Recruiter': 'Post Jobs & Manage Applications',
       'Viewer': 'View Analytics only'
     };
+    
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const loginUrl = `${frontendUrl}/login`; // Main login page, not employer-specific
+    
+    const credentialsEmailHtml = `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f4f6fb;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;padding:32px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        
+        <!-- Header -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#1e3a8a 0%,#2563eb 100%);padding:32px 40px;text-align:center;">
+            <img src="https://zyncjobs.com/images/zyncjobs-logo.png" alt="ZyncJobs" width="150" height="40" style="display:block;margin:0 auto 12px auto;max-width:150px;height:auto;" />
+            <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;">Welcome to ${companyName || employerId}!</h1>
+            <p style="color:#bfdbfe;margin:8px 0 0;font-size:14px;">Your team account has been created</p>
+          </td>
+        </tr>
 
-    const { baseTemplate, ctaButton, infoBox, divider } = await import('../services/emailTemplates.js');
+        <!-- Body -->
+        <tr>
+          <td style="padding:36px 40px;">
+            <p style="color:#374151;font-size:16px;margin:0 0 8px;">Hi <strong>${memberName || memberEmail}</strong>,</p>
+            <p style="color:#6b7280;font-size:14px;margin:0 0 28px;">
+              <strong>${ownerName}</strong> has added you to the <strong>${companyName || employerId}</strong> team on ZyncJobs as a <strong style="color:#2563eb;">${role || 'Recruiter'}</strong>.
+            </p>
 
-    const teamInviteContent = `
-      <div style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);padding:28px 32px;text-align:center;">
-        <div style="margin-bottom:10px;"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="7" r="4" stroke="white" stroke-width="2"/><path d="M23 21v-2a4 4 0 0 0-3-3.87" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 3.13a4 4 0 0 1 0 7.75" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">You're Invited to Join a Team!</h1>
-        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">Team invitation from ${companyName || employerId}</p>
-      </div>
-      <div style="padding:32px 36px;">
-        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${memberName || memberEmail}!</h2>
-        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
-          <strong>${companyName || employerId}</strong> has invited you to join their ZyncJobs team as a <strong>${role || 'Recruiter'}</strong>.
-        </p>
-        ${infoBox(`
-          <table cellpadding="0" cellspacing="0" width="100%">
-            <tr><td style="padding:4px 0;width:100px;"><span style="color:#6B7280;font-size:13px;">Your Role</span></td><td style="padding:4px 0;"><strong style="color:#1F2937;font-size:14px;">${role || 'Recruiter'}</strong></td></tr>
-            <tr><td style="padding:4px 0;"><span style="color:#6B7280;font-size:13px;">Permissions</span></td><td style="padding:4px 0;"><span style="color:#4B5563;font-size:13px;">${rolePermissions[role || 'Recruiter']}</span></td></tr>
-          </table>
-        `)}
-        <p style="color:#4B5563;font-size:14px;line-height:1.7;margin:0 0 24px;">Click the button below to accept your invitation. You'll be automatically signed in.</p>
-        ${divider()}
-        <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Accept Invitation', inviteLink)}
-        </div>
-        <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:0;">Or copy this link: <a href="${inviteLink}" style="color:#5C6BC8;word-break:break-all;font-size:11px;">${inviteLink}</a></p>
-        <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:8px 0 0;">This link expires after use. If you did not expect this, ignore this email.</p>
-      </div>`;
+            <!-- Credential Card -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#1e3a8a;border-radius:12px;overflow:hidden;margin-bottom:24px;">
+              <tr>
+                <td style="padding:20px 24px;">
+                  <p style="color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:1px;margin:0 0 16px;text-transform:uppercase;">🔐 Your Login Credentials</p>
+                  
+                  <table width="100%" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="background:rgba(255,255,255,0.1);border-radius:8px;padding:12px 16px;margin-bottom:8px;">
+                        <p style="color:#93c5fd;font-size:10px;font-weight:700;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Login URL</p>
+                        <p style="color:#ffffff;font-size:14px;margin:0;font-family:monospace;background:rgba(255,255,255,0.2);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.3);"><a href="${loginUrl}" style="color:#00d4ff;text-decoration:underline;font-weight:bold;">${loginUrl}</a></p>
+                      </td>
+                    </tr>
+                    <tr><td style="height:8px;"></td></tr>
+                    <tr>
+                      <td style="background:rgba(255,255,255,0.1);border-radius:8px;padding:12px 16px;">
+                        <p style="color:#93c5fd;font-size:10px;font-weight:700;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Email</p>
+                        <p style="color:#ffffff;font-size:14px;margin:0;font-family:monospace;background:rgba(255,255,255,0.2);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.3);"><a href="mailto:${memberEmail}" style="color:#00d4ff;text-decoration:underline;font-weight:bold;">${memberEmail}</a></p>
+                      </td>
+                    </tr>
+                    <tr><td style="height:8px;"></td></tr>
+                    <tr>
+                      <td style="background:rgba(255,255,255,0.15);border-radius:8px;padding:12px 16px;border:1px solid rgba(255,255,255,0.2);">
+                        <p style="color:#93c5fd;font-size:10px;font-weight:700;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Password</p>
+                        <p style="color:#fbbf24;font-size:16px;margin:0;font-family:monospace;font-weight:700;letter-spacing:2px;">${tempPassword}</p>
+                      </td>
+                    </tr>
+                    <tr><td style="height:8px;"></td></tr>
+                    <tr>
+                      <td style="background:rgba(255,255,255,0.1);border-radius:8px;padding:12px 16px;">
+                        <p style="color:#93c5fd;font-size:10px;font-weight:700;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Your Role & Access</p>
+                        <p style="color:#fff;font-size:13px;margin:0;">${role || 'Recruiter'} — ${rolePermissions[role || 'Recruiter']}</p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <!-- Security Note -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;margin-bottom:24px;">
+              <tr>
+                <td style="padding:12px 16px;">
+                  <p style="color:#92400e;font-size:13px;margin:0;">⚠️ <strong>Security:</strong> Please change your password after your first login. Do not share these credentials with anyone.</p>
+                </td>
+              </tr>
+            </table>
+
+            <p style="color:#6b7280;font-size:13px;margin:0;">If you have any questions, contact your team owner at <a href="mailto:${ownerEmail}" style="color:#2563eb;">${ownerEmail}</a></p>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="background:#f9fafb;padding:20px 40px;text-align:center;border-top:1px solid #e5e7eb;">
+            <p style="color:#9ca3af;font-size:12px;margin:0;">© 2025 ZyncJobs. All rights reserved.</p>
+            <p style="color:#9ca3af;font-size:11px;margin:4px 0 0;">This email was sent because you were added to a team on ZyncJobs.</p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 
     try {
       const transporter = createTransporter();
-      await transporter.sendMail({
+      const emailResult = await transporter.sendMail({
         from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
         to: memberEmail,
-        subject: `You've been invited to join ${companyName || employerId} on ZyncJobs`,
-        html: baseTemplate(teamInviteContent, `You've been invited to join ${companyName || employerId} on ZyncJobs`)
+        subject: `Your ZyncJobs Login Credentials – ${companyName || employerId}`,
+        html: credentialsEmailHtml
       });
-      console.log(`✅ Invitation email sent to ${memberEmail}`);
+      console.log(`✅ Credentials email sent successfully to ${memberEmail}`);
+      console.log(`📧 Email details:`, {
+        messageId: emailResult.messageId,
+        accepted: emailResult.accepted,
+        rejected: emailResult.rejected
+      });
     } catch (emailError) {
-      console.warn('⚠️ Email failed, but member created:', emailError.message);
+      console.error('❌ Credentials email failed:', {
+        error: emailError.message,
+        code: emailError.code,
+        command: emailError.command,
+        to: memberEmail,
+        smtp: {
+          host: process.env.SMTP_SERVER,
+          port: process.env.SMTP_PORT,
+          user: process.env.SMTP_EMAIL
+        }
+      });
     }
-
-    res.status(201).json({
+    
+    return res.status(201).json({
       ...member.toJSON(),
-      token: inviteToken,
-      inviteLink,
-      emailSent: true
+      tempPassword,
+      emailSent: true,
+      emailType: 'credentials'
     });
+
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -332,6 +489,59 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Member removed' });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// ── TEST EMAIL ROUTE (Remove after testing) ──────────────────────────
+router.post('/test-email', async (req, res) => {
+  try {
+    const { testEmail } = req.body;
+    
+    if (!testEmail) {
+      return res.status(400).json({ error: 'testEmail is required' });
+    }
+    
+    console.log(`🧪 Testing email to: ${testEmail}`);
+    console.log(`📧 SMTP Config:`, {
+      host: process.env.SMTP_SERVER,
+      port: process.env.SMTP_PORT,
+      user: process.env.SMTP_EMAIL,
+      hasPassword: !!process.env.SMTP_PASSWORD
+    });
+    
+    const transporter = createTransporter();
+    const result = await transporter.sendMail({
+      from: `"ZyncJobs Test" <${process.env.SMTP_EMAIL}>`,
+      to: testEmail,
+      subject: 'Test Email from ZyncJobs Backend',
+      html: `
+        <h1>✅ Email Test Successful!</h1>
+        <p>If you receive this email, your SMTP configuration is working correctly.</p>
+        <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+        <p><strong>From:</strong> ${process.env.SMTP_EMAIL}</p>
+        <p><strong>Server:</strong> ${process.env.SMTP_SERVER}:${process.env.SMTP_PORT}</p>
+      `
+    });
+    
+    console.log(`✅ Test email sent successfully!`, {
+      messageId: result.messageId,
+      accepted: result.accepted,
+      rejected: result.rejected
+    });
+    
+    res.json({ 
+      success: true, 
+      message: `Test email sent to ${testEmail}`,
+      messageId: result.messageId,
+      accepted: result.accepted
+    });
+  } catch (error) {
+    console.error('❌ Test email failed:', error);
+    res.status(500).json({ 
+      error: error.message,
+      code: error.code,
+      command: error.command
+    });
   }
 });
 
