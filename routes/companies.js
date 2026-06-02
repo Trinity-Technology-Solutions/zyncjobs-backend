@@ -956,9 +956,9 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Helper: find or create company record in DB by name
+// Helper: find company record in DB by id or name (no auto-create)
 const findOrCreateCompany = async (companyId) => {
-  let company = await Company.findOne({ 
+  return Company.findOne({ 
     where: {
       [Op.or]: [
         { id: companyId },
@@ -966,14 +966,6 @@ const findOrCreateCompany = async (companyId) => {
       ]
     }
   }).catch(() => null);
-  
-  if (!company) {
-    company = await Company.create({ 
-      name: companyId, 
-      followers: [] 
-    }).catch(() => null);
-  }
-  return company;
 };
 
 // GET /api/companies/:id/follow-status
