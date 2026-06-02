@@ -463,12 +463,7 @@ router.post('/', maxJobsGuard, [
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {
-<<<<<<< HEAD
     const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary'];
-    // Handle both array and string inputs
-=======
-    const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship'];
->>>>>>> c63d49b974d7fd548e2909987646e8ac0cdd9a84
     const types = Array.isArray(val) ? val : [val];
     if (!types.length) throw new Error('Job type is required');
     if (!types.every(t => valid.includes(t))) throw new Error('Invalid job type');
