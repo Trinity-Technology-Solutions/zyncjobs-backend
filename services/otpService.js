@@ -1,17 +1,19 @@
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+import { baseTemplate, divider } from './emailTemplates.js';
 
 dotenv.config();
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_SERVER,
-  port: process.env.SMTP_PORT,
+const getTransporter = () => nodemailer.createTransport({
+  host: process.env.SMTP_SERVER || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT) || 587,
   secure: false,
   auth: {
-    user: process.env.SMTP_EMAIL,
+    user: process.env.SMTP_EMAIL || process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD
-  }
+  },
+  tls: { rejectUnauthorized: false }
 });
 
 // In-memory OTP storage (use Redis in production)
@@ -62,7 +64,7 @@ export const sendOTPEmail = async (email, name, userType) => {
     const otp = generateOTP();
     storeOTP(email, otp);
 
-    const { baseTemplate, ctaButton, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const transporter = getTransporter();
 
     const digits = otp.split('').map(d =>
       `<span style="display:inline-block;width:44px;height:52px;line-height:52px;text-align:center;background:#F5F3FF;border:2px solid #4F46E5;border-radius:10px;color:#4F46E5;font-size:26px;font-weight:800;margin:0 4px;font-family:'Courier New',monospace;">${d}</span>`
@@ -98,8 +100,10 @@ export const sendOTPEmail = async (email, name, userType) => {
         <p style="color:#9CA3AF;font-size:13px;text-align:center;margin:0;">Didn't request this? You can safely ignore this email.</p>
       </div>`;
 
+    const fromEmail = process.env.SMTP_EMAIL || process.env.SMTP_USER;
     await transporter.sendMail({
-      from: `"ZyncJobs" <${process.env.SMTP_EMAIL}>`,
+      from: `"ZyncJobs" <${fromEmail}>`,
+      replyTo: fromEmail,
       to: email,
       subject: `${otp} is your ZyncJobs verification code`,
       html: baseTemplate(content, `Your ZyncJobs OTP is ${otp}. Valid for 10 minutes.`)
