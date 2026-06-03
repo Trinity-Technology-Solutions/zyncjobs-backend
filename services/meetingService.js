@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { google } from 'googleapis';
 import { sequelize } from '../config/postgresql.js';
+import crypto from 'crypto';
 
 class MeetingService {
   constructor() {
@@ -47,19 +48,9 @@ class MeetingService {
       // Check if Zoom credentials are configured
       if (!this.zoomConfig.accountId || !this.zoomConfig.clientId || !this.zoomConfig.clientSecret) {
         console.warn('Zoom credentials not configured, generating instant Zoom link');
-        // Generate a valid-format Zoom personal meeting room link
-        const meetingId = Math.floor(10000000000 + Math.random() * 89999999999).toString();
-        const pwd = Math.random().toString(36).substring(2, 10);
         return {
-          success: true,
-          fallback: true,
-          meeting: {
-            platform: 'zoom',
-            meetingId,
-            join_url: `https://zoom.us/j/${meetingId}?pwd=${pwd}`,
-            password: pwd
-          },
-          message: 'Zoom credentials not configured. Please add ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET to .env for real meetings.'
+          success: false,
+          error: 'Zoom credentials not configured. Please add ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET to .env'
         };
       }
 
@@ -109,20 +100,9 @@ class MeetingService {
     } catch (error) {
       console.error('Error creating Zoom meeting:', error.response?.data || error.message);
       
-      // Generate fallback link on error
-      const fallbackId = Math.floor(10000000000 + Math.random() * 89999999999).toString();
-      const fallbackPwd = Math.random().toString(36).substring(2, 10);
-      
       return {
-        success: true,
-        fallback: true,
-        meeting: {
-          platform: 'zoom',
-          meetingId: fallbackId,
-          join_url: `https://zoom.us/j/${fallbackId}?pwd=${fallbackPwd}`,
-          password: fallbackPwd
-        },
-        message: 'Using fallback Zoom link due to API error'
+        success: false,
+        error: 'Failed to create Zoom meeting: ' + (error.response?.data?.message || error.message)
       };
     }
   }
@@ -179,7 +159,7 @@ class MeetingService {
         end: { dateTime: endTime, timeZone: 'UTC' },
         conferenceData: {
           createRequest: {
-            requestId: `zyncjobs-${Date.now()}`,
+            requestId: crypto.randomUUID(),
             conferenceSolutionKey: { type: 'hangoutsMeet' }
           }
         },
@@ -210,23 +190,6 @@ class MeetingService {
       console.error('Error creating Google Meet:', error?.message || error);
       // By default, do not return fabricated meet links. Offer an explicit error back to caller.
       // If you need legacy fallback behavior, set environment variable `ALLOW_FALLBACK_MEET=true`.
-      if (process.env.ALLOW_FALLBACK_MEET === 'true') {
-        const part = (len) => Array.from({length: len}, () => 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]).join('');
-        const roomCode = `${part(3)}-${part(4)}-${part(3)}`;
-        const meetLink = `https://meet.google.com/${roomCode}`;
-        return {
-          success: true,
-          fallback: true,
-          meeting: {
-            platform: 'googlemeet',
-            meetingId: roomCode,
-            meetLink,
-            join_url: meetLink
-          },
-          message: 'Using fallback Meet link due to API error (ALLOW_FALLBACK_MEET=true)'
-        };
-      }
-
       return {
         success: false,
         error: 'Failed to create Google Meet: ' + (error?.message || String(error))

@@ -7,7 +7,7 @@ dotenv.config();
 // In-memory OTP storage (in production, use Redis or database)
 const otpStorage = new Map();
 
-const createTransporter = () => nodemailer.createTransporter({
+const createTransporter = () => nodemailer.createTransport({
   host: process.env.SMTP_SERVER,
   port: parseInt(process.env.SMTP_PORT || '587'),
   secure: false,
@@ -105,20 +105,26 @@ export class TeamOTPService {
 </body>
 </html>`;
 
-      const transporter = createTransporter();
-      await transporter.sendMail({
-        from: `"ZyncJobs Security" <${process.env.SMTP_EMAIL}>`,
-        to: ownerEmail,
-        subject: `🔐 Team Login Verification - ${memberName} (${companyName})`,
-        html: otpEmailHtml
-      });
-      
-      console.log(`✅ OTP sent to company owner: ${ownerEmail} for team member: ${teamMemberEmail}`);
+      try {
+        const transporter = createTransporter();
+        await transporter.sendMail({
+          from: `"ZyncJobs Security" <${process.env.SMTP_EMAIL}>`,
+          to: ownerEmail,
+          subject: `🔐 Team Login Verification - ${memberName} (${companyName})`,
+          html: otpEmailHtml
+        });
+        console.log(`✅ OTP sent to company owner: ${ownerEmail} for team member: ${teamMemberEmail}`);
+      } catch (emailError) {
+        console.error('❌ OTP email failed:', emailError.message);
+        otpStorage.delete(teamMemberEmail.toLowerCase());
+        throw new Error('Failed to send verification code to company owner');
+      }
+
       return { success: true, message: 'OTP sent to company owner', expiresIn: 300 };
-      
+
     } catch (error) {
-      console.error('❌ Failed to send team member OTP:', error);
-      throw new Error('Failed to send verification code');
+      console.error('❌ Failed to generate team member OTP:', error);
+      throw error;
     }
   }
   

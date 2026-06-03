@@ -33,6 +33,7 @@ const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)`,
   `CREATE INDEX IF NOT EXISTS idx_users_role ON users (role)`,
   `CREATE INDEX IF NOT EXISTS idx_users_isActive ON users ("isActive")`,
+  `CREATE INDEX IF NOT EXISTS idx_users_status ON users (status)`,
   // applications
   `CREATE INDEX IF NOT EXISTS idx_applications_jobId ON applications ("jobId")`,
   `CREATE INDEX IF NOT EXISTS idx_applications_candidateId ON applications ("candidateId")`,
@@ -266,6 +267,24 @@ const applyIndexes = async () => {
     console.log('✅ users.verificationStatus column verified');
   } catch (e) {
     console.warn('⚠️  users verificationStatus migration warning:', e.message);
+  }
+
+  // Add status column to users if missing
+  try {
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_users_status') THEN
+          CREATE TYPE enum_users_status AS ENUM ('active','suspended','deleted');
+        END IF;
+      END $$;
+    `);
+    await sequelize.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS status enum_users_status NOT NULL DEFAULT 'active';
+    `);
+    console.log('✅ users.status column verified');
+  } catch (e) {
+    console.warn('⚠️  users.status migration warning:', e.message);
   }
 
   for (const sql of INDEXES) {

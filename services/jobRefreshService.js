@@ -59,12 +59,22 @@ class JobRefreshService {
       }
 
       const now = new Date();
-      await job.update({
-        refreshCount: job.refreshCount + 1,
-        lastRefreshedAt: now,
-        originalPostedAt: job.originalPostedAt || job.createdAt,
-        updatedAt: now
-      });
+      await job.update(
+        {
+          refreshCount: job.refreshCount + 1,
+          lastRefreshedAt: now,
+          originalPostedAt: job.originalPostedAt || job.createdAt,
+          updatedAt: now
+        },
+        { silent: false }
+      );
+      // Force updatedAt via raw query so Sequelize doesn't ignore it
+      await job.sequelize.query(
+        `UPDATE jobs SET "updatedAt" = :now WHERE id = :id`,
+        { replacements: { now, id: job.id } }
+      );
+      // Reload to get the actual DB values (raw SQL above won't update the instance)
+      await job.reload();
 
       this.clearJobCaches();
       console.log(`✅ Job ${job.id} refreshed. Count: ${job.refreshCount}`);

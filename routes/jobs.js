@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import Company from '../models/Company.js';
-import { Op } from 'sequelize';
+import { Op, literal } from 'sequelize';
 import { requireRole, requirePermission, PERMISSIONS, requireTeamRole } from '../middleware/roleAuth.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { mistralDetector } from '../utils/mistralJobDetector.js';
@@ -282,7 +282,7 @@ router.get('/', async (req, res) => {
     
     const jobs = await Job.findAll({
       where,
-      order: [['createdAt', 'DESC']],
+      order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']],
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
@@ -316,7 +316,7 @@ router.get('/employer/:employerId', async (req, res) => {
         isActive: true,
         status: { [Op.in]: ['approved', 'pending'] }
       },
-      order: [['createdAt', 'DESC']]
+      order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']]
     });
     const jobsWithLogos = jobs.map(job => {
       const jobJson = job.toJSON();
@@ -340,7 +340,7 @@ router.get('/employer/email/:email', async (req, res) => {
         isActive: true,
         status: { [Op.in]: ['approved', 'pending'] }
       },
-      order: [['createdAt', 'DESC']]
+      order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']]
     });
     
     const jobsWithLogos = jobs.map(job => {
@@ -388,7 +388,7 @@ router.get('/search/query', async (req, res) => {
 
     const jobs = await Job.findAll({
       where,
-      order: [['createdAt', 'DESC']],
+      order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']],
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
@@ -432,7 +432,7 @@ router.get('/search', async (req, res) => {
 
     const jobs = await Job.findAll({
       where,
-      order: [['createdAt', 'DESC']],
+      order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']],
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
@@ -454,6 +454,33 @@ router.get('/search', async (req, res) => {
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/jobs/bulk-refresh - Refresh multiple jobs (must be before /:id routes)
+router.post('/bulk-refresh', async (req, res) => {
+  try {
+    const { jobIds, userPlan = 'free' } = req.body;
+    const result = await JobRefreshService.refreshMultipleJobs(jobIds, userPlan);
+    res.json(result);
+  } catch (error) {
+    console.error('Error in bulk refresh endpoint:', error);
+    res.status(500).json({ success: false, message: error.message, code: 'INTERNAL_ERROR' });
+  }
+});
+
+// GET /api/jobs/refresh/analytics - Get refresh analytics (must be before /:id routes)
+router.get('/refresh/analytics', async (req, res) => {
+  try {
+    const { employerEmail, userPlan = 'free' } = req.query;
+    if (!employerEmail) {
+      return res.status(400).json({ success: false, message: 'Employer email is required', code: 'MISSING_EMAIL' });
+    }
+    const result = await JobRefreshService.getRefreshAnalytics(employerEmail, userPlan);
+    res.json(result);
+  } catch (error) {
+    console.error('Error in refresh analytics endpoint:', error);
+    res.status(500).json({ success: false, message: error.message, code: 'INTERNAL_ERROR' });
   }
 });
 
@@ -491,7 +518,7 @@ router.post('/', maxJobsGuard, [
       if (user) await user.update({ employerId });
     }
 
-    const resolvedEmployerEmail = ownerEmail;
+    const resolvedEmployerEmail = employerEmail;
 
     const jobData = { ...req.body };
 
@@ -547,21 +574,13 @@ router.post('/', maxJobsGuard, [
     const autoCategory = jobData.jobCategory || getCategoryFromTitle(jobData.jobTitle);
     
     // Explicitly construct the job creation object to avoid any spread issues
-    // Auto-link to Company table
+    // Auto-link to Company table (only if company already exists — no auto-create)
     let companyId = null;
     try {
       const companyName = jobData.company?.trim();
       if (companyName) {
-        let company = await Company.findOne({ where: { name: { [Op.iLike]: companyName } } });
-        if (!company) {
-          company = await Company.create({
-            name: companyName,
-            logo: getCompanyLogo(companyName) || '',
-            createdBy: resolvedEmployerEmail,
-            followers: []
-          });
-        }
-        companyId = company.id;
+        const company = await Company.findOne({ where: { name: { [Op.iLike]: companyName } } });
+        if (company) companyId = company.id;
       }
     } catch (e) {
       console.warn('Company auto-link failed:', e.message);
@@ -757,23 +776,6 @@ router.post('/:id/refresh', async (req, res) => {
   }
 });
 
-// POST /api/jobs/bulk-refresh - Refresh multiple jobs
-router.post('/bulk-refresh', async (req, res) => {
-  try {
-    const { jobIds, userPlan = 'free' } = req.body;
-    const result = await JobRefreshService.refreshMultipleJobs(jobIds, userPlan);
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Error in bulk refresh endpoint:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-      code: 'INTERNAL_ERROR'
-    });
-  }
-});
-
 // GET /api/jobs/:id/refresh-status - Get refresh status for a job
 router.get('/:id/refresh-status', async (req, res) => {
   try {
@@ -790,31 +792,6 @@ router.get('/:id/refresh-status', async (req, res) => {
     console.error('Error in refresh status endpoint:', error);
     res.status(500).json({ 
       success: false, 
-      message: error.message,
-      code: 'INTERNAL_ERROR'
-    });
-  }
-});
-
-// GET /api/jobs/refresh/analytics - Get refresh analytics for employer
-router.get('/refresh/analytics', async (req, res) => {
-  try {
-    const { employerEmail, userPlan = 'free' } = req.query;
-    
-    if (!employerEmail) {
-      return res.status(400).json({
-        success: false,
-        message: 'Employer email is required',
-        code: 'MISSING_EMAIL'
-      });
-    }
-    
-    const result = await JobRefreshService.getRefreshAnalytics(employerEmail, userPlan);
-    res.json(result);
-  } catch (error) {
-    console.error('Error in refresh analytics endpoint:', error);
-    res.status(500).json({
-      success: false,
       message: error.message,
       code: 'INTERNAL_ERROR'
     });
