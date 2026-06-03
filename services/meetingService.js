@@ -56,7 +56,10 @@ class MeetingService {
 
       const accessToken = await this.getZoomAccessToken();
       
-      const startTime = meetingData.start_time || new Date(Date.now() + 60000).toISOString();
+      // Normalize start_time — datetime-local sends '2025-07-01T10:00', Zoom needs full ISO
+      let rawStart = meetingData.start_time || new Date(Date.now() + 60000).toISOString();
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(rawStart)) rawStart += ':00';
+      const startTime = new Date(rawStart).toISOString();
       
       const zoomMeetingData = {
         topic: meetingData.topic || 'Interview Meeting',
@@ -149,7 +152,11 @@ class MeetingService {
       const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
       // Create calendar event with Google Meet
-      const startTime = meetingData.start_time || new Date(Date.now() + 60000).toISOString();
+      // Normalize start_time to full ISO string (Google Calendar API requires it)
+      let rawStart = meetingData.start_time || new Date(Date.now() + 60000).toISOString();
+      // If it's a partial datetime-local string like '2025-07-01T10:00', append seconds
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(rawStart)) rawStart += ':00';
+      const startTime = new Date(rawStart).toISOString();
       const endTime = new Date(new Date(startTime).getTime() + (meetingData.duration || 60) * 60000).toISOString();
 
       const event = {
