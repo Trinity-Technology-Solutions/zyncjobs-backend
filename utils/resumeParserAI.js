@@ -1,4 +1,13 @@
 import axios from 'axios';
+import crypto from 'crypto';
+
+// In-memory cache: hash → { result, expires }
+const parseCache = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+function hashText(text) {
+  return crypto.createHash('sha256').update(text).digest('hex');
+}
 
 export class ResumeParserAI {
   constructor() {
@@ -19,6 +28,14 @@ export class ResumeParserAI {
   }
 
   async parseResumeToProfile(resumeText) {
+    // Check cache first — same resume text returns instantly
+    const cacheKey = hashText(resumeText);
+    const cached = parseCache.get(cacheKey);
+    if (cached && Date.now() < cached.expires) {
+      console.log('[RESUME_AI] Cache hit — skipping AI call');
+      return cached.result;
+    }
+
     if (!this.apiKey) {
       console.error('[RESUME_AI] OPENROUTER_API_KEY is not set');
       return this.getFallbackParsing(resumeText);
@@ -131,7 +148,9 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
       }
 
       console.log('[RESUME_AI] Raw AI response:', content.substring(0, 300));
-      return this.parseAIResponse(content, resumeText, preExtracted);
+      const result = this.parseAIResponse(content, resumeText, preExtracted);
+      parseCache.set(cacheKey, { result, expires: Date.now() + CACHE_TTL });
+      return result;
     } catch (error) {
       console.error('[RESUME_AI] OpenRouter call failed:', error.response?.data || error.message);
       return this.getFallbackParsing(resumeText);

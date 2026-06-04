@@ -1,13 +1,29 @@
 import AWS from 'aws-sdk';
 import crypto from 'crypto';
 
-const s3 = new AWS.S3({ region: process.env.AWS_REGION || 'ap-south-1' });
+// Force path-style so SDK never generates dotted virtual-hosted URLs
+// (*.s3.amazonaws.com wildcard cert doesn't cover bucket names with dots like zyncjobs.com)
+const s3 = new AWS.S3({
+  region: process.env.AWS_REGION || 'ap-south-1',
+  s3ForcePathStyle: true,
+});
 const BUCKET = process.env.S3_BUCKET || 'zyncjobs.com';
+
+// Extract S3 key from any S3 URL format (virtual-hosted or path-style)
+function extractS3Key(fileUrl) {
+  const url = new URL(fileUrl);
+  // path-style: s3.amazonaws.com/bucket/key  → pathname = /bucket/key
+  if (url.hostname === 's3.amazonaws.com' || url.hostname.startsWith('s3.') && !url.hostname.includes(BUCKET)) {
+    return decodeURIComponent(url.pathname.replace(`/${BUCKET}/`, '/').slice(1));
+  }
+  // virtual-hosted: bucket.s3.region.amazonaws.com/key → pathname = /key
+  return decodeURIComponent(url.pathname.slice(1));
+}
 
 export async function uploadResumeToS3(buffer, originalName) {
   const key = `resumes/${Date.now()}-${originalName.replace(/\s+/g, '_')}`;
   await s3.upload({ Bucket: BUCKET, Key: key, Body: buffer }).promise();
-  return `https://${BUCKET}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`;
+  return `https://s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${BUCKET}/${key}`;
 }
 
 // Hash-based upload for talent resumes — same file always gets same S3 key, no duplicates
@@ -23,7 +39,7 @@ export async function uploadTalentResumeToS3(buffer, originalName, fileHash) {
     await s3.headObject({ Bucket: BUCKET, Key: key }).promise();
     console.log(`[S3] Talent resume already exists, skipping upload: ${key}`);
     return {
-      fileUrl: `https://${BUCKET}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`,
+      fileUrl: `https://s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${BUCKET}/${key}`,
       fileHash: hash,
       alreadyExists: true
     };
@@ -34,7 +50,7 @@ export async function uploadTalentResumeToS3(buffer, originalName, fileHash) {
   await s3.upload({ Bucket: BUCKET, Key: key, Body: buffer }).promise();
   console.log(`[S3] Talent resume uploaded: ${key}`);
   return {
-    fileUrl: `https://${BUCKET}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${key}`,
+    fileUrl: `https://s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${BUCKET}/${key}`,
     fileHash: hash,
     alreadyExists: false
   };
@@ -42,21 +58,18 @@ export async function uploadTalentResumeToS3(buffer, originalName, fileHash) {
 
 export async function deleteResumeFromS3(fileUrl) {
   try {
-    const url = new URL(fileUrl);
-    const key = url.pathname.slice(1);
+    const key = extractS3Key(fileUrl);
     await s3.deleteObject({ Bucket: BUCKET, Key: key }).promise();
   } catch (_) {}
 }
 
 export function getSignedResumeUrl(fileUrl, expires = 60) {
-  const url = new URL(fileUrl);
-  const key = url.pathname.slice(1);
+  const key = extractS3Key(fileUrl);
   return s3.getSignedUrl('getObject', { Bucket: BUCKET, Key: key, Expires: expires });
 }
 
 export async function getResumeStreamFromS3(fileUrl) {
-  const url = new URL(fileUrl);
-  const key = decodeURIComponent(url.pathname.slice(1));
+  const key = extractS3Key(fileUrl);
   console.log(`[S3] Streaming key: ${key}`);
   const head = await s3.headObject({ Bucket: BUCKET, Key: key }).promise();
   return {

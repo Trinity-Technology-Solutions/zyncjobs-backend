@@ -57,12 +57,21 @@ router.post('/save', async (req, res) => {
       }
       if (typeof updateFields.resume !== 'object') updateFields.resume = null;
     }
-    // TEXT fields must be strings (not objects/arrays)
-    const textFields = ['experience','education','certifications','employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','careerPreferences','educationCollege','educationClass12','educationClass10'];
-    textFields.forEach(f => {
+    // TEXT fields must be strings — but JSONB fields must stay as objects
+    const textOnlyFields = ['experience', 'education', 'certifications'];
+    textOnlyFields.forEach(f => {
       if (updateFields[f] !== undefined && updateFields[f] !== null) {
         if (typeof updateFields[f] !== 'string') {
           updateFields[f] = JSON.stringify(updateFields[f]);
+        }
+      }
+    });
+    // JSONB fields: ensure they are objects/arrays, not strings
+    const jsonbFields = ['employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','careerPreferences','educationCollege','educationClass12','educationClass10'];
+    jsonbFields.forEach(f => {
+      if (updateFields[f] !== undefined && updateFields[f] !== null) {
+        if (typeof updateFields[f] === 'string') {
+          try { updateFields[f] = JSON.parse(updateFields[f]); } catch { /* leave as-is */ }
         }
       }
     });
