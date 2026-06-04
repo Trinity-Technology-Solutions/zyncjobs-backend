@@ -52,37 +52,65 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
     const fileUrl = await uploadResumeToS3(req.file.buffer, req.file.originalname);
     console.log('☁️ Resume uploaded to S3:', fileUrl);
 
-    // Resolve userId from body or token
+    // Resolve userId and email from token or body
     let resolvedUserId = req.body.userId || null;
     let resolvedEmail = req.body.userEmail || null;
 
-    if (!resolvedUserId && req.headers.authorization) {
+    if (req.headers.authorization) {
       try {
-        const { verifyAccessToken } = await import('../utils/jwt.js');
+        const { verifyToken } = await import('../utils/jwt.js');
         const token = req.headers.authorization.replace('Bearer ', '');
-        const decoded = verifyAccessToken(token);
-        resolvedUserId = decoded?.userId || decoded?.id || null;
+        const decoded = verifyToken(token);
+        if (!resolvedUserId) resolvedUserId = decoded?.userId || decoded?.id || null;
         if (!resolvedEmail && resolvedUserId) {
-          const user = await User.findByPk(resolvedUserId);
+          const user = await User.findByPk(resolvedUserId, { attributes: ['email'] });
           resolvedEmail = user?.email || null;
         }
       } catch (_) {}
     }
 
-    if (resolvedUserId) {
-      await Resume.update({ isActive: false }, { where: { userId: resolvedUserId } });
-      await Resume.create({
-        userId: resolvedUserId,
-        email: resolvedEmail,
-        fileName: req.file.originalname,
-        fileUrl,
-        fileSize: req.file.size,
-        isActive: true,
-        status: 'approved'
-      });
-      await User.update({ resumeUrl: fileUrl }, { where: { id: resolvedUserId } });
-      console.log(`✅ Resume saved to DB for user ${resolvedUserId}`);
-      updateLastActive(resolvedUserId).catch(() => {});
+    const resumeData = {
+      fileName: req.file.originalname,
+      fileUrl,
+      fileSize: req.file.size,
+      isActive: true,
+      status: 'approved'
+    };
+
+    if (resolvedUserId || resolvedEmail) {
+      try {
+        if (resolvedUserId) {
+          await Resume.update({ isActive: false }, { where: { userId: resolvedUserId } });
+        } else if (resolvedEmail) {
+          await Resume.update({ isActive: false }, { where: { email: resolvedEmail } });
+        }
+        await Resume.create({ userId: resolvedUserId || null, email: resolvedEmail, ...resumeData });
+        if (resolvedUserId) {
+          await User.update({ resumeUrl: fileUrl }, { where: { id: resolvedUserId } });
+          updateLastActive(resolvedUserId).catch(() => {});
+        }
+        if (resolvedEmail && !resolvedUserId) {
+          await User.update({ resumeUrl: fileUrl }, { where: { email: resolvedEmail } });
+        }
+        console.log(`✅ Resume saved to DB for ${resolvedUserId || resolvedEmail}`);
+      } catch (dbErr) {
+        console.warn('⚠️ Resume DB save failed (non-critical):', dbErr.message);
+      }
+    }
+
+    // Also persist resumeUrl to Profile table (covers Google OAuth users with email only)
+    if (resolvedEmail) {
+      try {
+        const Profile = (await import('../models/Profile.js')).default;
+        const profile = await Profile.findOne({ where: { email: resolvedEmail } });
+        if (profile) {
+          await profile.update({ resumeUrl: fileUrl });
+        } else {
+          await Profile.create({ email: resolvedEmail, resumeUrl: fileUrl });
+        }
+      } catch (profileErr) {
+        console.warn('⚠️ Profile resumeUrl update skipped:', profileErr.message);
+      }
     }
 
     res.json({

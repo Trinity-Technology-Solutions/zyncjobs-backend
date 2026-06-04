@@ -100,7 +100,8 @@ router.get('/google/callback',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 7 * 24 * 60 * 60 * 1000
       });
-      const redirectUrl = `${frontendUrl}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}&accountRole=${userRole}`;
+      // Also pass refreshToken in URL so frontend can persist it in localStorage
+      const redirectUrl = `${frontendUrl}?token=${token}&refreshToken=${refreshToken}&portal=${portalType}&isNewUser=${isNewUser}&accountRole=${userRole}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error('❌ OAuth callback error:', error);
@@ -154,7 +155,7 @@ router.get('/linkedin/callback',
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 7 * 24 * 60 * 60 * 1000
       });
-      res.redirect(`${frontendUrl}?token=${token}&portal=${portalType}&isNewUser=${isNewUser}&linkedin=1`);
+      res.redirect(`${frontendUrl}?token=${token}&refreshToken=${refreshToken}&portal=${portalType}&isNewUser=${isNewUser}&linkedin=1`);
     } catch (error) {
       console.error('❌ LinkedIn callback error:', error);
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
