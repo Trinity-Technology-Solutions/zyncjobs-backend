@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import { body, validationResult } from 'express-validator';
 import multer from 'multer';
 import { Op } from 'sequelize';
@@ -56,26 +57,65 @@ router.get('/presigned', async (req, res) => {
   }
 });
 
+// GET /api/resume/proxy-download?email= — force-download resume (avoids SSL issues with dotted S3 bucket URLs)
+router.get('/proxy-download', async (req, res) => {
+  try {
+    const email = req.query.email;
+    if (!email) return res.status(400).json({ error: 'email query param required' });
+
+    const resume = await Resume.findOne({
+      where: { email: { [Op.iLike]: email } },
+      order: [['createdAt', 'DESC']]
+    });
+
+    let fileUrl = null;
+    let fileName = 'resume.pdf';
+    if (resume?.fileUrl && !PLACEHOLDERS.includes(resume.fileUrl)) {
+      fileUrl = resume.fileUrl;
+      fileName = resume.fileName || fileName;
+    } else {
+      const user = await User.findOne({ where: { email: { [Op.iLike]: email } } });
+      if (user?.resumeUrl && !PLACEHOLDERS.includes(user.resumeUrl)) fileUrl = user.resumeUrl;
+    }
+
+    if (!fileUrl) return res.status(404).json({ error: 'No resume found for this candidate.' });
+
+    const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
+    res.setHeader('Content-Type', contentType || 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+    stream.on('error', () => res.end());
+    stream.pipe(res);
+  } catch (error) {
+    console.error('[RESUME_PROXY_DOWNLOAD] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // In-memory storage for processing status (in production, use Redis or database)
 const processingJobs = new Map();
 
-// Configure multer for file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 5 * 1024 * 1024 // 5MB limit
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
+    const allowedMimes = [
       'application/pdf',
       'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/rtf',
+      'text/rtf',
+      'application/octet-stream' // .doc from some OS/browsers
     ];
-    
-    if (allowedTypes.includes(file.mimetype)) {
+    const allowedExts = ['.pdf', '.doc', '.docx', '.rtf'];
+    const ext = file.originalname ? '.' + file.originalname.split('.').pop().toLowerCase() : '';
+    if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF and DOC files are allowed'), false);
+      cb(new Error('Only PDF, DOC, DOCX, RTF files are allowed'), false);
     }
   }
 });
@@ -248,13 +288,14 @@ router.post('/upload-and-parse', upload.single('resume'), async (req, res) => {
     let resumeText = '';
     
     try {
-      if (req.file.mimetype === 'application/pdf') {
-        resumeText = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer);
-            console.log('[RESUME_UPLOAD] Extracted PDF text, length:', resumeText.length);
+      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      if (req.file.mimetype === 'application/pdf' || ext === '.pdf') {
+        resumeText = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer, req.file.originalname);
+        console.log('[RESUME_UPLOAD] Extracted PDF text, length:', resumeText.length);
         console.log('[RESUME_UPLOAD] First 500 chars:\n', resumeText.substring(0, 500));
       } else {
-        resumeText = req.file.buffer.toString('utf8');
-        console.log('[RESUME_UPLOAD] Extracted DOC text, length:', resumeText.length);
+        resumeText = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer, req.file.originalname);
+        console.log('[RESUME_UPLOAD] Extracted DOC/RTF text, length:', resumeText.length);
       }
     } catch (extractError) {
       console.error('[RESUME_UPLOAD] Text extraction failed:', extractError);
@@ -275,7 +316,14 @@ router.post('/upload-and-parse', upload.single('resume'), async (req, res) => {
     
     let profileData;
     try {
-      profileData = await resumeParserService.parseResumeText(resumeText);
+      // Wrap AI call in a 55s timeout so the backend doesn't hang after client disconnects
+      const parseWithTimeout = Promise.race([
+        resumeParserService.parseResumeText(resumeText),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('AI parsing timed out')), 55000)
+        )
+      ]);
+      profileData = await parseWithTimeout;
     } catch (parseError) {
       console.error('[RESUME_UPLOAD] AI parsing failed:', parseError);
       return res.status(500).json({ 

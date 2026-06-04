@@ -7,6 +7,28 @@ import Resume from '../models/Resume.js';
 import User from '../models/User.js';
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import { uploadResumeToS3, uploadTalentResumeToS3 } from '../services/s3Service.js';
+import pdfTextExtractor from '../services/pdfTextExtractor.js';
+
+// Skill keyword dictionary — mirrors frontend SKILL_GRAPH
+const SKILL_KEYWORDS = [
+  'javascript','typescript','react','angular','vue','python','java','c#','sql','nosql',
+  'mongodb','postgresql','mysql','aws','azure','gcp','docker','kubernetes','git','html',
+  'css','machine learning','devops','agile','php','ruby','go','swift','kotlin','node',
+  'nodejs','express','django','flask','spring','hibernate','redis','elasticsearch',
+  'graphql','rest','api','tensorflow','pytorch','bigquery','tableau','power bi','excel',
+  'figma','sketch','linux','bash','terraform','ansible','jenkins','sass','bootstrap',
+  'tailwind','nextjs','gatsby','fastapi','pandas','numpy','sap','salesforce','pega',
+  'data analysis','data analytics','machine learning','deep learning','artificial intelligence'
+];
+
+function extractSkillsFromText(text) {
+  if (!text) return [];
+  const lower = text.toLowerCase();
+  return SKILL_KEYWORDS.filter(skill => {
+    const escaped = skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, 'i').test(lower);
+  });
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -88,6 +110,23 @@ router.post('/resume', upload.single('resume'), async (req, res) => {
         if (resolvedUserId) {
           await User.update({ resumeUrl: fileUrl }, { where: { id: resolvedUserId } });
           updateLastActive(resolvedUserId).catch(() => {});
+
+          // Extract skills from resume and save to user profile
+          try {
+            const resumeText = await pdfTextExtractor.extractTextFromBuffer(
+              req.file.buffer, req.file.originalname
+            );
+            const extractedSkills = extractSkillsFromText(resumeText);
+            if (extractedSkills.length > 0) {
+              const user = await User.findByPk(resolvedUserId, { attributes: ['skills'] });
+              const existing = Array.isArray(user?.skills) ? user.skills : [];
+              const merged = [...new Set([...existing, ...extractedSkills])];
+              await User.update({ skills: merged }, { where: { id: resolvedUserId } });
+              console.log(`✅ Extracted ${extractedSkills.length} skills from resume for ${resolvedUserId}`);
+            }
+          } catch (skillErr) {
+            console.warn('⚠️ Skill extraction failed (non-critical):', skillErr.message);
+          }
         }
         if (resolvedEmail && !resolvedUserId) {
           await User.update({ resumeUrl: fileUrl }, { where: { email: resolvedEmail } });
