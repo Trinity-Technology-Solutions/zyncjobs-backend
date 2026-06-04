@@ -9,7 +9,7 @@ const Resume = sequelize.define('Resume', {
   },
   userId: {
     type: DataTypes.UUID,
-    allowNull: false
+    allowNull: true
   },
   email: DataTypes.STRING,
   fileName: DataTypes.STRING,

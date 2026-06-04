@@ -29,6 +29,7 @@ const Profile = sequelize.define('Profile', {
   securityClearance: DataTypes.STRING,
   employmentType: DataTypes.STRING,
   resume: DataTypes.JSONB,
+  resumeUrl: DataTypes.STRING,
   profilePhoto: DataTypes.STRING,
   profileFrame: DataTypes.STRING,
   coverPhoto: DataTypes.STRING,

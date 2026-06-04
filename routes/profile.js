@@ -29,7 +29,7 @@ router.post('/save', async (req, res) => {
     const updateFields = {};
     const fieldMap = [
       'name','phone','location','title','jobTitle','yearsExperience','skills','experience',
-      'education','certifications','workAuthorization','securityClearance','resume',
+      'education','certifications','workAuthorization','securityClearance','resume','resumeUrl',
       'profilePhoto','profileFrame','coverPhoto','profileSummary','employment','projects',
       'internships','languages','awards','clubsCommittees','competitiveExams',
       'academicAchievements','companyName','roleTitle','salary','jobType',
@@ -92,29 +92,31 @@ router.post('/save', async (req, res) => {
       console.log('✅ Profile created:', { id: profile.id, email });
     }
     
-    // Also update User collection with key fields (only if valid UUID)
-    if (isValidUUID) {
-      try {
-        const userUpdateData = {};
-        if (profileData.name) userUpdateData.name = profileData.name;
-        if (profileData.phone) userUpdateData.phone = profileData.phone;
-        if (profileData.location) userUpdateData.location = profileData.location;
-        if (profileData.title) userUpdateData.title = profileData.title;
-        if (profileData.skills) userUpdateData.skills = Array.isArray(profileData.skills) ? profileData.skills : (updateFields.skills || []);
-        if (profileData.profilePhoto) userUpdateData.profilePicture = profileData.profilePhoto;
-        if (profileData.resumeUrl !== undefined) userUpdateData.resumeUrl = profileData.resumeUrl || null;
-        if (profileData.resume !== undefined && profileData.resume === null) userUpdateData.resumeUrl = null;
-        if (profileData.companyName) {
-          userUpdateData.company = profileData.companyName;
-          userUpdateData.companyName = profileData.companyName;
-        }
-        if (Object.keys(userUpdateData).length > 0) {
-          await User.update(userUpdateData, { where: { id: userId } });
-          console.log('✅ User table also updated');
-        }
-      } catch (userUpdateErr) {
-        console.warn('⚠️ User table update skipped:', userUpdateErr.message);
+    // Also update User collection with key fields
+    try {
+      const userUpdateData = {};
+      if (profileData.name) userUpdateData.name = profileData.name;
+      if (profileData.phone) userUpdateData.phone = profileData.phone;
+      if (profileData.location) userUpdateData.location = profileData.location;
+      if (profileData.title) userUpdateData.title = profileData.title;
+      if (profileData.skills) userUpdateData.skills = Array.isArray(profileData.skills) ? profileData.skills : (updateFields.skills || []);
+      if (profileData.profilePhoto) userUpdateData.profilePicture = profileData.profilePhoto;
+      if (profileData.resumeUrl !== undefined) userUpdateData.resumeUrl = profileData.resumeUrl || null;
+      if (profileData.resume !== undefined && profileData.resume === null) userUpdateData.resumeUrl = null;
+      if (profileData.companyName) {
+        userUpdateData.company = profileData.companyName;
+        userUpdateData.companyName = profileData.companyName;
       }
+      if (Object.keys(userUpdateData).length > 0) {
+        if (isValidUUID) {
+          await User.update(userUpdateData, { where: { id: userId } });
+        } else if (email) {
+          await User.update(userUpdateData, { where: { email } });
+        }
+        console.log('✅ User table also updated');
+      }
+    } catch (userUpdateErr) {
+      console.warn('⚠️ User table update skipped:', userUpdateErr.message);
     }
     
     res.json({ success: true, profile });
