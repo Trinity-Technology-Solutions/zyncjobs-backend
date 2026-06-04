@@ -2,12 +2,10 @@ import express from 'express';
 import { Op } from 'sequelize';
 import Application from '../models/Application.js';
 import Job from '../models/Job.js';
-import { setCompanyContext } from '../middleware/companyContext.js';
 
 const router = express.Router();
 
-// Apply company context middleware to all dashboard routes
-router.use(setCompanyContext);
+// Note: setCompanyContext is NOT applied globally — dashboard stats are queried by employerEmail from query param
 
 // GET /api/dashboard/debug - Debug endpoint to check data
 router.get('/debug', async (req, res) => {
