@@ -499,7 +499,7 @@ router.post('/login', async (req, res) => {
 
     console.log('✅ Password valid for:', email);
 
-    // Load profile data from Profile collection
+    // Load full profile data from Profile collection
     let profileData = {};
     try {
       const Profile = (await import('../models/Profile.js')).default;
@@ -513,14 +513,54 @@ router.post('/login', async (req, res) => {
         }
       });
       if (profile) {
+        const p = profile.toJSON();
+        // Parse TEXT fields that store JSON
+        const jsonTextFields = [
+          'employment','projects','internships','languages','awards',
+          'clubsCommittees','competitiveExams','academicAchievements',
+          'careerPreferences','educationCollege','educationClass12','educationClass10'
+        ];
+        jsonTextFields.forEach(f => {
+          if (p[f] && typeof p[f] === 'string') {
+            try { p[f] = JSON.parse(p[f]); } catch { /* leave as-is */ }
+          }
+        });
         profileData = {
-          profilePhoto: profile.profilePhoto,
-          profileFrame: profile.profileFrame,
-          coverPhoto: profile.coverPhoto,
-          skills: profile.skills,
-          title: profile.title,
-          location: profile.location
+          profilePhoto: p.profilePhoto,
+          profileFrame: p.profileFrame,
+          coverPhoto: p.coverPhoto,
+          skills: p.skills,
+          title: p.title,
+          jobTitle: p.jobTitle,
+          location: p.location,
+          phone: p.phone,
+          name: p.name,
+          profileSummary: p.profileSummary,
+          employment: p.employment,
+          projects: p.projects,
+          internships: p.internships,
+          languages: p.languages,
+          awards: p.awards,
+          clubsCommittees: p.clubsCommittees,
+          competitiveExams: p.competitiveExams,
+          academicAchievements: p.academicAchievements,
+          careerPreferences: p.careerPreferences,
+          educationCollege: p.educationCollege,
+          educationClass12: p.educationClass12,
+          educationClass10: p.educationClass10,
+          resume: p.resume,
+          resumeUrl: p.resumeUrl,
+          gender: p.gender,
+          birthday: p.birthday,
+          openToWork: p.openToWork,
+          visibilityStatus: p.visibilityStatus,
+          profileVisibility: p.profileVisibility,
+          certifications: p.certifications,
         };
+        // Remove undefined/null keys so they don't overwrite good user data
+        Object.keys(profileData).forEach(k => {
+          if (profileData[k] === null || profileData[k] === undefined) delete profileData[k];
+        });
       }
     } catch (err) {
       console.log('Profile load error:', err.message);
@@ -570,24 +610,24 @@ router.post('/login', async (req, res) => {
     const resolvedCompany = teamMemberData?.companyName || user.companyName || user.company || '';
     const userResponse = {
       id: user.id,
-      name: user.name,
+      name: profileData.name || user.name,
       email: user.email,
       userType: user.role,
-      phone: user.phone,
+      phone: profileData.phone || user.phone,
       company: resolvedCompany,
       companyName: resolvedCompany,
       companyLogo: teamMemberData?.companyLogo || user.companyLogo,
       companyWebsite: teamMemberData?.companyWebsite || user.companyWebsite,
       employerId: teamMemberData?.employerId || user.employerId,
       employerOwnerId: teamMemberData?.employerOwnerId || user.employerOwnerId || null,
-      location: user.location,
+      location: profileData.location || user.location,
       verificationStatus: user.verificationStatus || 'verified',
       status: user.status || 'active',
-      profilePhoto: user.profilePicture || profileData.profilePhoto,
+      profilePhoto: profileData.profilePhoto || user.profilePicture,
       teamRole: teamMemberData?.teamRole || null,
-      ownerEmail: teamMemberData?.ownerEmail || null,  // owner's email for team members
-      isFirstLogin: user.isFirstLogin || false, // Flag for password change prompt
-      permissions: teamMemberData?.permissions || null, // Team member permissions
+      ownerEmail: teamMemberData?.ownerEmail || null,
+      isFirstLogin: user.isFirstLogin || false,
+      permissions: teamMemberData?.permissions || null,
       ...profileData
     };
 

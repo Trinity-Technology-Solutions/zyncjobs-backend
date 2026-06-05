@@ -29,7 +29,7 @@ function getSavedJobModel() {
       { unique: true, fields: ['userId', 'jobId'] }
     ]
   });
-  SavedJob.sync({ alter: false }).catch(() => SavedJob.sync({ force: false }));
+  SavedJob.sync({ force: false }).catch(e => console.warn('saved_jobs sync error:', e.message));
   return SavedJob;
 }
 
