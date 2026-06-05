@@ -1,4 +1,5 @@
 import express from 'express';
+import { ZipArchive } from 'archiver';
 import { body, validationResult } from 'express-validator';
 import { Op } from 'sequelize';
 import Application from '../models/Application.js';
@@ -537,11 +538,10 @@ router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
     const job = await Job.findByPk(jobId);
     const jobTitle = (job?.jobTitle || job?.title || 'job').replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_');
 
-    const { default: archiver } = await import('archiver');
-    const { default: path } = await import('path');
+    const { default: pathModule } = await import('path');
     const { existsSync } = await import('fs');
 
-    const archive = archiver('zip', { zlib: { level: 6 } });
+    const archive = new ZipArchive({ zlib: { level: 6 } });
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${jobTitle}_resumes.zip"`);
@@ -558,7 +558,7 @@ router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
         } else {
           const localPath = fileUrl.startsWith('/')
             ? fileUrl
-            : path.join(process.cwd(), fileUrl.replace(/^\/api/, ''));
+            : pathModule.join(process.cwd(), fileUrl.replace(/^\/api/, ''));
           if (existsSync(localPath)) {
             archive.file(localPath, { name: entryName });
           }
