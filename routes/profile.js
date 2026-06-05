@@ -57,7 +57,7 @@ router.post('/save', async (req, res) => {
       }
       if (typeof updateFields.resume !== 'object') updateFields.resume = null;
     }
-    // TEXT fields must be strings — but JSONB fields must stay as objects
+    // TEXT fields must be strings — stringify if they're objects/arrays
     const textOnlyFields = ['experience', 'education', 'certifications'];
     textOnlyFields.forEach(f => {
       if (updateFields[f] !== undefined && updateFields[f] !== null) {
@@ -66,13 +66,15 @@ router.post('/save', async (req, res) => {
         }
       }
     });
-    // JSONB fields: ensure they are objects/arrays, not strings
-    const jsonbFields = ['employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','careerPreferences','educationCollege','educationClass12','educationClass10'];
-    jsonbFields.forEach(f => {
+    // Profile model stores these as TEXT (not JSONB) — must stringify before saving
+    const textJsonFields = ['employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','careerPreferences','educationCollege','educationClass12','educationClass10'];
+    textJsonFields.forEach(f => {
       if (updateFields[f] !== undefined && updateFields[f] !== null) {
-        if (typeof updateFields[f] === 'string') {
-          try { updateFields[f] = JSON.parse(updateFields[f]); } catch { /* leave as-is */ }
+        // If it's an object/array, stringify it
+        if (typeof updateFields[f] === 'object') {
+          updateFields[f] = JSON.stringify(updateFields[f]);
         }
+        // If it's already a string, leave as-is (might be pre-stringified JSON)
       }
     });
 
@@ -108,6 +110,7 @@ router.post('/save', async (req, res) => {
       if (profileData.phone) userUpdateData.phone = profileData.phone;
       if (profileData.location) userUpdateData.location = profileData.location;
       if (profileData.title) userUpdateData.title = profileData.title;
+      if (profileData.jobTitle) userUpdateData.title = profileData.jobTitle;
       if (profileData.skills) userUpdateData.skills = Array.isArray(profileData.skills) ? profileData.skills : (updateFields.skills || []);
       if (profileData.profilePhoto) userUpdateData.profilePicture = profileData.profilePhoto;
       if (profileData.resumeUrl !== undefined) userUpdateData.resumeUrl = profileData.resumeUrl || null;

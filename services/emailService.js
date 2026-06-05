@@ -466,7 +466,6 @@ export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, comp
             <tr><td style="padding:4px 0;width:80px;"><span style="color:#6B7280;font-size:13px;">Name</span></td><td style="padding:4px 0;"><strong style="color:#1F2937;font-size:14px;">${name}</strong></td></tr>
             <tr><td style="padding:4px 0;"><span style="color:#6B7280;font-size:13px;">Email</span></td><td style="padding:4px 0;"><a href="mailto:${email}" style="color:#4F46E5;font-size:14px;">${email}</a></td></tr>
             <tr><td style="padding:4px 0;"><span style="color:#6B7280;font-size:13px;">Phone</span></td><td style="padding:4px 0;"><strong style="color:#1F2937;font-size:14px;">${phone || 'Not provided'}</strong></td></tr>
-            ${resumeUrl && !resumeUrl.startsWith('uploads/') ? `<tr><td style="padding:4px 0;"><span style="color:#6B7280;font-size:13px;">Resume</span></td><td style="padding:4px 0;"><a href="${resumeUrl}" style="color:#4F46E5;font-size:14px;">View Resume</a></td></tr>` : ''}
           </table>
         `, '#059669')}
 
