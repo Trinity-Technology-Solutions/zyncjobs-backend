@@ -11,14 +11,16 @@ function hashText(text) {
 
 export class ResumeParserAI {
   constructor() {
-    this.apiKey = process.env.OPENROUTER_API_KEY;
-    this.model = 'meta-llama/llama-3.3-70b-instruct:free';
+    this.geminiApiKey = process.env.GEMINI_API_KEY;
+    this.openrouterApiKey = process.env.OPENROUTER_API_KEY;
   }
 
   // Pre-extract name/email/phone from raw text using regex (handles multi-column PDFs)
   preExtract(resumeText) {
+    // Email: standard pattern OR mailto prefix
     const emailMatch = resumeText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    const phoneMatch = resumeText.match(/(?:\+91[\s-]?)?[6-9]\d{9}|(?:\+\d{1,3}[\s-]?)?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{4}/);
+    // Phone: +91 followed by 10 digits, or standalone 10-digit Indian mobile (starts 6-9)
+    const phoneMatch = resumeText.match(/(?:\+91[\s-]?)?[6-9]\d{9}/);
     const name = this.extractNameFromText(resumeText);
     return {
       name: name || '',
@@ -27,8 +29,55 @@ export class ResumeParserAI {
     };
   }
 
+  buildPrompt(resumeText) {
+    return `Extract resume data from this text and return ONLY valid JSON. The text may be scrambled due to multi-column PDF extraction - use smart pattern matching.
+
+RESUME TEXT:
+${resumeText.slice(0, 4000)}
+
+EXTRACTION RULES:
+- name: Look for ALL CAPS or Title Case full name (2-4 words). Examples: "ANTHONY GEORGE AGIL", "John Smith". NOT job titles.
+- email: Find pattern like word@domain.com OR "mailto" prefix followed by text (e.g. "mailtoagilgeorge24" = email hint, look for actual email nearby)
+- phone: Find 10-digit number or +91 followed by digits. NEVER put a year range like "2023-2024" as phone.
+- location: City name only
+- title: Job designation like "Full Stack Developer", "Software Engineer"
+- skills: ALL technical skills, languages, frameworks mentioned
+- workExperiences: Jobs with company, title, dates
+- educations: Degrees with college name and year range
+- projects: Project names with descriptions
+- summary: Professional summary paragraph
+
+Return JSON:
+{"name":"","email":"","phone":"","location":"","country":"","title":"","summary":"","skills":[],"softSkills":[],"tools":[],"workExperiences":[{"jobTitle":"","company":"","date":"","descriptions":[]}],"educations":[{"degree":"","school":"","date":"","grade":""}],"projects":[{"name":"","description":""}],"certifications":[{"name":"","provider":"","date":""}],"competitions":[]}`;
+  }
+
+  async callGeminiFlash(prompt) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiApiKey}`;
+    const response = await axios.post(url, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
+    }, { timeout: 10000 });
+    return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  }
+
+  async callOpenRouterFallback(prompt) {
+    const response = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      { model: 'meta-llama/llama-3.3-70b-instruct:free', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 2000 },
+      {
+        headers: {
+          'Authorization': `Bearer ${this.openrouterApiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
+          'X-Title': 'ZyncJobs-Resume-Parser'
+        },
+        timeout: 15000
+      }
+    );
+    return response.data?.choices?.[0]?.message?.content || null;
+  }
+
   async parseResumeToProfile(resumeText) {
-    // Check cache first — same resume text returns instantly
     const cacheKey = hashText(resumeText);
     const cached = parseCache.get(cacheKey);
     if (cached && Date.now() < cached.expires) {
@@ -36,130 +85,42 @@ export class ResumeParserAI {
       return cached.result;
     }
 
-    if (!this.apiKey) {
-      console.error('[RESUME_AI] OPENROUTER_API_KEY is not set');
-      return this.getFallbackParsing(resumeText);
-    }
-
-    // Pre-extract critical fields before AI (handles multi-column/scrambled PDFs)
     const preExtracted = this.preExtract(resumeText);
     console.log('[RESUME_AI] Pre-extracted:', preExtracted);
 
-    const prompt = `You are an expert resume parser. Extract ALL information accurately from the resume text below and return ONLY a valid JSON object. No explanation, no markdown, no code blocks — just raw JSON.
+    const prompt = this.buildPrompt(resumeText);
+    let content = null;
 
-RESUME TEXT:
-${resumeText.substring(0, 5000)}
-
-IMPORTANT RULES:
-- "name" must be the PERSON'S FULL NAME only — it is usually the largest/first text on the resume, often in ALL CAPS or Title Case (e.g. "AUGUSTIN F", "John Smith", "Priya Ramesh")
-- NEVER put a job title, role, or designation in "name" field (e.g. "Software Developer", "Data Analyst", "Vice President" are NOT names)
-- If the name appears in ALL CAPS like "AUGUSTIN F" or "JOHN SMITH", still put it in "name" field as-is
-- "title" must be the job role/designation (e.g. "Software Developer", "Data Analyst") — NOT the person's name
-- Extract the EXACT email, phone as written
-- For location: extract the city name only (e.g. "Chennai", "Bangalore", "Mumbai")
-- For country: infer from city/address (e.g. Chennai → "India", London → "United Kingdom", New York → "United States")
-- For skills: extract ALL technical skills, programming languages, frameworks, tools mentioned
-- For workExperiences: extract ALL jobs with accurate dates
-- For educations: extract ALL degrees with school names and years
-
-Return this exact JSON structure (use empty string "" or empty array [] if not found):
-{
-  "name": "candidate full name",
-  "email": "email address",
-  "phone": "phone number with country code if present",
-  "location": "city name only",
-  "country": "country name inferred from city/address",
-  "title": "current or most recent job title",
-  "summary": "professional summary 2-3 lines",
-  "skills": ["skill1", "skill2"],
-  "softSkills": ["soft skill1"],
-  "tools": ["tool1", "tool2"],
-  "workExperiences": [
-    {
-      "jobTitle": "job title",
-      "company": "company name",
-      "date": "date range e.g. 04/2023 - 05/2023",
-      "descriptions": ["what they did"]
-    }
-  ],
-  "educations": [
-    {
-      "degree": "degree name e.g. B.Tech Information Technology",
-      "school": "college or school name",
-      "date": "year range e.g. 2021-2025",
-      "grade": "CGPA or percentage"
-    }
-  ],
-  "projects": [
-    {
-      "name": "project name",
-      "description": "what the project does"
-    }
-  ],
-  "certifications": [
-    {
-      "name": "certification name",
-      "provider": "provider e.g. Udemy, Coursera",
-      "date": "date"
-    }
-  ],
-  "competitions": ["competition name 1", "competition name 2"]
-}`;
-
-    try {
-      console.log('[RESUME_AI] Calling OpenRouter with model:', this.model);
-      
-      const freeModels = [
-        'openai/gpt-oss-120b:free',
-        'openai/gpt-oss-20b:free',
-        'nvidia/nemotron-3-super-120b-a12b:free',
-        'moonshotai/kimi-k2.6:free',
-        'google/gemma-4-31b-it:free',
-        'google/gemma-4-26b-a4b-it:free',
-        'nvidia/nemotron-3-nano-30b-a3b:free',
-        'nvidia/nemotron-nano-9b-v2:free',
-        'qwen/qwen3-next-80b-a3b-instruct:free',
-        'z-ai/glm-4.5-air:free',
-        'meta-llama/llama-3.3-70b-instruct:free',
-      ];
-
-      let content = null;
-      for (const model of freeModels) {
-        try {
-          const response = await axios.post(
-            'https://openrouter.ai/api/v1/chat/completions',
-            { model, messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 2000 },
-            {
-              headers: {
-                'Authorization': `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-                'X-Title': 'ZyncJobs-Resume-Parser'
-              },
-              timeout: 30000
-            }
-          );
-          content = response.data?.choices?.[0]?.message?.content;
-          if (content) { console.log('[RESUME_AI] Success with model:', model); break; }
-        } catch (modelErr) {
-          const status = modelErr.response?.status;
-          console.warn('[RESUME_AI] Model failed:', model, status || modelErr.message);
-          // On 429 just try next model immediately — no wait
-        }
+    // 1. Try Gemini 1.5 Flash first (fastest ~1-2s)
+    if (this.geminiApiKey) {
+      try {
+        console.log('[RESUME_AI] Trying Gemini 1.5 Flash...');
+        content = await this.callGeminiFlash(prompt);
+        if (content) console.log('[RESUME_AI] Gemini Flash success');
+      } catch (e) {
+        console.warn('[RESUME_AI] Gemini Flash failed:', e.message);
       }
-      if (!content) {
-        console.error('[RESUME_AI] All models failed or returned empty response');
-        return this.getFallbackParsing(resumeText);
-      }
+    }
 
-      console.log('[RESUME_AI] Raw AI response:', content.substring(0, 300));
-      const result = this.parseAIResponse(content, resumeText, preExtracted);
-      parseCache.set(cacheKey, { result, expires: Date.now() + CACHE_TTL });
-      return result;
-    } catch (error) {
-      console.error('[RESUME_AI] OpenRouter call failed:', error.response?.data || error.message);
+    // 2. Fallback to OpenRouter single model (no loop)
+    if (!content && this.openrouterApiKey) {
+      try {
+        console.log('[RESUME_AI] Falling back to OpenRouter...');
+        content = await this.callOpenRouterFallback(prompt);
+        if (content) console.log('[RESUME_AI] OpenRouter fallback success');
+      } catch (e) {
+        console.warn('[RESUME_AI] OpenRouter fallback failed:', e.message);
+      }
+    }
+
+    if (!content) {
+      console.error('[RESUME_AI] All AI providers failed — using fallback');
       return this.getFallbackParsing(resumeText);
     }
+
+    const result = this.parseAIResponse(content, resumeText, preExtracted);
+    parseCache.set(cacheKey, { result, expires: Date.now() + CACHE_TTL });
+    return result;
   }
 
   isLikelyName(str) {
@@ -202,16 +163,18 @@ Return this exact JSON structure (use empty string "" or empty array [] if not f
       // Always normalize ALL CAPS to Title Case
       if (name && name === name.toUpperCase()) name = toTitleCase(name);
 
-      // Use preExtracted email/phone if AI missed them (common in multi-column PDFs)
-      const email = parsed.email || preExtracted.email || '';
-      const phone = parsed.phone || preExtracted.phone || '';
+      // Always prefer preExtracted email/phone — regex is more reliable than AI on scrambled PDFs
+      const email = preExtracted.email || parsed.email || '';
+      const phone = preExtracted.phone || parsed.phone || '';
+      // Validate phone — reject year ranges, short numbers
+      const validPhone = /^[+\d][\d\s\-().]{7,}$/.test(phone) && !/^(19|20)\d{2}/.test(phone) ? phone : (preExtracted.phone || '');
 
       console.log('[RESUME_AI] Parsed successfully:', name, email);
 
       return {
         name,
         email,
-        phone,
+        phone: validPhone,
         location: parsed.location || '',
         country: parsed.country || '',
         title: parsed.title || '',
