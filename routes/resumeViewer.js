@@ -95,9 +95,10 @@ router.get('/download/:applicationId', async (req, res) => {
     const isS3 = fileUrl.includes('amazonaws.com');
 
     if (isS3) {
-      const { stream, contentType, contentLength } = await getResumeStreamFromS3(fileUrl);
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      const { stream, contentLength } = await getResumeStreamFromS3(fileUrl);
+      const pdfFileName = fileName.replace(/\.docx?$/i, '.pdf');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${pdfFileName}"`);
       res.setHeader('Cache-Control', 'no-store');
       if (contentLength) res.setHeader('Content-Length', contentLength);
       stream.on('error', (err) => { console.error('S3 stream error:', err.message); res.end(); });
