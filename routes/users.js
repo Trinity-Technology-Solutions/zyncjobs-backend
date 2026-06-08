@@ -610,7 +610,7 @@ router.post('/login', async (req, res) => {
     const resolvedCompany = teamMemberData?.companyName || user.companyName || user.company || '';
     const userResponse = {
       id: user.id,
-      name: profileData.name || user.name,
+      name: (['admin', 'super_admin'].includes(user.role) ? user.name : (profileData.name || user.name)),
       email: user.email,
       userType: user.role,
       phone: profileData.phone || user.phone,

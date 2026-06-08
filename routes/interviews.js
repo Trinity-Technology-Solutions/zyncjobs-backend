@@ -10,15 +10,18 @@ import NotificationService from '../services/notificationService.js';
 
 const router = express.Router();
 
+const isValidUUID = (val) =>
+  val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
 // GET /api/interviews - Get interviews for employer
 router.get('/', async (req, res) => {
   try {
     const { employerId, employerEmail } = req.query;
     
     const conditions = [];
-    if (employerId && employerId !== '' && !employerId.includes('@')) conditions.push({ employerId });
-    if (employerEmail && employerEmail !== '') conditions.push({ employerEmail });
     if (employerId && employerId.includes('@')) conditions.push({ employerEmail: employerId });
+    else if (isValidUUID(employerId)) conditions.push({ employerId });
+    if (employerEmail && employerEmail !== '') conditions.push({ employerEmail });
 
     if (conditions.length === 0) return res.json([]);
 
@@ -69,10 +72,14 @@ router.get('/my-interviews', async (req, res) => {
   try {
     const userId = req.user?.id || req.query.userId;
     
+    const orConditions = [];
+    if (isValidUUID(userId)) {
+      orConditions.push({ candidateId: userId }, { employerId: userId });
+    }
+    if (orConditions.length === 0) return res.json([]);
+
     const interviews = await Interview.findAll({
-      where: {
-        [Op.or]: [{ candidateId: userId }, { employerId: userId }]
-      },
+      where: { [Op.or]: orConditions },
       include: [
         { model: Job, attributes: ['jobTitle', 'title', 'company'] },
         { model: User, as: 'candidate', attributes: ['name', 'email'] },
