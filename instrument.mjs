@@ -7,8 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const envFile = process.env.NODE_ENV === 'qa' ? '.env.qa' : process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
-// dotenv.config({ path: envFile });
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, envFile) });
 
 if (process.env.SENTRY_DSN) {
   Sentry.init({
