@@ -469,6 +469,113 @@ router.post('/bulk-refresh', async (req, res) => {
   }
 });
 
+// POST /api/jobs/bulk - Create multiple jobs at once with queued processing
+router.post('/bulk', maxJobsGuard, async (req, res) => {
+  try {
+    const { jobs: jobsPayload, employerEmail: bulkEmployerEmail } = req.body;
+    if (!Array.isArray(jobsPayload) || jobsPayload.length === 0) {
+      return res.status(400).json({ error: 'jobs array is required' });
+    }
+    if (jobsPayload.length > 100) {
+      return res.status(400).json({ error: 'Maximum 100 jobs per bulk request' });
+    }
+
+    const employerEmail = bulkEmployerEmail || req.body.employerEmail || req.user?.email;
+    if (!employerEmail) return res.status(400).json({ error: 'employerEmail is required' });
+
+    let user = await User.findOne({ where: { email: employerEmail } });
+    let employerId = user?.employerId;
+    if (!employerId) {
+      employerId = await generateEmployerId();
+      if (user) await user.update({ employerId });
+    }
+
+    const results = [];
+    const DELAY_MS = 150; // throttle between inserts to avoid DB overload
+
+    for (const jobData of jobsPayload) {
+      try {
+        // Normalize
+        if (Array.isArray(jobData.jobType)) jobData.jobType = jobData.jobType[0] || 'Full-time';
+        const validExpLevels = ['Entry', 'Mid', 'Senior', 'Lead'];
+        if (!validExpLevels.includes(jobData.experienceLevel)) jobData.experienceLevel = 'Mid';
+        if (jobData.salary) {
+          jobData.salaryMin = jobData.salary.min;
+          jobData.salaryMax = jobData.salary.max;
+          jobData.currency = jobData.salary.currency || 'INR';
+          delete jobData.salary;
+        }
+        jobData.skills = normalizeArray(jobData.skills);
+        jobData.languages = normalizeArray(jobData.languages || []);
+
+        // Auto-link company
+        let companyId = null;
+        try {
+          const companyName = jobData.company?.trim();
+          if (companyName) {
+            const company = await Company.findOne({ where: { name: { [Op.iLike]: companyName } } });
+            if (company) companyId = company.id;
+          }
+        } catch { /* non-blocking */ }
+
+        const positionId = await generatePositionIdWithYear().catch(() => generatePositionId());
+
+        const job = await Job.create({
+          jobTitle: jobData.jobTitle,
+          company: jobData.company || jobData.companyName,
+          companyLogo: user?.companyLogo || null,
+          location: jobData.location || jobData.jobLocation || 'Remote',
+          jobType: jobData.jobType || 'Full-time',
+          description: formatDescriptionWithBullets(jobData.description || jobData.jobDescription || ''),
+          requirements: jobData.requirements || '',
+          responsibilities: jobData.responsibilities || '',
+          skills: jobData.skills,
+          salaryMin: jobData.salaryMin,
+          salaryMax: jobData.salaryMax,
+          currency: jobData.currency || 'INR',
+          experienceLevel: jobData.experienceLevel || 'Mid',
+          experienceRange: jobData.experienceRange || null,
+          jobCategory: jobData.jobCategory || getCategoryFromTitle(jobData.jobTitle),
+          languages: jobData.languages,
+          country: jobData.country || null,
+          locationType: jobData.locationType || null,
+          noticePeriod: jobData.noticePeriod || null,
+          employerId,
+          positionId,
+          status: getJobStatus(),
+          employerEmail,
+          postedBy: employerEmail,
+          postedByName: jobData.postedByName || user?.name || employerEmail,
+          companyId,
+          refreshCount: 0,
+          originalPostedAt: new Date(),
+        });
+
+        const slug = generateSlug(job.jobTitle, job.company, job.id);
+        await job.update({ slug });
+        geocodeLocation(job.location).then(coords => {
+          if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => {});
+        }).catch(() => {});
+        vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
+
+        results.push({ success: true, id: job.id, jobTitle: job.jobTitle });
+      } catch (jobErr) {
+        results.push({ success: false, jobTitle: jobData.jobTitle, error: jobErr.message });
+      }
+
+      // Throttle between inserts
+      await new Promise(r => setTimeout(r, DELAY_MS));
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.length - successCount;
+    res.status(201).json({ successCount, failCount, results });
+  } catch (error) {
+    console.error('Bulk job create error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/jobs/refresh/analytics - Get refresh analytics (must be before /:id routes)
 router.get('/refresh/analytics', async (req, res) => {
   try {
