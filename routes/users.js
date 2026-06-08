@@ -950,15 +950,33 @@ router.get('/:id', async (req, res) => {
 // GET /api/users - Get all users
 router.get('/', async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, role, skills, limit = 100, total_only } = req.query;
     const where = { isActive: true };
     if (status) where.status = status;
-    
+    if (role) where.role = role;
+    // skills filter: return candidates who have ANY of the requested skills
+    if (skills) {
+      const skillList = skills.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      if (skillList.length > 0) {
+        where.skills = { [Op.overlap]: skillList.map(s =>
+          s.charAt(0).toUpperCase() + s.slice(1)
+        ).concat(skillList) };
+      }
+    }
+
+    const total = await User.count({ where });
+
+    // If caller only wants the count (e.g. Match Counts feature)
+    if (total_only === 'true') {
+      return res.json({ total });
+    }
+
     const users = await User.findAll({
       where,
+      limit: parseInt(limit),
       attributes: { exclude: ['password'] }
     });
-    res.json(users);
+    res.json({ total, users });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
