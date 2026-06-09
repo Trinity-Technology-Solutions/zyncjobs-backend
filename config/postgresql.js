@@ -12,9 +12,9 @@ const sequelize = new Sequelize({
   password: process.env.DB_PASSWORD,
   logging: process.env.NODE_ENV === 'development' ? console.log : false,
   pool: {
-    max: 10,
-    min: 0,
-    acquire: 30000,
+    max: process.env.NODE_ENV === 'production' ? 20 : 10,
+    min: process.env.NODE_ENV === 'production' ? 2 : 0,
+    acquire: 60000,
     idle: 10000
   }
 });
