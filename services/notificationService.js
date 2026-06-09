@@ -43,7 +43,7 @@ class NotificationService {
 
       if (!employer) return null;
 
-      const interviewDate = new Date(interview.date).toLocaleDateString();
+      const interviewDate = new Date(interview.scheduledDate).toLocaleDateString();
       
       const notification = await Notification.create({
         userId: employer.id,
@@ -269,7 +269,7 @@ class NotificationService {
       const interviewsCount = await Interview.count({
         where: {
           employerEmail,
-          date: {
+          scheduledDate: {
             [Op.gte]: today,
             [Op.lt]: new Date(today.getTime() + 24 * 60 * 60 * 1000)
           }

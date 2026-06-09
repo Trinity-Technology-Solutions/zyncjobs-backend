@@ -55,115 +55,102 @@ async function generateDynamicNotifications(employerEmail) {
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
   try {
-    // Get recent applications
-    const recentApplications = await Application.findAll({
-      where: {
-        employerEmail,
-        createdAt: { [Op.gte]: sevenDaysAgo }
-      },
-      order: [['createdAt', 'DESC']],
-      limit: 5
-    });
+    // Fetch all data in parallel — no sequential awaits
+    const [recentApplications, activeJobs, upcomingInterviews] = await Promise.all([
+      Application.findAll({
+        where: { employerEmail, createdAt: { [Op.gte]: sevenDaysAgo } },
+        order: [['createdAt', 'DESC']],
+        limit: 5
+      }),
+      Job.findAll({
+        where: {
+          [Op.or]: [{ employerEmail }, { postedBy: employerEmail }],
+          isActive: { [Op.ne]: false }
+        },
+        order: [['createdAt', 'DESC']],
+        limit: 20
+      }),
+      Interview.findAll({
+        where: {
+          employerEmail,
+          scheduledDate: { [Op.gte]: now },
+          status: { [Op.notIn]: ['cancelled', 'completed'] }
+        },
+        order: [['scheduledDate', 'ASC']],
+        limit: 3
+      })
+    ]);
 
-    // Get active jobs
-    const activeJobs = await Job.findAll({
-      where: {
-        [Op.or]: [
-          { employerEmail },
-          { postedBy: employerEmail }
-        ],
-        isActive: { [Op.ne]: false }
-      },
-      order: [['createdAt', 'DESC']]
-    });
+    // Build job lookup map — eliminates N+1 for interviews
+    const jobIds = [
+      ...recentApplications.map(a => a.jobId),
+      ...upcomingInterviews.map(i => i.jobId)
+    ].filter(Boolean);
+    const uniqueJobIds = [...new Set(jobIds)];
+    const jobMap = {};
+    if (uniqueJobIds.length > 0) {
+      const jobs = await Job.findAll({ where: { id: { [Op.in]: uniqueJobIds } }, attributes: ['id', 'jobTitle', 'title'] });
+      jobs.forEach(j => { jobMap[j.id] = j.jobTitle || j.title; });
+    }
 
-    // Get upcoming interviews
-    const upcomingInterviews = await Interview.findAll({
-      where: {
-        employerEmail,
-        scheduledDate: { [Op.gte]: now },
-        status: { [Op.notIn]: ['cancelled', 'completed'] }
-      },
-      order: [['scheduledDate', 'ASC']],
-      limit: 3
-    });
+    // Active job IDs for bulk application count
+    const activeJobIds = activeJobs.map(j => j.id);
+    let jobAppCounts = {};
+    if (activeJobIds.length > 0) {
+      const counts = await Application.findAll({
+        where: { jobId: { [Op.in]: activeJobIds }, createdAt: { [Op.gte]: oneDayAgo } },
+        attributes: ['jobId', [Application.sequelize.fn('COUNT', Application.sequelize.col('id')), 'count']],
+        group: ['jobId']
+      });
+      counts.forEach(c => { jobAppCounts[c.jobId] = parseInt(c.get('count')); });
+    }
 
-    // Create notifications for recent applications
     for (const app of recentApplications) {
-      const jobTitle = await getJobTitle(app.jobId);
-      const timeAgo = getTimeAgo(app.createdAt);
-      
       notifications.push({
         id: `app_${app.id}`,
         type: 'application',
         title: 'New application received',
-        message: `${app.candidateName || app.candidateEmail} applied for ${jobTitle || 'your position'}`,
-        time: timeAgo,
+        message: `${app.candidateName || app.candidateEmail} applied for ${jobMap[app.jobId] || 'your position'}`,
+        time: getTimeAgo(app.createdAt),
         data: app,
         createdAt: app.createdAt
       });
     }
 
-    // Create notifications for active jobs receiving applications
     for (const job of activeJobs) {
-      const applicationCount = await Application.count({
-        where: {
-          jobId: job.id,
-          createdAt: { [Op.gte]: oneDayAgo }
-        }
-      });
-
-      if (applicationCount > 0) {
-        const timeAgo = getTimeAgo(job.createdAt);
+      const count = jobAppCounts[job.id] || 0;
+      if (count > 0) {
         notifications.push({
           id: `job_${job.id}`,
           type: 'job',
           title: 'Job posting active',
-          message: `Your ${job.jobTitle || job.title} position is receiving applications (${applicationCount} new)`,
-          time: timeAgo,
+          message: `Your ${job.jobTitle || job.title} position is receiving applications (${count} new)`,
+          time: getTimeAgo(job.createdAt),
           data: job,
           createdAt: job.createdAt
         });
       }
     }
 
-    // Create notifications for upcoming interviews
     for (const interview of upcomingInterviews) {
-      const jobTitle = await getJobTitle(interview.jobId);
       const interviewDate = new Date(interview.scheduledDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
       const interviewTime = interview.scheduledDate ? new Date(interview.scheduledDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
-      
       notifications.push({
         id: `interview_${interview.id}`,
         type: 'interview',
         title: 'Interview scheduled',
-        message: `Interview with ${interview.candidateName || 'candidate'} for ${jobTitle || 'position'} on ${interviewDate}${interviewTime ? ' at ' + interviewTime : ''}`,
+        message: `Interview with ${interview.candidateName || 'candidate'} for ${jobMap[interview.jobId] || 'position'} on ${interviewDate}${interviewTime ? ' at ' + interviewTime : ''}`,
         time: getTimeAgo(interview.createdAt || interview.scheduledDate),
         data: interview,
         createdAt: interview.createdAt || interview.scheduledDate
       });
     }
 
-    // Sort by creation date (newest first)
     notifications.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    return notifications.slice(0, 10); // Return top 10 notifications
+    return notifications.slice(0, 10);
   } catch (error) {
     console.error('Error generating dynamic notifications:', error);
     return [];
-  }
-}
-
-// Helper function to get job title
-async function getJobTitle(jobId) {
-  try {
-    if (!jobId) return null;
-    
-    const job = await Job.findByPk(jobId);
-    return job ? (job.jobTitle || job.title) : null;
-  } catch (error) {
-    console.error('Error fetching job title:', error);
-    return null;
   }
 }
 
