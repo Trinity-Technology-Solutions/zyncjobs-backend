@@ -52,6 +52,20 @@
     "DevOps Tool Integration", "Application Onboarding", "Credential Rotation Automation",
     "API-based PAM Integrations", "Zero Trust Architecture", "SOX", "SOC2", "REST API Automation",
     "Bash Scripting", "Security Architecture Documentation", "Client and Stakeholder Communication",
-    "Risk Assessment", "Solution Design and Review", "Pega Platform"," Pega LBA Certification", "Business Process Analysis", "Case Management", "Pega Express Methodology"
-
-  ] }
+    "Risk Assessment", "Solution Design and Review", "Pega Platform", "Pega LBA Certification", "Business Process Analysis", "Case Management", "Pega Express Methodology",
+    "NEBOSH IGC", "IOSH", "ISO 45001", "ISO 14001", "HSE Management", "Safety Auditing",
+    "Incident Investigation", "Root Cause Analysis", "Risk Assessment", "Hazard Identification",
+    "Toolbox Talks", "Permit to Work", "PPE Management", "Emergency Response", "Safety Induction",
+    "HSE Reporting", "Safety Documentation", "Accident Investigation", "Safety Compliance",
+    "Oman HSE Regulations", "OSHA", "COSHH", "LOLER", "PUWER", "CDM Regulations",
+    "AutoCAD", "Primavera P6", "MS Project", "BIM", "Revit", "Civil 3D", "STAAD Pro",
+    "Site Supervision", "Quality Control", "Quantity Surveying", "Cost Estimation",
+    "Construction Management", "Contract Administration", "FIDIC Contracts",
+    "Roads Design", "Highway Engineering", "Bridge Engineering", "Drainage Design",
+    "Geotechnical Engineering", "Structural Analysis", "Load Calculations",
+    "Oil & Gas Operations", "Piping Design", "P&ID", "HAZOP", "Process Safety",
+    "Arabic Language", "English Language", "Omani Driving Licence",
+    "Salesforce", "HubSpot", "Zoho CRM", "Microsoft Dynamics", "SAP S/4HANA",
+    "Power Automate", "Power Apps", "SharePoint", "Microsoft Azure", "Office 365"
+  ]
+}

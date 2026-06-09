@@ -456,6 +456,12 @@
     "Cebu",
     "Ho Chi Minh City",
     "Hanoi",
+    "Muscat", "Salalah", "Sohar", "Nizwa", "Sur", "Ibri", "Buraimi", "Seeb",
+    "Riyadh", "Jeddah", "Dammam", "Khobar", "Medina", "Mecca", "Tabuk", "Buraidah",
+    "Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Ras Al Khaimah", "Fujairah", "Al Ain",
+    "Doha", "Al Wakrah", "Al Khor", "Kuwait City", "Hawalli", "Salmiya",
+    "Manama", "Riffa", "Muharraq", "Amman", "Zarqa", "Irbid",
+    "Beirut", "Tripoli", "Cairo", "Alexandria", "Giza", "Nairobi", "Lagos", "Accra",
     "Da Nang"
   ]
 }

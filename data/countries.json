@@ -1,26 +1,14 @@
 {
   "countries": [
-    "India",
-    "United States",
-    "United Kingdom",
-    "Canada",
-    "Australia",
-    "Japan",
-    "Singapore",
-    "United Arab Emirates",
-    "Qatar",
-    "Kuwait",
-    "Saudi Arabia",
-    "France",
-    "Germany",
-    "Ireland",
-    "Netherlands",
-    "Spain",
-    "Italy",
-    "Malaysia",
-    "Thailand",
-    "Indonesia",
-    "Philippines",
-    "Vietnam"
+    "India", "United States", "United Kingdom", "Canada", "Australia",
+    "Japan", "Singapore", "United Arab Emirates", "Qatar", "Kuwait",
+    "Saudi Arabia", "Oman", "Bahrain", "Jordan", "Lebanon",
+    "France", "Germany", "Ireland", "Netherlands", "Spain", "Italy",
+    "Switzerland", "Sweden", "Norway", "Denmark", "Finland", "Belgium", "Austria",
+    "Malaysia", "Thailand", "Indonesia", "Philippines", "Vietnam",
+    "South Korea", "China", "Hong Kong", "Taiwan", "New Zealand",
+    "South Africa", "Nigeria", "Kenya", "Egypt", "Morocco",
+    "Brazil", "Mexico", "Argentina", "Chile", "Colombia",
+    "Pakistan", "Bangladesh", "Sri Lanka", "Nepal", "Myanmar"
   ]
 }

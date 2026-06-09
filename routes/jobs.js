@@ -242,6 +242,16 @@ function getCategoryFromTitle(jobTitle) {
   if (title.includes('security') || title.includes('cyber')) {
     return 'Cybersecurity';
   }
+
+  if (title.includes('hse') || title.includes('health safety') || title.includes('safety') ||
+      title.includes('environment') || title.includes('inspector')) {
+    return 'Health, Safety & Environment';
+  }
+
+  if (title.includes('civil') || title.includes('structural') || title.includes('infrastructure') ||
+      title.includes('construction') || title.includes('site engineer')) {
+    return 'Engineering & Construction';
+  }
   
   if (title.includes('support') || title.includes('customer success') || title.includes('help desk')) {
     return 'Customer Support';

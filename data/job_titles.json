@@ -36,7 +36,24 @@
     "Change Management Consultant", "Process Improvement Specialist", "Lean Six Sigma Specialist",
     "Venture Capital Analyst", "Private Equity Associate", "Investment Banking Analyst", "Equity Research Analyst",
     "Portfolio Manager", "Wealth Manager", "Financial Advisor", "Insurance Agent", "Real Estate Agent",
-    "Property Manager", "Facility Manager", "Office Manager", "Executive Assistant", "Administrative Assistant","CyberArk Architect","Crypto Mainframe Engineer KeyFactor PrimeKey",	
-"SailPoint Architect","Cryptography Developer / PKI Architect"
+    "Property Manager", "Facility Manager", "Office Manager", "Executive Assistant", "Administrative Assistant",
+    "CyberArk Architect", "SailPoint Architect", "Cryptography Developer", "PKI Architect",
+    "Crypto Mainframe Engineer", "IAM Engineer", "Identity Access Management Specialist",
+    "HSE Inspector", "HSE Manager", "HSE Officer", "Health Safety Environment Manager",
+    "Safety Officer", "Safety Engineer", "Environment Health Safety Specialist", "EHS Manager",
+    "Site Safety Officer", "Construction Safety Manager", "HSE Coordinator", "HSE Auditor",
+    "Structural Engineer", "Site Engineer", "Construction Manager", "Project Engineer",
+    "Roads Engineer", "Highway Engineer", "Bridge Engineer", "Infrastructure Engineer",
+    "Quantity Surveyor", "Cost Estimator", "Planning Engineer", "Contracts Engineer",
+    "Oil & Gas Engineer", "Petroleum Engineer", "Process Engineer", "Piping Engineer",
+    "Instrumentation Engineer", "Commissioning Engineer", "Maintenance Engineer",
+    "Oman National", "HSE Inspector Oman", "HSE Engineer",
+    "Procurement Manager", "Purchasing Manager", "Category Manager", "Sourcing Specialist",
+    "Risk Manager", "Internal Auditor", "External Auditor", "Tax Consultant",
+    "Data Privacy Officer", "CISO", "Information Security Manager", "SOC Analyst",
+    "Scrum Master", "Agile Coach", "Release Manager", "Configuration Manager",
+    "Embedded Systems Engineer", "Firmware Engineer", "FPGA Engineer", "Hardware Engineer",
+    "Telecommunications Engineer", "RF Engineer", "Network Security Engineer",
+    "GIS Analyst", "Geospatial Engineer", "Environmental Engineer", "Sustainability Manager"
   ]
 }
