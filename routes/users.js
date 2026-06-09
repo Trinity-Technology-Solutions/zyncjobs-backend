@@ -843,10 +843,16 @@ router.get('/company-verified', async (req, res) => {
 });
 
 // PUT /api/users/:id/verify-company - Auto-approve user based on domain verification
-router.put('/:id/verify-company', async (req, res) => {
+// REQUIRES authenticateToken + admin role
+router.put('/:id/verify-company', authenticateToken, async (req, res) => {
   try {
+    // Only admins can approve accounts
+    if (!['admin', 'super_admin'].includes(req.user?.role)) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
     const { verificationStatus, autoApproved } = req.body;
-    
+
     if (verificationStatus !== 'verified') {
       return res.status(400).json({ error: 'Only verified status allowed' });
     }

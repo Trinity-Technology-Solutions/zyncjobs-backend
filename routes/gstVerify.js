@@ -15,17 +15,10 @@ router.post('/gst', async (req, res) => {
 
     const token = process.env.SUREPASS_TOKEN;
     if (!token) {
-      // Sandbox fallback: simulate success for testing
-      console.warn('⚠️ SUREPASS_TOKEN not set — using sandbox simulation');
-      return res.json({
-        success: true,
-        data: {
-          gstin: gstin.toUpperCase(),
-          legal_name: 'Test Company Pvt Ltd',
-          trade_name: 'Test Company',
-          gstin_status: 'Active',
-          state: 'Tamil Nadu',
-        }
+      console.warn('⚠️ SUREPASS_TOKEN not set — GST verification unavailable');
+      return res.status(503).json({
+        success: false,
+        message: 'GST verification service is not configured. Please contact support.'
       });
     }
 
