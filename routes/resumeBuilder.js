@@ -1,11 +1,11 @@
 import express from 'express';
-import { callAI as callOpenRouter } from '../services/openRouterService.js';
+import { callGroq } from '../services/groqService.js';
 
 const router = express.Router();
 
 async function callAI(prompt, systemMsg = 'You are a professional resume writer.', maxTokens = 1200) {
   const messages = [{ role: 'user', content: `${systemMsg}\n\n${prompt}` }];
-  return callOpenRouter({ feature: 'resume-builder', messages, maxTokens, temperature: 0.7 });
+  return callGroq({ feature: 'jd-generate', messages, maxTokens, temperature: 0.7 });
 }
 
 // ─── (A) AI Resume Generator ─────────────────────────────────────────────────

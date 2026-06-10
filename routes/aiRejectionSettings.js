@@ -6,7 +6,7 @@ import Job from '../models/Job.js';
 import Profile from '../models/Profile.js';
 import Resume from '../models/Resume.js';
 import { sendApplicationRejectionEmail } from '../services/emailService.js';
-import fetch from 'node-fetch';
+import { callGroq } from '../services/groqService.js';
 
 const router = express.Router();
 
@@ -104,28 +104,17 @@ function scoreExperience(candidateYearsExp = 0, jobExperienceLevel = 'Mid', jobE
   return Math.round(ratio * 40); // Lower score for significant gaps
 }
 
-// ── AI scoring via Anthropic / OpenRouter fallback ───────────────────────────
+// ── AI scoring via Groq ─────────────────────────────────────────────────────
 async function getAiScore(candidate, job) {
-  const prompt = `You are a strict technical recruiter. Score this candidate for the job based on exact requirements.
+  const prompt = `You are a strict technical recruiter. Score this candidate for the job.
 
 JOB: ${job.jobTitle} at ${job.company}
 Required Skills: ${(job.skills || []).join(', ') || 'Not specified'}
 Experience Level: ${job.experienceLevel || 'Mid'}
-Experience Range: ${job.experienceRange || 'Not specified'}
-Job Type: ${job.jobType || 'Full-time'}
-Location: ${job.location || 'Not specified'}
-Description: ${(job.description || '').substring(0, 500)}
-Requirements: ${(job.requirements || '').substring(0, 300)}
 
 CANDIDATE:
 Skills: ${(candidate.skills || []).join(', ') || 'None listed'}
 Years Experience: ${candidate.yearsExp || 0}
-Education: ${candidate.education || 'Not provided'}
-Location: ${candidate.location || 'Not provided'}
-Job Title: ${candidate.profile?.jobTitle || 'Not specified'}
-
-Compare the candidate's skills EXACTLY with job requirements. Count only direct matches or very close variants.
-For experience, compare candidate's years with job's experience level/range requirements.
 
 Return ONLY valid JSON:
 {
@@ -133,54 +122,16 @@ Return ONLY valid JSON:
   "experienceScore": 0-100,
   "overallScore": 0-100,
   "shouldReject": true/false,
-  "reasons": ["specific reason1", "specific reason2"],
-  "feedback": "one sentence constructive feedback for candidate",
-  "matchingSkills": ["skill1", "skill2"],
-  "missingSkills": ["skill1", "skill2"]
+  "reasons": ["reason1"],
+  "feedback": "one sentence feedback",
+  "matchingSkills": ["skill1"],
+  "missingSkills": ["skill1"]
 }`;
 
   try {
-    // Try Anthropic first
-    if (process.env.ANTHROPIC_API_KEY) {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 400,
-          messages: [{ role: 'user', content: prompt }]
-        })
-      });
-      const data = await res.json();
-      const text = data.content?.[0]?.text || '';
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) return JSON.parse(match[0]);
-    }
-
-    // Fallback: OpenRouter
-    if (process.env.OPENROUTER_API_KEY) {
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: process.env.OPENROUTER_MODEL || 'openai/gpt-oss-20b:free',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          max_tokens: 400
-        })
-      });
-      const data = await res.json();
-      const text = data.choices?.[0]?.message?.content || '';
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) return JSON.parse(match[0]);
-    }
+    const raw = await callGroq({ feature: 'ai-rejection', messages: [{ role: 'user', content: prompt }], maxTokens: 400, temperature: 0.1 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
   } catch (e) {
     console.error('AI scoring error:', e.message);
   }

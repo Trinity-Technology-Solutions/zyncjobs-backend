@@ -5,7 +5,7 @@ import { sequelize } from '../config/postgresql.js';
 import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
-import { callAI as callOpenRouter } from '../services/openRouterService.js';
+import { callGroq } from '../services/groqService.js';
 
 const callAI = async (prompt) => {
   try {

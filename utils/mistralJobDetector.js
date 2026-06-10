@@ -1,11 +1,11 @@
-import axios from 'axios';
+import { callGroq } from '../services/groqService.js';
 
 // Specialized Mistral AI job detection service
 export class MistralJobDetector {
   constructor() {
-    this.apiKey = process.env.OPENROUTER_API_KEY;
+    this.apiKey = process.env.GROQ_API_KEY;
     this.model = 'openai/gpt-oss-20b:free';
-    this.baseURL = 'https://openrouter.ai/api/v1/chat/completions';
+    this.baseURL = 'https://api.groq.com/openai/v1/chat/completions';
   }
 
   async detectJobIssues(jobData) {
@@ -28,7 +28,7 @@ export class MistralJobDetector {
         timeout: 10000
       });
 
-      return this.parseResponse(response.data.choices[0].message.content);
+      return this.parseResponse(responseText);
     } catch (error) {
       console.error('Mistral detection error:', error.message);
       return this.getFallbackAnalysis(jobData);

@@ -1,84 +1,103 @@
 import express from 'express';
-import { callAI } from '../services/openRouterService.js';
+import { callGeminiChat, callGeminiStream } from '../services/geminiService.js';
+import { callGroq } from '../services/groqService.js';
+
+// Use Groq first, fallback to Gemini
+async function callAI({ systemPrompt, messages, maxTokens = 800, temperature = 0.4, feature = 'default' }) {
+  try {
+    return await callGroq({ systemPrompt, messages, maxTokens, temperature, feature });
+  } catch (e) {
+    console.warn('[ai.js] Groq failed, trying Gemini:', e.message);
+    return callGeminiChat({ systemPrompt, messages, maxTokens, temperature });
+  }
+}
 
 const router = express.Router();
 
-// Fallback responses when AI is unavailable
 function getFallbackResponse(message) {
-  const lowerMessage = (message || '').toLowerCase();
-
-  if (lowerMessage.includes('apply') || lowerMessage.includes('application')) {
-    return "📝 Here's how to apply for jobs effectively:\n\n• Create a complete profile with your skills and experience\n• Search for jobs that match your qualifications\n• Customize your resume for each application\n• Write a compelling cover letter\n• Follow up after applying\n\nWould you like specific tips on any of these steps?";
-  }
-
-  if (lowerMessage.includes('resume') || lowerMessage.includes('cv')) {
-    return "📄 I'd be happy to help with your resume! Here are some key tips:\n\n• Use a clean, professional format\n• Highlight relevant skills and achievements\n• Quantify your accomplishments with numbers\n• Tailor your resume for each job application\n• Keep it concise (1-2 pages)\n\nWould you like specific advice on any section?";
-  }
-
-  if (lowerMessage.includes('interview')) {
-    return "🎯 Great question about interviews! Here are essential tips:\n\n• Research the company and role thoroughly\n• Practice common interview questions\n• Prepare specific examples using the STAR method\n• Ask thoughtful questions about the role\n• Follow up with a thank-you email\n\nWhat specific aspect would you like to focus on?";
-  }
-
-  if (lowerMessage.includes('job') || lowerMessage.includes('career')) {
-    return "💼 I'm here to help with your job search! I can assist with:\n\n• Finding relevant job opportunities\n• Optimizing your applications\n• Career path planning\n• Skill development recommendations\n• Industry insights\n\nWhat would you like guidance on?";
-  }
-
-  if (lowerMessage.includes('salary') || lowerMessage.includes('negotiate')) {
-    return "💰 Salary negotiation tips:\n\n• Research market rates for your role\n• Highlight your unique value and achievements\n• Consider the total compensation package\n• Practice your negotiation conversation\n• Be prepared to justify your request\n\nWould you like tips on researching salary ranges?";
-  }
-
-  if (lowerMessage.includes('hi') || lowerMessage.includes('hello') || lowerMessage.includes('hey')) {
-    return "👋 Hello! I'm ZyncJobs AI Assistant. I can help you with:\n\n🔍 Job searching and applications\n📄 Resume writing and optimization\n🎯 Interview preparation\n💼 Career development advice\n\nWhat would you like assistance with today?";
-  }
-
-  return "👋 Hello! I'm ZyncJobs AI Assistant. I can help you with:\n\n🔍 Job searching and applications\n📄 Resume writing and optimization\n🎯 Interview preparation\n💼 Career development advice\n\nWhat would you like assistance with today?";
+  const m = (message || '').toLowerCase();
+  if (m.includes('apply') || m.includes('application'))
+    return "📝 Here's how to apply for jobs effectively:\n\n• Create a complete profile\n• Customize your resume for each application\n• Write a compelling cover letter\n• Follow up after applying";
+  if (m.includes('resume') || m.includes('cv'))
+    return "📄 Resume tips:\n\n• Use a clean, professional format\n• Highlight relevant skills and achievements\n• Quantify accomplishments with numbers\n• Keep it to 1-2 pages";
+  if (m.includes('interview'))
+    return "🎯 Interview tips:\n\n• Research the company thoroughly\n• Use the STAR method for behavioral questions\n• Prepare 3-5 strong examples\n• Practice out loud";
+  if (m.includes('salary') || m.includes('negotiat'))
+    return "💰 Salary tips:\n\n• Research market rates first\n• Let the employer give a number first\n• Counter with a range\n• Always negotiate — most employers expect it";
+  return "👋 Hello! I'm ZyncJobs AI Assistant. I can help with:\n\n🔍 Job searching\n📄 Resume writing\n🎯 Interview prep\n💼 Career advice\n\nWhat would you like help with?";
 }
 
-// Chat endpoint for chat widget
+// POST /api/ai/chat — handles both ChatWidget { message, history } and structured { messages, systemPrompt }
 router.post('/chat', async (req, res) => {
-  try {
-    const { message, history = [] } = req.body;
+  const { message, history, messages, systemPrompt, maxTokens = 800 } = req.body;
 
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'Message is required' });
-    }
-
-    console.log('💬 AI chat request:', { message: message.substring(0, 50) });
-
-    const systemPrompt = 'You are a helpful assistant for ZyncJobs, a job portal. Help users with job searching, resume tips, interview prep, and career advice. Be concise and friendly.';
-
-    // Convert history to OpenRouter format
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...history.map(h => ({ role: h.role, content: h.content })),
-      { role: 'user', content: message }
-    ];
-
+  // Structured format (from aiChatService.ts sendAIMessage)
+  if (messages && Array.isArray(messages)) {
     try {
-      // Call OpenRouter service
       const reply = await callAI({
-        feature: 'career-coach',
+        systemPrompt: systemPrompt || '',
         messages,
-        maxTokens: 600,
-        temperature: 0.7
+        maxTokens,
+        temperature: 0.4,
+        feature: 'ai-recruiter',
       });
-
-      console.log('✅ AI chat response generated');
-      res.json({ reply });
-    } catch (aiError) {
-      // If AI fails, use fallback responses
-      console.warn('⚠️ AI unavailable, using fallback:', aiError.message);
-      const fallbackReply = getFallbackResponse(message);
-      res.json({ reply: fallbackReply });
+      return res.json({ content: reply });
+    } catch (err) {
+      console.error('[Gemini /ai/chat]', err.message);
+      return res.status(503).json({ error: 'AI service unavailable', details: err.message });
     }
-  } catch (error) {
-    console.error('❌ AI chat error:', error.message);
-    res.status(500).json({ 
-      error: 'Failed to get AI response',
-      message: "Sorry, I'm having trouble connecting. Please try again.",
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
   }
+
+  // Legacy ChatWidget format { message, history }
+  if (!message || typeof message !== 'string') {
+    return res.status(400).json({ error: 'Message or messages array required' });
+  }
+  try {
+    const sys = 'You are a helpful assistant for ZyncJobs, a job portal. Help users with job searching, resume tips, interview prep, and career advice. Be concise and friendly.';
+    const chatMessages = [
+      ...(history || []).map(h => ({ role: h.role, content: h.content })),
+      { role: 'user', content: message },
+    ];
+    const reply = await callAI({
+      systemPrompt: sys,
+      messages: chatMessages,
+      maxTokens: 600,
+      temperature: 0.7,
+      feature: 'career-coach',
+    });
+    return res.json({ reply });
+  } catch (err) {
+    console.error('[Gemini /ai/chat legacy]', err.message);
+    return res.json({ reply: getFallbackResponse(message) });
+  }
+});
+
+// POST /api/ai/chat/stream — streaming for CareerCoach, Recruiter, ChatWidget
+router.post('/chat/stream', async (req, res) => {
+  const { messages, systemPrompt, maxTokens = 600 } = req.body;
+
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'Messages array required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  try {
+    await callGeminiStream({
+      systemPrompt: systemPrompt || '',
+      messages,
+      maxTokens,
+      onChunk: (text) => res.write('data: ' + JSON.stringify({ chunk: text }) + '\n\n'),
+    });
+  } catch (err) {
+    console.error('[Gemini /ai/chat/stream]', err.message);
+    res.write('data: ' + JSON.stringify({ chunk: 'Sorry, AI service is temporarily unavailable.' }) + '\n\n');
+  }
+
+  res.write('data: [DONE]\n\n');
+  res.end();
 });
 
 export default router;

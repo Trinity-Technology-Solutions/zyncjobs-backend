@@ -1,54 +1,48 @@
-// Central OpenRouter service — each feature uses a different model
-// so rate limits are spread across providers
+// Central OpenRouter service — Groq primary, OpenRouter as fallback
+import { callGroq } from './groqService.js';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-// Each feature gets its own model — if one provider is rate limited,
-// other features still work
-const FEATURE_MODELS = {
-  'career-coach':       'openai/gpt-oss-20b:free',
-  'ai-recruiter':       'nvidia/nemotron-3-super-120b-a12b:free',
-  'resume-builder':     'openai/gpt-oss-20b:free',
-  'resume-score':       'openai/gpt-oss-20b:free',
-  'skill-assessment':   'openai/gpt-oss-20b:free',
-  'ai-rejection':       'nvidia/nemotron-3-super-120b-a12b:free',
-  'linkedin-parser':    'openai/gpt-oss-20b:free',
-  'ai-scoring':         'nvidia/nemotron-3-super-120b-a12b:free',
-  'default':            'openai/gpt-oss-20b:free',
-};
-
-// Fallback chain — confirmed working models first, rate-limited ones as last resort
+// OpenRouter fallback models (only used if Groq fails)
 const FALLBACK_MODELS = [
   'openai/gpt-oss-20b:free',
-  'nvidia/nemotron-3-super-120b-a12b:free',
-  'nvidia/nemotron-nano-9b-v2:free',
-  'meta-llama/llama-3.3-70b-instruct:free',
   'meta-llama/llama-3.2-3b-instruct:free',
-  'nousresearch/hermes-3-llama-3.1-405b:free',
-  'google/gemma-4-26b-a4b-it:free',
 ];
 
+// Feature → Groq feature mapping
+const GROQ_FEATURE_MAP = {
+  'career-coach':     'career-coach',
+  'ai-recruiter':     'ai-recruiter',
+  'resume-builder':   'jd-generate',
+  'resume-score':     'resume-score',
+  'skill-assessment': 'ai-scoring',
+  'ai-rejection':     'ai-rejection',
+  'linkedin-parser':  'resume-parse',
+  'ai-scoring':       'ai-scoring',
+  'default':          'default',
+};
+
 const FEATURE_TIMEOUTS = {
-  'ai-scoring': 30000,
+  'ai-scoring': 15000,
 };
 
 export async function callAI({ feature = 'default', messages, maxTokens = 700, temperature = 0.7 }) {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
-    console.error('[AI] OPENROUTER_API_KEY not configured');
-    throw new Error('OPENROUTER_API_KEY not set');
+  // 1. Try Groq first
+  try {
+    const groqFeature = GROQ_FEATURE_MAP[feature] || 'default';
+    return await callGroq({ messages, maxTokens, temperature, feature: groqFeature });
+  } catch (groqErr) {
+    console.warn(`[AI] Groq failed for ${feature}:`, groqErr.message);
   }
 
-  const primaryModel = FEATURE_MODELS[feature] || FEATURE_MODELS['default'];
-  console.log(`[AI] ${feature} — trying primary model: ${primaryModel}`);
+  // 2. Fallback to OpenRouter
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('All AI services failed');
 
-  // Build model list: primary first, then fallbacks (excluding primary to avoid duplicate)
-  const models = [primaryModel, ...FALLBACK_MODELS.filter(m => m !== primaryModel)];
-
-  for (const model of models) {
+  for (const model of FALLBACK_MODELS) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), FEATURE_TIMEOUTS[feature] || 15000);
+      const timeout = setTimeout(() => controller.abort(), FEATURE_TIMEOUTS[feature] || 8000);
 
       const res = await fetch(OPENROUTER_URL, {
         method: 'POST',
@@ -68,23 +62,14 @@ export async function callAI({ feature = 'default', messages, maxTokens = 700, t
         const data = await res.json();
         const reply = data.choices?.[0]?.message?.content?.trim();
         if (reply) {
-          console.log(`[AI] ${feature} — success with model: ${model}`);
+          console.log(`[AI] ${feature} — OpenRouter success: ${model}`);
           return reply;
         }
-      } else if (res.status === 429) {
-        console.warn(`[AI] ${feature} — model ${model} rate limited, skipping`);
-        // skip immediately, no delay
-      } else if (res.status === 404) {
-        console.warn(`[AI] ${feature} — model ${model} not found, skipping`);
-      } else {
-        const err = await res.text();
-        console.warn(`[AI] ${feature} — model ${model} failed (${res.status}):`, err.substring(0, 200));
       }
     } catch (e) {
-      console.warn(`[AI] ${feature} — model ${model} error:`, e.message);
+      console.warn(`[AI] OpenRouter ${model} failed:`, e.message);
     }
   }
 
-  console.error(`[AI] ${feature} — all models failed`);
-  throw new Error('All models failed');
+  throw new Error('All AI services failed');
 }

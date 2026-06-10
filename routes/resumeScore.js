@@ -158,16 +158,11 @@ const ruleBasedScore = (resumeText, jobDescription = '') => {
 
 // ─── AI FEEDBACK (qualitative only, not scores) ──────────────────────────────
 
-import { callAI as callOpenRouter } from '../services/openRouterService.js';
+import { callGroq } from '../services/groqService.js';
 
 const callAI = async (prompt) => {
   try {
-    return await callOpenRouter({
-      feature: 'resume-score',
-      messages: [{ role: 'user', content: prompt }],
-      maxTokens: 1200,
-      temperature: 0.4,
-    });
+    return await callGroq({ feature: 'resume-score', messages: [{ role: 'user', content: prompt }], maxTokens: 1200, temperature: 0.4 });
   } catch { return null; }
 };
 

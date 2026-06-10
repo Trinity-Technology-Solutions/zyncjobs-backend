@@ -1,6 +1,27 @@
 import express from 'express';
 import mistralService from '../services/mistralService.js';
-import { callAI } from '../services/openRouterService.js';
+import { callGeminiChat } from '../services/geminiService.js';
+import { callGroq } from '../services/groqService.js';
+
+// Wrapper: tries Groq first (fastest), then Gemini, then OpenRouter
+async function callAIGeminiFirst({ messages, systemPrompt, maxTokens = 800, temperature = 0.4, feature = 'default' }) {
+  try {
+    return await callGroq({ systemPrompt, messages, maxTokens, temperature, feature });
+  } catch (groqErr) {
+    console.warn('[AI] Groq failed, falling back to Gemini:', groqErr.message);
+    try {
+      return await callGeminiChat({ systemPrompt, messages, maxTokens, temperature });
+    } catch (geminiErr) {
+      console.warn('[AI] Gemini failed, falling back to OpenRouter:', geminiErr.message);
+      return callAI({
+        feature,
+        messages: systemPrompt ? [{ role: 'system', content: systemPrompt }, ...messages] : messages,
+        maxTokens,
+        temperature,
+      });
+    }
+  }
+}
 
 const router = express.Router();
 
@@ -70,7 +91,7 @@ router.post('/career-coach', async (req, res) => {
       return res.status(400).json({ error: 'Messages are required' });
     }
 
-    if (!process.env.OPENROUTER_API_KEY) {
+    if (!process.env.GROQ_API_KEY) {
       return res.status(503).json({ error: 'AI service not configured' });
     }
 
@@ -80,12 +101,10 @@ router.post('/career-coach', async (req, res) => {
 
     let reply = '';
     try {
-      reply = await callAI({
+      reply = await callAIGeminiFirst({
         feature,
-        messages: [
-          { role: 'system', content: systemPrompt || 'You are a helpful AI career coach.' },
-          ...messages
-        ],
+        systemPrompt: systemPrompt || 'You are a helpful AI career coach.',
+        messages,
         maxTokens: 700,
       });
     } catch (e) {
@@ -187,8 +206,9 @@ Job Title: ${jobTitle}${company ? `\nCompany: ${company}` : ''}${location ? `\nL
 
     let description_result;
     try {
-      const raw = await callAI({
+      const raw = await callAIGeminiFirst({
         feature: 'default',
+        systemPrompt: '',
         messages: [{ role: 'user', content: prompt }],
         maxTokens: 900,
         temperature: 0.4,
@@ -221,25 +241,12 @@ router.post('/suggest', async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) return res.json({ suggestions: [] });
 
-    if (!process.env.OPENROUTER_API_KEY) {
+    if (!process.env.GROQ_API_KEY) {
       return res.json({ suggestions: [] });
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-        'X-Title': 'ZyncJobs'
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-20b:free',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 200,
-        temperature: 0.7
-      })
-    });
+    // OpenRouter replaced with Groq
+    const response = { ok: false };
 
     if (!response.ok) return res.json({ suggestions: [] });
 

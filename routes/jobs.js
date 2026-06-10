@@ -603,7 +603,7 @@ router.get('/refresh/analytics', async (req, res) => {
 
 // POST /api/jobs - Create new job
 router.post('/', maxJobsGuard, [
-  body('jobTitle').notEmpty().withMessage('Job title is required'),
+  body('jobTitle').trim().notEmpty().withMessage('Job title is required'),
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {

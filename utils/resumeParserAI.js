@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { callGroq } from '../services/groqService.js';
 import crypto from 'crypto';
 
 // In-memory cache: hash → { result, expires }
@@ -12,7 +12,7 @@ function hashText(text) {
 export class ResumeParserAI {
   constructor() {
     this.geminiApiKey = process.env.GEMINI_API_KEY;
-    this.openrouterApiKey = process.env.OPENROUTER_API_KEY;
+    this.openrouterApiKey = process.env.GROQ_API_KEY;
   }
 
   // Pre-extract name/email/phone from raw text using regex (handles multi-column PDFs)
@@ -62,7 +62,7 @@ Return JSON:
 
   async callOpenRouterFallback(prompt) {
     const response = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
+      'https://api.groq.com/openai/v1/chat/completions',
       { model: 'meta-llama/llama-3.3-70b-instruct:free', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 2000 },
       {
         headers: {
