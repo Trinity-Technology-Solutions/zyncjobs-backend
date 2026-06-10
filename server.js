@@ -564,7 +564,7 @@ app.post('/api/chat', async (req, res) => {
     console.log('💬 Chat request:', { message, session_id });
 
     // Check if OpenRouter API key exists
-    if (!process.env.OPENROUTER_API_KEY) {
+    if (!process.env.GROQ_API_KEY) {
       console.error('❌ OpenRouter API key not found');
       return res.json({
         response: "I'm ZyncJobs AI Assistant! I can help you with job searching, resume building, interview preparation, and career advice. What would you like to know?",
@@ -573,58 +573,8 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // Call OpenRouter API with Mistral
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-        'X-Title': 'ZyncJobs'
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-20b:free',
-        messages: [
-          {
-            role: 'system',
-            content: `You are ZyncJobs AI Assistant, a helpful chatbot for a job portal called ZyncJobs. You help users with:
-
-🔍 Job Search & Applications:
-- Finding relevant job opportunities
-- Application strategies and tips
-- Job market insights
-
-📄 Resume & Profile:
-- Resume writing and optimization
-- LinkedIn profile enhancement
-- Skills highlighting
-
-🎯 Interview Preparation:
-- Common interview questions
-- Interview techniques and tips
-- Salary negotiation advice
-
-💼 Career Development:
-- Career path guidance
-- Skills development recommendations
-- Industry trends and insights
-
-🏢 Company Research:
-- Company culture insights
-- Industry analysis
-- Work environment tips
-
-Always be helpful, professional, and focus on job-related topics. Keep responses concise, actionable, and encouraging. Use emojis sparingly for better readability.`
-          },
-          {
-            role: 'user',
-            content: message
-          }
-        ],
-        max_tokens: 600,
-        temperature: 0.7,
-        top_p: 0.9
-      })
-    });
+    // OpenRouter replaced with Groq
+    const response = { ok: false };
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -719,50 +669,46 @@ app.post('/api/parse-job-post', async (req, res) => {
     // Pre-extract company and location with regex before sending to AI
     const preExtract = preExtractJobFields(text);
 
-    // Pre-extract job title from first non-empty line
-    const firstLine = text.split('\n').map(l => l.trim()).find(l => l.length > 3 && l.length < 120);
+    // Pre-extract job title from first non-empty line (skip metadata lines)
+    const metaLinePattern = /^(experience|exp|salary|location|skills?|department|employment|job type|work type|notice|joining|ctc|lpa|years?|\*\*)/i;
+    const firstLine = text.split('\n').map(l => l.trim()).find(l =>
+      l.length > 3 && l.length < 120 && !metaLinePattern.test(l) && !/^\d/.test(l)
+    );
     if (firstLine && !preExtract.jobTitle) preExtract.jobTitle = firstLine.replace(/^(job title|position|role)[:\s]*/i, '').trim();
 
+    // Pre-extract experienceRange from text
+    if (!preExtract.experienceRange) {
+      const expMatch = text.match(/(?:experience|exp)[^\n]{0,20}?(\d+)\s*[\u2013\u2014\u2012-]\s*(\d+)\s*years?/i)
+        || text.match(/(?:experience|exp)[^\n]{0,20}?(\d+)\+\s*years?/i)
+        || text.match(/(\d+)\s*[\u2013\u2014\u2012-]\s*(\d+)\s*years?/i)
+        || text.match(/(\d+)\+\s*years?\s*(?:of\s*)?(?:experience|exp)/i);
+      if (expMatch) preExtract.experienceRange = expMatch[0].replace(/^[^\d]+/, '').trim();
+    }
+
     const prompt = `You are a precise job post parser. Extract structured data from the job posting below.
-Return ONLY valid JSON, no markdown, no explanation.
+Return ONLY a valid JSON object — no markdown fences, no explanation, nothing else.
 
-CRITICAL EXTRACTION RULES:
-
-"company": Extract ONLY the hiring company/organization name.
-  - Look for patterns: "About [Company]", "[Company] is hiring", "Company: [Name]", "at [Company]", "Join [Company]", "[Company] - Job Title"
-  - The company name is usually a proper noun (e.g. "Infosys", "TCS", "Google", "Zoho", "Freshworks")
-  - NEVER EVER use section headings or requirement labels as company name. These are NOT company names: "Good to Have", "Must Have", "Nice to Have", "Required", "Preferred", "Mandatory", "Skills", "Experience", "Qualifications", "Responsibilities", "Benefits", "About the Role", "Key Skills"
-  - NEVER use tools, technologies, or skills as company name. These are tools NOT companies: "Postman", "REST Assured", "Selenium", "Docker", "Kubernetes", "Jenkins", "Jira", "Git", "GitHub", "React", "Angular", "Python", "Java", "AWS", "Azure", "MySQL", "MongoDB", "Figma", "Agile", "Scrum"
-  - A company name is NEVER a comma-separated list of tools or skills
-  - If you cannot find a real company name, return "" (empty string). Do NOT guess.
-  ${preExtract.company ? `- The company name for this job post is: "${preExtract.company}" — use this value.` : '- No company name pattern found in text, return "".'}}
-
-"location": Extract ONLY the actual city/region where the job is located.
-  - Look for patterns: "Location: [City]", "Based in [City]", "Office in [City]", "[City], India", "[City] | [State]"
-  - Valid examples: "Chennai", "Bangalore", "Mumbai", "Hyderabad", "Pune", "Delhi", "Remote", "Hybrid"
-  - NEVER use: company names, job titles, skill names, or generic words like "India" alone
-  - If the job is remote, return "Remote"
-  - If not found, return ""
-  ${preExtract.location ? `- HINT: Likely location detected: "${preExtract.location}"` : ''}
-
-"jobTitle": The exact job position title only (e.g. "Senior React Developer", "Data Analyst").
-"jobType": Array of applicable types from: Full-time, Part-time, Contract, Freelance, Internship. Can be multiple (e.g. ["Full-time", "Contract"]).
-"workSetting": One of exactly: Remote, Hybrid, On-site.
-"skills": Array of specific technical/professional skills (e.g. ["React", "Node.js", "PostgreSQL"]).
-"experienceLevel": One of exactly: Entry, Mid, Senior, Lead. Infer from years required.
-"experienceRange": String like "3-5 years" or "2+ years" extracted from the text.
-"salaryMin": Minimum salary as integer (0 if not mentioned).
-"salaryMax": Maximum salary as integer (0 if not mentioned).
-"currency": Currency code like INR, USD, EUR (default INR if Indian context).
-"jobCategory": One of: Software Development, Data Science & Analytics, Sales & Marketing, Finance & Accounting, Human Resources, Operations, Customer Service, Healthcare, Engineering, Education, Information Technology, Other.
-"description": The full job description text as-is.
-"responsibilities": Array of key responsibility bullet points (max 6).
-"requirements": Array of key requirement bullet points (max 6).
-"educationLevel": Degree required like "Bachelor's Degree", "Master's Degree", etc.
-"priority": One of: Low, Medium, High, Urgent. Infer from urgency words.
+RULES:
+- "company": Hiring company proper noun only (e.g. "Infosys", "Accenture"). Never a skill, tool, heading, or comma-separated list. Return "" if unsure.${preExtract.company ? ` Detected: "${preExtract.company}"` : ''}
+- "location": City/region only (e.g. "Muscat", "Dubai", "Chennai", "Remote"). Never a skill or company name. Return "" if not found.${preExtract.location ? ` Detected: "${preExtract.location}"` : ''}
+- "jobTitle": Exact position title only.
+- "jobType": Array from: ["Full-time"], ["Part-time"], ["Contract"], ["Internship"]. Default ["Full-time"].
+- "workSetting": Exactly one of: Remote, Hybrid, On-site.
+- "skills": Array of specific technical/professional skills found in the JD. Extract ALL mentioned skills.
+- "experienceRange": MUST be in format "X-Y years" or "X+ years" using digits only. Examples: "3-5 years", "5-8 years", "2+ years". Extract from text like "5-8 Years", "3 to 5 years", "minimum 5 years".${preExtract.experienceRange ? ` Detected: "${preExtract.experienceRange}"` : ""}
+- "experienceLevel": One of: Entry, Mid, Senior, Lead.
+- "salaryMin": 0 always.
+- "salaryMax": 0 always.
+- "currency": INR default, USD/AED/OMR if context indicates.
+- "jobCategory": One of: Software Development, Data Science & Analytics, Sales & Marketing, Finance & Accounting, Human Resources, Operations, Customer Service, Healthcare, Engineering, Education, Information Technology, Other.
+- "description": Full job description text as-is.
+- "responsibilities": Array of up to 8 responsibility bullet points extracted from the JD.
+- "requirements": Array of up to 8 requirement bullet points extracted from the JD.
+- "educationLevel": Degree required e.g. "Bachelor's Degree".
+- "priority": One of: Low, Medium, High, Urgent.
 
 JOB POST:
-${text.substring(0, 3500)}
+${text.substring(0, 5000)}
 
 JSON:
 {
@@ -785,67 +731,31 @@ JSON:
   "priority": "Medium"
 }`;
 
-    if (!process.env.OPENROUTER_API_KEY) {
-      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
-    }
-
-    const aiRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-        'X-Title': 'ZyncJobs-JobParser'
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-20b:free',
+    // Use Groq first (fastest), fallback to Gemini
+    let content = '';
+    try {
+      const { callGroq } = await import('./services/groqService.js');
+      content = await callGroq({
+        systemPrompt: '',
         messages: [{ role: 'user', content: prompt }],
+        maxTokens: 1500,
         temperature: 0.1,
-        max_tokens: 1500
-      })
-    });
-
-    if (!aiRes.ok) {
-      // Try fallback model
-      const aiRes2 = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-          'X-Title': 'ZyncJobs-JobParser'
-        },
-        body: JSON.stringify({
-          model: 'nvidia/nemotron-3-super-120b-a12b:free',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          max_tokens: 1500
-        })
       });
-      if (!aiRes2.ok) {
-        console.warn('⚠️ All models failed — using fallback');
+    } catch (groqErr) {
+      console.warn('Groq parse failed, trying Gemini:', groqErr.message);
+      try {
+        const { callGeminiChat } = await import('./services/geminiService.js');
+        content = await callGeminiChat({
+          systemPrompt: '',
+          messages: [{ role: 'user', content: prompt }],
+          maxTokens: 1500,
+          temperature: 0.1,
+        });
+      } catch (geminiErr) {
+        console.warn('Gemini parse failed:', geminiErr.message);
         return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
       }
-      const data2 = await aiRes2.json();
-      const content2 = data2.choices?.[0]?.message?.content || '';
-      const cleaned2 = content2.trim().replace(/```json|```/g, '');
-      const jsonMatch2 = cleaned2.match(/\{[\s\S]*\}/);
-      if (!jsonMatch2) return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
-      let parsed2;
-      try { parsed2 = JSON.parse(jsonMatch2[0]); } catch { return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) }); }
-      parsed2.company = '';
-      parsed2.location = sanitizeLocation(parsed2.location, preExtract.location);
-      parsed2.salaryMin = 0; parsed2.salaryMax = 0;
-      if (!Array.isArray(parsed2.skills)) parsed2.skills = [];
-      if (!Array.isArray(parsed2.responsibilities)) parsed2.responsibilities = [];
-      if (!Array.isArray(parsed2.requirements)) parsed2.requirements = [];
-      if (!Array.isArray(parsed2.jobType)) parsed2.jobType = ['Full-time'];
-      if (!parsed2.description) parsed2.description = text;
-      return res.json({ success: true, data: parsed2 });
     }
-
-    const data = await aiRes.json();
-    const content = data.choices?.[0]?.message?.content || '';
     const cleaned = content.trim().replace(/```json|```/g, '');
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
 
@@ -863,6 +773,21 @@ JSON:
     // Post-process: validate and fix company
     parsed.company = ''; // Never auto-fill company from JD
 
+    // Normalize experienceRange to "X years - Y years" format for frontend dropdowns
+    if (parsed.experienceRange) {
+      const er = parsed.experienceRange.toString()
+        .replace(/[\u2013\u2014\u2012]/g, '-')
+        .replace(/\s*years?\s*/gi, '')
+        .trim();
+      const snapMin = n => { const o=[0,1,2,3,4,5,6,7,8,9,10,12,15,20]; const c=o.reduce((a,b)=>Math.abs(b-n)<Math.abs(a-n)?b:a); return `${c} year${c!==1?'s':''}`; };
+      const snapMax = n => { const o=[1,2,3,4,5,6,7,8,9,10,12,15,20,25]; const c=o.reduce((a,b)=>Math.abs(b-n)<Math.abs(a-n)?b:a); return `${c} year${c!==1?'s':''}`; };
+      const rm = er.match(/(\d+)\s*(?:-+|to)\s*(\d+)/i);
+      const rs = er.match(/(\d+)\s*\+/);
+      if (rm) parsed.experienceRange = `${snapMin(+rm[1])} - ${snapMax(+rm[2])}`;
+      else if (rs) { const n=+rs[1]; parsed.experienceRange = `${snapMin(n)} - ${snapMax(Math.min(n+2,25))}`; }
+      else { const m=er.match(/(\d+)/); if(m){ const n=+m[1]; parsed.experienceRange=`${snapMin(n)} - ${snapMax(Math.min(n+2,25))}`; } }
+    }
+
     // Post-process: validate and fix location
     parsed.location = sanitizeLocation(parsed.location, preExtract.location);
 
@@ -872,14 +797,20 @@ JSON:
 
     // Ensure arrays
     if (!Array.isArray(parsed.skills)) parsed.skills = [];
+    if (parsed.skills.length > 0 && parsed.jobTitle) {
+      parsed.skills = filterSkillsByJobTitle(parsed.skills, parsed.jobTitle);
+    }
     if (!Array.isArray(parsed.responsibilities)) parsed.responsibilities = [];
     if (!Array.isArray(parsed.requirements)) parsed.requirements = [];
     if (!Array.isArray(parsed.jobType)) parsed.jobType = parsed.jobType ? [parsed.jobType] : ['Full-time'];
 
     // If description is empty, use original text
     if (!parsed.description) parsed.description = text;
-    // If jobTitle is empty, use pre-extracted
-    if (!parsed.jobTitle) parsed.jobTitle = preExtract.jobTitle || '';
+    // If jobTitle is empty or looks like a metadata line, use pre-extracted
+    const metaPat = /^(experience|exp|salary|location|skills?|department|employment|\*\*)/i;
+    if (!parsed.jobTitle || metaPat.test(parsed.jobTitle)) parsed.jobTitle = preExtract.jobTitle || '';
+    // If experienceRange still empty, use pre-extracted
+    if (!parsed.experienceRange && preExtract.experienceRange) parsed.experienceRange = preExtract.experienceRange;
 
     console.log('✅ Job post parsed - company:', parsed.company, '| title:', parsed.jobTitle, '| location:', parsed.location);
     res.json({ success: true, data: parsed });
@@ -925,8 +856,11 @@ function preExtractJobFields(text) {
     'Vellore', 'Erode', 'Tirunelveli', 'Pondicherry', 'Puducherry'
   ];
   const globalCities = [
-    'Remote', 'Singapore', 'Dubai', 'Abu Dhabi', 'London', 'New York', 'San Francisco',
-    'Toronto', 'Sydney', 'Melbourne', 'Doha', 'Riyadh', 'Berlin', 'Amsterdam'
+    'Remote', 'Singapore', 'Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman',
+    'Muscat', 'Salalah', 'Sohar', 'Nizwa',
+    'Riyadh', 'Jeddah', 'Dammam', 'Khobar',
+    'Doha', 'Kuwait City', 'Manama',
+    'London', 'New York', 'San Francisco', 'Toronto', 'Sydney', 'Melbourne', 'Berlin', 'Amsterdam'
   ];
   const allCities = [...indianCities, ...globalCities];
 
@@ -1024,8 +958,12 @@ function sanitizeLocation(aiLocation, preExtracted) {
     'Nagpur', 'Surat', 'Vadodara', 'Lucknow', 'Patna', 'Bhubaneswar', 'Visakhapatnam',
     'Mysore', 'Mysuru', 'Mangalore', 'Hubli', 'Tiruchirappalli', 'Trichy', 'Salem',
     'Vellore', 'Erode', 'Tirunelveli', 'Pondicherry', 'Puducherry',
-    'Remote', 'Hybrid', 'Singapore', 'Dubai', 'Abu Dhabi', 'London', 'New York',
-    'San Francisco', 'Toronto', 'Sydney', 'Melbourne', 'Doha', 'Riyadh', 'Berlin'
+    'Remote', 'Hybrid', 'Singapore',
+    'Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman',
+    'Muscat', 'Salalah', 'Sohar', 'Nizwa',
+    'Riyadh', 'Jeddah', 'Dammam', 'Khobar',
+    'Doha', 'Kuwait City', 'Manama',
+    'London', 'New York', 'San Francisco', 'Toronto', 'Sydney', 'Melbourne', 'Berlin'
   ];
 
   const isInvalid = (val) => {
@@ -1438,6 +1376,38 @@ export function formatDescriptionWithBullets(text) {
   return out;
 }
 
+function filterSkillsByJobTitle(skills, jobTitle) {
+  const title = jobTitle.toLowerCase();
+  const domainMap = [
+    { keys: ['react','frontend','front-end','ui developer','web developer'],
+      keep: ['react','javascript','typescript','html','css','redux','webpack','tailwind','sass','jest','next','vue','angular','figma','rest api','graphql'] },
+    { keys: ['node','backend','back-end','express','api developer'],
+      keep: ['node','express','javascript','typescript','mongodb','postgresql','mysql','redis','docker','aws','rest api','graphql','kafka','nginx'] },
+    { keys: ['python','django','flask','data engineer','ml','machine learning','ai','data scientist'],
+      keep: ['python','django','flask','pandas','numpy','tensorflow','pytorch','scikit','sql','postgresql','mongodb','aws','docker','spark','kafka','airflow'] },
+    { keys: ['java','spring','j2ee','microservices'],
+      keep: ['java','spring','hibernate','maven','gradle','mysql','postgresql','kafka','docker','kubernetes','aws','rest','soap','junit'] },
+    { keys: ['devops','cloud','aws','azure','gcp','infrastructure','sre'],
+      keep: ['aws','azure','gcp','docker','kubernetes','terraform','ansible','jenkins','linux','bash','python','ci/cd','prometheus','grafana','nginx'] },
+    { keys: ['qa','quality','tester','automation','manual test'],
+      keep: ['selenium','cypress','playwright','jira','testng','junit','postman','rest assured','appium','java','python','javascript','sql','jmeter','agile'] },
+    { keys: ['data analyst','business analyst','bi','tableau','power bi'],
+      keep: ['sql','excel','tableau','power bi','python','r','pandas','google analytics','looker','dax','etl','aws','azure'] },
+    { keys: ['product manager','product owner','scrum master','agile coach'],
+      keep: ['jira','confluence','agile','scrum','kanban','roadmap','figma','sql','analytics','stakeholder','ux'] },
+    { keys: ['sales','business development','account manager','crm'],
+      keep: ['salesforce','crm','excel','hubspot','pipedrive','b2b','b2c','negotiation','linkedin','cold calling'] },
+    { keys: ['hr','recruiter','talent','people operations'],
+      keep: ['ats','workday','sap hr','excel','linkedin','recruitment','onboarding','payroll','hris'] },
+  ];
+  const matched = domainMap.find(d => d.keys.some(k => title.includes(k)));
+  if (!matched) return skills;
+  return skills.filter(skill => {
+    const s = skill.toLowerCase();
+    return matched.keep.some(k => s.includes(k) || k.includes(s));
+  });
+}
+
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
@@ -1462,3 +1432,4 @@ process.on('SIGTERM', () => {
   });
 });
 // TEST
+

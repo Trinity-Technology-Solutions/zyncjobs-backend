@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { callGroq } from '../services/groqService.js';
 import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import fs from 'fs';
@@ -6,7 +6,7 @@ import fs from 'fs';
 // Mistral AI resume moderation
 export class ResumeModeratorAI {
   constructor() {
-    this.apiKey = process.env.OPENROUTER_API_KEY;
+    this.apiKey = process.env.GROQ_API_KEY;
     this.model = 'openai/gpt-oss-20b:free';
   }
 
@@ -51,7 +51,7 @@ JSON FORMAT:
 {"hasSpam": false, "hasInappropriateContent": false, "isFake": false, "profileMismatch": false, "riskScore": 25, "issues": ["specific issues"], "extractedName": "name from resume", "extractedSkills": ["skill1", "skill2"], "recommendation": "approve|flag|reject"}`;
 
     try {
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+      const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
         model: this.model,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
@@ -65,7 +65,7 @@ JSON FORMAT:
         }
       });
 
-      return this.parseAIResponse(response.data.choices[0].message.content);
+      return this.parseAIResponse(responseText);
     } catch (error) {
       console.error('AI analysis error:', error);
       return this.getFallbackAnalysis(resumeText, userProfile);

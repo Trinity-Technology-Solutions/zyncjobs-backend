@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { callGroq } from '../services/groqService.js';
 
 // Mistral AI job detection with enhanced prompting
 
@@ -24,20 +24,20 @@ Detect:
 Respond with this exact JSON format:
 {"isSpam": false, "isFake": false, "hasComplianceIssues": false, "riskScore": 25, "issues": ["list specific issues found"]}`;
 
-    const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
       model: 'openai/gpt-oss-20b:free',
       temperature: 0.1,
       max_tokens: 500
     }, {
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': process.env.FRONTEND_URL,
         'X-Title': 'ZyncJobs-Moderation'
       }
     });
 
-    const aiResponse = response.data.choices[0].message.content.trim();
+    const aiResponse = responseText.trim();
     
     // Extract JSON from response
     const jsonMatch = aiResponse.match(/\{[^}]+\}/s);

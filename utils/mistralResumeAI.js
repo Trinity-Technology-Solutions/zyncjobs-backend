@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { callGroq } from '../services/groqService.js';
 
 // Mistral AI resume analysis without file parsing dependencies
 export const analyzeMistralResume = async (resumeText, userProfile) => {
@@ -42,11 +42,11 @@ JSON FORMAT (respond with ONLY this JSON):
 {"hasSpam": boolean, "hasInappropriate": boolean, "isFake": boolean, "isDuplicate": boolean, "profileMismatch": boolean, "riskScore": number, "qualityScore": number, "issues": ["specific issues"], "extractedName": "name", "extractedEmail": "email", "recommendation": "approve|flag|reject", "moderationReason": "detailed explanation"}`;
 
     const response = await axios.post(
-      'https://openrouter.ai/api/v1/chat/completions',
+      'https://api.groq.com/openai/v1/chat/completions',
       { model: 'openai/gpt-oss-20b:free', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 500 },
       {
         headers: {
-          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
           'Content-Type': 'application/json',
           'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
           'X-Title': 'ZyncJobs'
@@ -55,7 +55,7 @@ JSON FORMAT (respond with ONLY this JSON):
       }
     );
 
-    const aiResponse = response.data.choices[0].message.content.trim();
+    const aiResponse = responseText.trim();
     
     // Parse JSON response
     const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
