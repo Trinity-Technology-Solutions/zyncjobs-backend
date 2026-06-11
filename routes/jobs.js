@@ -766,7 +766,7 @@ router.get('/:id', async (req, res) => {
     }
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
