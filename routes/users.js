@@ -494,7 +494,11 @@ router.post('/login', async (req, res) => {
     
     if (!isPasswordValid) {
       console.log('❌ Invalid password for:', email);
-      return res.status(401).json({ error: 'Invalid password. Please try again.' });
+      return res.status(401).json({
+        error: 'Invalid password. Please try again.',
+        suggestReset: true,
+        hint: 'Forgot your password? Use the reset link below.'
+      });
     }
 
     console.log('✅ Password valid for:', email);

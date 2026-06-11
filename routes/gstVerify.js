@@ -22,13 +22,17 @@ router.post('/gst', async (req, res) => {
       });
     }
 
-    const response = await fetch('https://kyc-api.surepass.io/api/v1/corporate/gstin', {
+    // Use sandbox URL — works with current sandbox token
+    // TODO: Switch to kyc-api.surepass.io with production token when upgrading
+    const SUREPASS_URL = 'https://sandbox.surepass.io/api/v1/corporate/gstin';
+
+    const response = await fetch(SUREPASS_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ id: gstin.toUpperCase() }),
+      body: JSON.stringify({ id_number: gstin.toUpperCase() }),
     });
 
     const data = await response.json();
@@ -45,7 +49,7 @@ router.post('/gst', async (req, res) => {
       data: {
         gstin: data.data?.gstin || gstin,
         legal_name: data.data?.legal_name || '',
-        trade_name: data.data?.trade_name || '',
+        trade_name: data.data?.business_name || data.data?.trade_name || '',
         gstin_status: data.data?.gstin_status || 'Active',
         state: data.data?.state_jurisdiction || data.data?.state || '',
       }

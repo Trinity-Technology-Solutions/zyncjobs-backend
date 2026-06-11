@@ -10,6 +10,7 @@
     "start:prod": "cross-env NODE_ENV=production node --import ./instrument.mjs server.js",
     "dev": "node --import ./instrument.mjs --watch server.js",
     "test": "node test-backend.js",
+    "test:gst": "node test/testGSTVerification.js",
     "test:resume-parser": "node test/testResumeParser.js",
     "test:skills": "node test/testSkillExtraction.js",
     "test:pipeline": "node test/testSkillScorePipeline.js",
