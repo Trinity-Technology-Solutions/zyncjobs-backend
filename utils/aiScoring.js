@@ -153,11 +153,21 @@ export class AIScoring {
   
   // Helper methods
   static extractExperienceFromJob(jobData) {
-    const desc = (jobData.description + ' ' + (jobData.requirements || '')).toLowerCase();
-    if (desc.includes('5+ years') || desc.includes('5 years')) return 5;
-    if (desc.includes('3+ years') || desc.includes('3 years')) return 3;
-    if (desc.includes('2+ years') || desc.includes('2 years')) return 2;
-    if (desc.includes('1+ year') || desc.includes('1 year')) return 1;
+    // 1. Check structured experienceRange field first (e.g. "3 years - 5 years", "2+ years")
+    if (jobData.experienceRange) {
+      const range = jobData.experienceRange.toString();
+      const match = range.match(/(\d+)/);
+      if (match) return parseInt(match[1]);
+    }
+    // 2. Check experienceLevel enum
+    const levelMap = { Entry: 0, Mid: 2, Senior: 5, Lead: 8 };
+    if (jobData.experienceLevel && levelMap[jobData.experienceLevel] !== undefined) {
+      return levelMap[jobData.experienceLevel];
+    }
+    // 3. Fallback: scan description text
+    const desc = ((jobData.description || '') + ' ' + (jobData.requirements || '')).toLowerCase();
+    const textMatch = desc.match(/(\d+)\+?\s*years?/);
+    if (textMatch) return parseInt(textMatch[1]);
     return 0;
   }
   

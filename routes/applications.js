@@ -11,7 +11,7 @@ import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import NotificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { runAutoRejection } from './aiRejectionSettings.js';
-import { getSignedResumeUrl, getResumeStreamFromS3 } from '../services/s3Service.js';
+import { getSignedResumeUrl, getResumeStreamFromS3, toSafeS3Url } from '../services/s3Service.js';
 
 const router = express.Router();
 const PLACEHOLDERS = ['resume_from_quick_apply', 'resume_from_profile', 'resume_uploaded'];
@@ -26,12 +26,12 @@ async function resolveResumeFileUrl(application) {
     },
     order: [['createdAt', 'DESC']]
   });
-  if (resume?.fileUrl && !PLACEHOLDERS.includes(resume.fileUrl)) return resume.fileUrl;
+  if (resume?.fileUrl && !PLACEHOLDERS.includes(resume.fileUrl)) return toSafeS3Url(resume.fileUrl);
 
   const user = await User.findOne({ where: { email: { [Op.iLike]: application.candidateEmail } } });
-  if (user?.resumeUrl && !PLACEHOLDERS.includes(user.resumeUrl)) return user.resumeUrl;
+  if (user?.resumeUrl && !PLACEHOLDERS.includes(user.resumeUrl)) return toSafeS3Url(user.resumeUrl);
 
-  if (application.resumeUrl && !PLACEHOLDERS.includes(application.resumeUrl)) return application.resumeUrl;
+  if (application.resumeUrl && !PLACEHOLDERS.includes(application.resumeUrl)) return toSafeS3Url(application.resumeUrl);
   return null;
 }
 

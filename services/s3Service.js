@@ -13,11 +13,30 @@ const BUCKET = process.env.S3_BUCKET || 'zyncjobs.com';
 function extractS3Key(fileUrl) {
   const url = new URL(fileUrl);
   // path-style: s3.amazonaws.com/bucket/key  → pathname = /bucket/key
-  if (url.hostname === 's3.amazonaws.com' || url.hostname.startsWith('s3.') && !url.hostname.includes(BUCKET)) {
+  if (url.hostname === 's3.amazonaws.com' || (url.hostname.startsWith('s3.') && !url.hostname.includes(BUCKET))) {
     return decodeURIComponent(url.pathname.replace(`/${BUCKET}/`, '/').slice(1));
   }
   // virtual-hosted: bucket.s3.region.amazonaws.com/key → pathname = /key
   return decodeURIComponent(url.pathname.slice(1));
+}
+
+// Convert any S3 URL to safe path-style URL (avoids SSL cert error for bucket names with dots)
+export function toSafeS3Url(fileUrl) {
+  if (!fileUrl) return fileUrl;
+  try {
+    const url = new URL(fileUrl);
+    const region = process.env.AWS_REGION || 'ap-south-1';
+    // Already path-style — return as-is
+    if (url.hostname.startsWith('s3.') && !url.hostname.includes(BUCKET)) return fileUrl;
+    // Virtual-hosted with dot bucket → convert to path-style
+    if (url.hostname.includes(BUCKET)) {
+      const key = decodeURIComponent(url.pathname.slice(1));
+      return `https://s3.${region}.amazonaws.com/${BUCKET}/${key}`;
+    }
+    return fileUrl;
+  } catch {
+    return fileUrl;
+  }
 }
 
 export async function uploadResumeToS3(buffer, originalName) {
