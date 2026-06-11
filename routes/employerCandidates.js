@@ -7,6 +7,7 @@ import { AIScoring } from '../utils/aiScoring.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import { Op } from 'sequelize';
+import { toSafeS3Url } from '../services/s3Service.js';
 
 // ── Ranking helpers ──────────────────────────────────────────────────────────
 
@@ -33,9 +34,10 @@ function expScore(candidateExp, jobData) {
   const years = parseExp(candidateExp);
   if (required === 0) return 70;
   if (years >= required) return 100;
-  if (years >= required * 0.75) return 80;
-  if (years >= required * 0.5) return 60;
-  return 35;
+  if (years >= required * 0.8) return 85;
+  if (years >= required * 0.6) return 65;
+  if (years >= required * 0.4) return 45;
+  return 25;
 }
 
 function locationScore(candidateLoc, jobLoc) {
@@ -372,7 +374,7 @@ router.get('/jobs/:jobId/ranked-candidates', authenticateToken, requireRole(['em
         applicationStatus: app.status,
         appliedAt: app.createdAt,
         coverLetter: app.coverLetter,
-        resumeUrl: app.resumeUrl,
+        resumeUrl: toSafeS3Url(app.resumeUrl),
         aiScore: app.aiScore,
         isQuickApply: app.isQuickApply
       };

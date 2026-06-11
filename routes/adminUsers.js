@@ -384,15 +384,17 @@ router.delete('/:id', ...adminGuard, async (req, res) => {
     const target = await User.findByPk(req.params.id);
     if (!target) return res.status(404).json({ error: 'User not found' });
 
-    if (['admin', 'super_admin'].includes(target.role)) {
-      await User.destroy({ where: { id: req.params.id } });
-      await logAdminAction(req, 'delete', target.email, `Deleted ${target.role} account`, req.params.id);
-      res.json({ message: 'Admin user deleted successfully' });
-    } else {
-      await User.update({ isActive: false }, { where: { id: req.params.id } });
-      await logAdminAction(req, 'delete', target.email, `Deactivated ${target.role} account`, req.params.id);
-      res.json({ message: 'User deactivated successfully' });
-    }
+    // Log the action before deletion
+    await logAdminAction(req, 'delete', target.email, `Deleted ${target.role} account`, req.params.id);
+    
+    // Actually delete the user from database
+    await User.destroy({ where: { id: req.params.id } });
+    
+    console.log(`✅ User deleted successfully: ${target.email} (${target.role})`);
+    res.json({ 
+      success: true,
+      message: `${target.role === 'admin' || target.role === 'super_admin' ? 'Admin user' : 'User'} deleted successfully` 
+    });
   } catch (error) {
     console.error('Delete user error:', error);
     res.status(500).json({ error: 'Failed to delete user' });

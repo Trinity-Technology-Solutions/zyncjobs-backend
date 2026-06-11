@@ -38,7 +38,7 @@ router.get('/slug/:slug', async (req, res) => {
     const job = await Job.findOne({ where: { slug: req.params.slug, isActive: true } });
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -370,7 +370,7 @@ router.get('/position/:positionId', async (req, res) => {
     const job = await Job.findOne({ where: { positionId: req.params.positionId, isActive: true } });
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -707,6 +707,7 @@ router.post('/', maxJobsGuard, [
       jobTitle: jobData.jobTitle,
       company: jobData.company,
       companyLogo: user?.companyLogo || null,
+      jobHeaderImage: jobData.jobHeaderImage || getJobHeaderImage(jobData.jobTitle, jobData.skills || []),
       location: jobData.location,
       jobType: jobData.jobType, // This should be a string now
       workSetting: jobData.workSetting,
@@ -807,7 +808,7 @@ router.put('/:id', async (req, res) => {
     const allowed = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
       'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
       'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
-      'applicationDeadline', 'isActive', 'status'];
+      'applicationDeadline', 'isActive', 'status', 'jobHeaderImage'];
 
     const updates = {};
     for (const key of allowed) {
