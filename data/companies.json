@@ -1219,5 +1219,61 @@
     "name": "GrowthPulse Solutions Private Limited",
     "domain": "growthpulss.com",
     "logoUrl": "https://img.logo.dev/growthpulss.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80"
+  },
+  {
+    "id": 204,
+    "name": "TransUnion",
+    "domain": "transunion.com",
+    "website": "https://www.transunion.com",
+    "logoUrl": "https://img.logo.dev/transunion.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
+    "industry": "Finance & Banking"
+  },
+  {
+    "id": 205,
+    "name": "Haverim Consulting",
+    "domain": "haverimconsulting.com",
+    "website": "https://www.haverimconsulting.com",
+    "logoUrl": "https://img.logo.dev/haverimconsulting.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
+    "industry": "Consulting & Professional Services"
+  },
+  {
+    "id": 206,
+    "name": "VTX Core",
+    "domain": "vtxcore.com",
+    "website": "https://www.vtxcore.com",
+    "logoUrl": "https://img.logo.dev/vtxcore.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
+    "industry": "Information Technology"
+  },
+  {
+    "id": 207,
+    "name": "YAAT Group",
+    "domain": "yaatgroup.com",
+    "website": "https://yaatgroup.com",
+    "logoUrl": "https://img.logo.dev/yaatgroup.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
+    "industry": "Consulting & Professional Services"
+  },
+  {
+    "id": 208,
+    "name": "Grace Institutions",
+    "domain": "graceinstitutions.com",
+    "website": "https://www.graceinstitutions.com",
+    "logoUrl": "https://img.logo.dev/graceinstitutions.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
+    "industry": "Education & E-Learning"
+  },
+  {
+    "id": 209,
+    "name": "Trinity Consulting Asia",
+    "domain": "trinityconsulting.asia",
+    "website": "https://www.trinityconsulting.asia",
+    "logoUrl": "https://img.logo.dev/trinityconsulting.asia?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
+    "industry": "Consulting & Professional Services"
+  },
+  {
+    "id": 210,
+    "name": "Subros",
+    "domain": "subros.com",
+    "website": "https://www.subros.com",
+    "logoUrl": "https://img.logo.dev/subros.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
+    "industry": "Automotive"
   }
 ]
