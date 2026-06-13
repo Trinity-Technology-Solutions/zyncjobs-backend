@@ -37,29 +37,20 @@ export const getCompanyLogo = (company) => {
   
   if (domain) {
     return {
-      logoUrl: `https://logo.clearbit.com/${domain}`,
-      fallbackType: 'clearbit',
+      logoUrl: null,
+      fallbackType: 'domain',
       companyName: company.name,
-      domain: domain,
-      alternativeLogos: [
-        `https://img.logo.dev/${domain}?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80`,
-        `https://www.google.com/s2/favicons?domain=${domain}&sz=128`
-      ]
+      domain: domain
     };
   }
 
-  // Try to get logo from well-known company domains
   const knownDomain = getKnownCompanyDomain(company.name);
   if (knownDomain) {
     return {
-      logoUrl: `https://logo.clearbit.com/${knownDomain}`,
+      logoUrl: null,
       fallbackType: 'known_domain',
       companyName: company.name,
-      domain: knownDomain,
-      alternativeLogos: [
-        `https://img.logo.dev/${knownDomain}?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80`,
-        `https://www.google.com/s2/favicons?domain=${knownDomain}&sz=128`
-      ]
+      domain: knownDomain
     };
   }
 
@@ -79,52 +70,9 @@ export const getCompanyLogo = (company) => {
  */
 const getKnownCompanyLogo = (companyName) => {
   const knownLogos = {
-    'Infosys': {
-      url: 'https://logo.clearbit.com/infosys.com',
-      domain: 'infosys.com'
-    },
-    'Zoho': {
-      url: 'https://logo.clearbit.com/zoho.com',
-      domain: 'zoho.com'
-    },
-    'zoho': {
-      url: 'https://logo.clearbit.com/zoho.com',
-      domain: 'zoho.com'
-    },
-    'Google': {
-      url: 'https://logo.clearbit.com/google.com',
-      domain: 'google.com'
-    },
-    'Microsoft': {
-      url: 'https://logo.clearbit.com/microsoft.com',
-      domain: 'microsoft.com'
-    },
-    'Apple': {
-      url: 'https://logo.clearbit.com/apple.com',
-      domain: 'apple.com'
-    },
-    'Amazon': {
-      url: 'https://logo.clearbit.com/amazon.com',
-      domain: 'amazon.com'
-    },
-    'TCS': {
-      url: 'https://logo.clearbit.com/tcs.com',
-      domain: 'tcs.com'
-    },
-    'Wipro': {
-      url: 'https://logo.clearbit.com/wipro.com',
-      domain: 'wipro.com'
-    },
-    'Trinity Technology Solutions': {
-      url: '/images/trinity-logo.webp',
-      domain: 'trinitetech.com'
-    },
-    'Nambikkai India': {
-      url: 'https://logo.clearbit.com/nambikkaiindia.org',
-      domain: 'nambikkaiindia.org'
-    }
+    'Trinity Technology Solutions': { url: '/images/trinity-logo.webp', domain: 'trinitetech.com' },
+    'Nambikkai India': { url: null, domain: 'nambikkaiindia.org' }
   };
-  
   return knownLogos[companyName] || null;
 };
 
