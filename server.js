@@ -475,7 +475,7 @@ app.get('/api/logo-proxy', async (req, res) => {
   ];
   for (const url of urls) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (r.ok && r.headers.get('content-type')?.startsWith('image')) {
         const buf = await r.arrayBuffer();
         res.set('Content-Type', r.headers.get('content-type'));
@@ -485,6 +485,84 @@ app.get('/api/logo-proxy', async (req, res) => {
     } catch {}
   }
   res.status(404).end();
+});
+
+// Auto-fetch and save logo for a company by domain
+app.post('/api/companies/auto-fetch-logo', async (req, res) => {
+  const { companyName, domain } = req.body;
+  if (!companyName || !domain) return res.status(400).json({ error: 'companyName and domain required' });
+  const cleanDomain = domain.replace(/[^a-zA-Z0-9.-]/g, '');
+  const urls = [
+    `https://logo.clearbit.com/${cleanDomain}`,
+    `https://www.google.com/s2/favicons?domain=${cleanDomain}&sz=64`,
+  ];
+  let logoUrl = null;
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (r.ok && r.headers.get('content-type')?.startsWith('image')) {
+        logoUrl = url;
+        break;
+      }
+    } catch {}
+  }
+  if (logoUrl) {
+    try {
+      const Company = (await import('./models/Company.js')).default;
+      await Company.update({ logo: logoUrl }, { where: { name: companyName } });
+    } catch {}
+  }
+  res.json({ logoUrl });
+});
+
+// Bulk auto-fetch logos for all companies missing logo
+app.post('/api/admin/bulk-fetch-logos', async (req, res) => {
+  try {
+    const Company = (await import('./models/Company.js')).default;
+    const { Op } = await import('sequelize');
+    const companies = await Company.findAll({
+      where: { logo: { [Op.or]: [null, ''] } }
+    });
+    const results = [];
+    for (const company of companies) {
+      // Get domain from website, companyWebsite, or createdBy email
+      let domain = company.domain;
+      if (!domain && company.website) {
+        try { domain = new URL(company.website).hostname.replace('www.', ''); } catch {}
+      }
+      if (!domain && company.companyWebsite) {
+        try { domain = new URL(company.companyWebsite).hostname.replace('www.', ''); } catch {}
+      }
+      if (!domain && company.createdBy && company.createdBy.includes('@')) {
+        const emailDomain = company.createdBy.split('@')[1];
+        const genericDomains = ['gmail.com','yahoo.com','outlook.com','hotmail.com'];
+        if (!genericDomains.includes(emailDomain)) domain = emailDomain;
+      }
+      if (!domain) { results.push({ name: company.name, status: 'no_domain' }); continue; }
+      const urls = [
+        `https://logo.clearbit.com/${domain}`,
+        `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
+      ];
+      let logoUrl = null;
+      for (const url of urls) {
+        try {
+          const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          if (r.ok && r.headers.get('content-type')?.startsWith('image')) {
+            logoUrl = url; break;
+          }
+        } catch {}
+      }
+      if (logoUrl) {
+        await company.update({ logo: logoUrl });
+        results.push({ name: company.name, domain, logoUrl, status: 'updated' });
+      } else {
+        results.push({ name: company.name, domain, status: 'no_logo_found' });
+      }
+    }
+    res.json({ updated: results.filter(r => r.status === 'updated').length, total: companies.length, results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Resume parser with AI

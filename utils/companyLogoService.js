@@ -213,7 +213,7 @@ export const formatCompanyWithLogo = (company) => {
     fallbackType: logoInfo.fallbackType,
     initials: logoInfo.initials,
     // Add fallback logo URLs for frontend to handle errors
-    fallbackLogoUrl: logoInfo.domain ? `https://www.google.com/s2/favicons?domain=${logoInfo.domain}&sz=128` : null,
+    fallbackLogoUrl: null,
     alternativeLogos: logoInfo.alternativeLogos || []
   };
 };
