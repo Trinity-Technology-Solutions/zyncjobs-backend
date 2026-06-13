@@ -463,6 +463,30 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/verify', gstVerifyRoutes);
 app.use('/', ogTagsRoutes);
 
+// Logo proxy — backend fetches external logo, returns to frontend
+// Avoids ERR_TUNNEL / network block on client side
+app.get('/api/logo-proxy', async (req, res) => {
+  const domain = (req.query.domain || '').replace(/[^a-zA-Z0-9.-]/g, '');
+  if (!domain) return res.status(400).end();
+  const urls = [
+    `https://logo.clearbit.com/${domain}`,
+    `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
+    `https://img.logo.dev/${domain}?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=64`,
+  ];
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      if (r.ok && r.headers.get('content-type')?.startsWith('image')) {
+        const buf = await r.arrayBuffer();
+        res.set('Content-Type', r.headers.get('content-type'));
+        res.set('Cache-Control', 'public, max-age=86400');
+        return res.send(Buffer.from(buf));
+      }
+    } catch {}
+  }
+  res.status(404).end();
+});
+
 // Resume parser with AI
 app.post('/api/resume-parser/parse', async (req, res) => {
   try {

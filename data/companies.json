@@ -1275,5 +1275,13 @@
     "website": "https://www.subros.com",
     "logoUrl": "https://img.logo.dev/subros.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
     "industry": "Automotive"
+  },
+  {
+    "id": 211,
+    "name": "Lone Star Alpha",
+    "domain": "lonestaralpha.com",
+    "website": "https://www.lonestaralpha.com",
+    "logoUrl": "https://img.logo.dev/lonestaralpha.com?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=80",
+    "industry": "Consulting & Professional Services"
   }
 ]
