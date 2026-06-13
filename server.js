@@ -521,7 +521,15 @@ app.post('/api/admin/bulk-fetch-logos', async (req, res) => {
     const Company = (await import('./models/Company.js')).default;
     const { Op } = await import('sequelize');
     const companies = await Company.findAll({
-      where: { logo: { [Op.or]: [null, ''] } }
+      where: {
+        [Op.or]: [
+          { logo: null },
+          { logo: '' },
+          { logo: { [Op.like]: '%clearbit%' } },
+          { logo: { [Op.like]: '%google.com/s2/favicons%' } },
+          { logo: { [Op.like]: '%ui-avatars%' } },
+        ]
+      }
     });
     const results = [];
     for (const company of companies) {
