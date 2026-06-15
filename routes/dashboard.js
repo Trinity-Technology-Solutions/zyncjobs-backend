@@ -62,30 +62,39 @@ router.get('/stats', async (req, res) => {
     if (!employerEmail || employerEmail.trim() === '') {
       return res.json({ activeJobs: 0, applications: 0, interviews: 0, hired: 0 });
     }
+
+    // For team members: resolve owner email via team membership
+    let resolvedEmail = employerEmail.trim();
+    const teamRecord = await (await import('../models/TeamMember.js')).default.findOne({
+      where: { memberEmail: resolvedEmail.toLowerCase() }
+    });
+    if (teamRecord?.employerId) {
+      resolvedEmail = teamRecord.employerId;
+    }
     
-    // Get company-wide data using employerEmail only
+    // Get company-wide data using resolved owner email
     const activeJobs = await Job.count({
       where: {
-        employerEmail,
+        employerEmail: { [Op.iLike]: resolvedEmail },
         isActive: true,
         status: { [Op.in]: ['approved', 'pending'] }
       }
     });
     
     const applications = await Application.count({
-      where: { employerEmail }
+      where: { employerEmail: { [Op.iLike]: resolvedEmail } }
     });
     
     const interviews = await Application.count({
       where: {
-        employerEmail,
+        employerEmail: { [Op.iLike]: resolvedEmail },
         status: { [Op.in]: ['shortlisted', 'interviewed'] }
       }
     });
     
     const hired = await Application.count({
       where: {
-        employerEmail,
+        employerEmail: { [Op.iLike]: resolvedEmail },
         status: 'hired'
       }
     });
@@ -102,13 +111,22 @@ router.get('/recent-activity', async (req, res) => {
   try {
     const { employerEmail } = req.query;
     
-    // Always use employerEmail as the main company identifier
     if (!employerEmail || employerEmail.trim() === '') {
       return res.json([]);
     }
+
+    // For team members: resolve owner email
+    let resolvedEmail = employerEmail.trim();
+    const TeamMember = (await import('../models/TeamMember.js')).default;
+    const teamRecord = await TeamMember.findOne({
+      where: { memberEmail: resolvedEmail.toLowerCase() }
+    });
+    if (teamRecord?.employerId) {
+      resolvedEmail = teamRecord.employerId;
+    }
     
     const recentJobs = await Job.findAll({
-      where: { employerEmail },
+      where: { employerEmail: { [Op.iLike]: resolvedEmail } },
       order: [['createdAt', 'DESC']],
       limit: 3
     });

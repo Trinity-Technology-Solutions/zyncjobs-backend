@@ -341,12 +341,20 @@ router.get('/employer/:employerId', async (req, res) => {
 // GET /api/jobs/employer/email/:email - Get jobs by employer email (company-wide)
 router.get('/employer/email/:email', async (req, res) => {
   try {
-    // Use the email parameter as the company identifier
-    const employerEmail = req.params.email;
+    let employerEmail = req.params.email;
+
+    // For team members: auto-resolve to owner email
+    const TeamMember = (await import('../models/TeamMember.js')).default;
+    const teamRecord = await TeamMember.findOne({
+      where: { memberEmail: employerEmail.toLowerCase() }
+    });
+    if (teamRecord?.employerId) {
+      employerEmail = teamRecord.employerId;
+    }
     
     const jobs = await Job.findAll({ 
       where: {
-        employerEmail: employerEmail,
+        employerEmail: { [Op.iLike]: employerEmail },
         isActive: true,
         status: { [Op.in]: ['approved', 'pending'] }
       },
