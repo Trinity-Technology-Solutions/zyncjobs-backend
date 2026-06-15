@@ -808,7 +808,17 @@ router.get('/', async (req, res) => {
       try {
         const TeamMember = (await import('../models/TeamMember.js')).default;
         const teamRecord = await TeamMember.findOne({ where: { memberEmail: employerEmail.toLowerCase() } });
-        if (teamRecord?.employerId) resolvedEmail = teamRecord.employerId;
+        if (teamRecord?.employerId) {
+          // employerId may be an email or a short ID — check if it looks like an email
+          const isEmail = teamRecord.employerId.includes('@');
+          if (isEmail) {
+            resolvedEmail = teamRecord.employerId;
+          } else {
+            // Look up owner by employerId in User table to get their email
+            const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
+            if (ownerUser?.email) resolvedEmail = ownerUser.email;
+          }
+        }
       } catch (e) { /* non-blocking */ }
       where.employerEmail = { [Op.iLike]: resolvedEmail };
     }
