@@ -802,7 +802,16 @@ router.get('/', async (req, res) => {
     if (status) where.status = status;
     if (jobId) where.jobId = jobId;
     if (employerId) where.employerId = employerId;
-    if (employerEmail) where.employerEmail = { [Op.iLike]: employerEmail };
+    if (employerEmail) {
+      // Resolve team member → owner email so team members see the company's applications
+      let resolvedEmail = employerEmail;
+      try {
+        const TeamMember = (await import('../models/TeamMember.js')).default;
+        const teamRecord = await TeamMember.findOne({ where: { memberEmail: employerEmail.toLowerCase() } });
+        if (teamRecord?.employerId) resolvedEmail = teamRecord.employerId;
+      } catch (e) { /* non-blocking */ }
+      where.employerEmail = { [Op.iLike]: resolvedEmail };
+    }
 
     // If no pagination params, return all
     if (!page && !limit) {

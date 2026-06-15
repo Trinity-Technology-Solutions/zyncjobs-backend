@@ -175,11 +175,19 @@ router.get('/check', async (req, res) => {
     if (!memberEmail) return res.status(400).json({ error: 'memberEmail required' });
 
     const invite = await TeamMember.findOne({ where: { memberEmail: memberEmail.toLowerCase() } });
+
+    let memberNameFromUser = null;
+    if (invite) {
+      const user = await User.findOne({ where: { email: memberEmail.toLowerCase() }, attributes: ['name'] });
+      memberNameFromUser = user?.name || invite.memberName || null;
+    }
+
     res.json({
       hasInvite: !!invite,
       status: invite?.status || null,
       role: invite?.role || null,
-      employerId: invite?.employerId || null
+      employerId: invite?.employerId || null,
+      memberName: memberNameFromUser
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
