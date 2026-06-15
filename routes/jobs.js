@@ -349,7 +349,13 @@ router.get('/employer/email/:email', async (req, res) => {
       where: { memberEmail: employerEmail.toLowerCase() }
     });
     if (teamRecord?.employerId) {
-      employerEmail = teamRecord.employerId;
+      const isEmail = teamRecord.employerId.includes('@');
+      if (isEmail) {
+        employerEmail = teamRecord.employerId;
+      } else {
+        const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
+        if (ownerUser?.email) employerEmail = ownerUser.email;
+      }
     }
     
     const jobs = await Job.findAll({ 
