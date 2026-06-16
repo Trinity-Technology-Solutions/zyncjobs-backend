@@ -62,10 +62,10 @@ function getTeamMemberPermissions(role) {
       canAccessDashboard: true,
       canAccessJobPosting: false,
       canAccessJobManagement: false,
-      canAccessApplications: false,
+      canAccessApplications: true,
       canAccessCandidateRanking: false,
-      canAccessInterviews: false,
-      canAccessPostedJobs: false
+      canAccessInterviews: true,
+      canAccessPostedJobs: true
     }
   };
   

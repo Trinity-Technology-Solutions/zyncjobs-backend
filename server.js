@@ -804,13 +804,13 @@ RULES:
 - "jobTitle": Exact position title only.
 - "jobType": Array from: ["Full-time"], ["Part-time"], ["Contract"], ["Internship"]. Default ["Full-time"].
 - "workSetting": Exactly one of: Remote, Hybrid, On-site.
-- "skills": Array of specific technical/professional skills found in the JD. Extract ALL mentioned skills.
+- "skills": Array of ALL skills mentioned in the JD — technical, domain-specific, professional certifications, tools, and soft skills. For non-tech roles (HSE, HR, Finance, Healthcare etc.) extract domain skills like "NEBOSH", "Risk Assessment", "HSE Inspection", "OSHA", "Fire Safety" etc. Extract EVERYTHING listed under skills/requirements/qualifications sections.
 - "experienceRange": MUST be in format "X-Y years" or "X+ years" using digits only. Examples: "3-5 years", "5-8 years", "2+ years". Extract from text like "5-8 Years", "3 to 5 years", "minimum 5 years".${preExtract.experienceRange ? ` Detected: "${preExtract.experienceRange}"` : ""}
 - "experienceLevel": One of: Entry, Mid, Senior, Lead.
 - "salaryMin": 0 always.
 - "salaryMax": 0 always.
 - "currency": INR default, USD/AED/OMR if context indicates.
-- "jobCategory": One of: Software Development, Data Science & Analytics, Sales & Marketing, Finance & Accounting, Human Resources, Operations, Customer Service, Healthcare, Engineering, Education, Information Technology, Other.
+- "jobCategory": Pick the BEST match from: Software Development, Data Science & Analytics, Sales & Marketing, Finance & Accounting, Human Resources, Operations, Customer Service, Healthcare, Engineering, Education, Information Technology, Oil & Gas, Construction, Manufacturing, Media & Communications, Logistics & Supply Chain, Other. Use "Engineering" for HSE/civil/mechanical/electrical. Use "Oil & Gas" if the JD mentions infrastructure/oil/gas/petrochemical.
 - "description": Full job description text as-is.
 - "responsibilities": Array of up to 8 responsibility bullet points extracted from the JD.
 - "requirements": Array of up to 8 requirement bullet points extracted from the JD.
@@ -833,7 +833,7 @@ JSON:
   "salaryMin": 0,
   "salaryMax": 0,
   "currency": "INR",
-  "jobCategory": "Software Development",
+  "jobCategory": "Information Technology",
   "description": "",
   "responsibilities": [],
   "requirements": [],
@@ -908,7 +908,11 @@ JSON:
     // Ensure arrays
     if (!Array.isArray(parsed.skills)) parsed.skills = [];
     if (parsed.skills.length > 0 && parsed.jobTitle) {
-      parsed.skills = filterSkillsByJobTitle(parsed.skills, parsed.jobTitle);
+      // Only filter for clearly tech roles — preserve all skills for non-tech roles
+      const isTechRole = /software|developer|programmer|frontend|backend|fullstack|devops|data scientist|machine learning/i.test(parsed.jobTitle);
+      if (isTechRole) {
+        parsed.skills = filterSkillsByJobTitle(parsed.skills, parsed.jobTitle);
+      }
     }
     if (!Array.isArray(parsed.responsibilities)) parsed.responsibilities = [];
     if (!Array.isArray(parsed.requirements)) parsed.requirements = [];

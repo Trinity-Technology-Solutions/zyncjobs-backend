@@ -12,6 +12,26 @@ import NotificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { runAutoRejection } from './aiRejectionSettings.js';
 import { getSignedResumeUrl, getResumeStreamFromS3, toSafeS3Url } from '../services/s3Service.js';
+import TeamMember from '../models/TeamMember.js';
+
+// Block Viewer role from write operations
+const blockViewer = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return next(); // no token = let other auth handle it
+    const { verifyToken } = await import('../utils/jwt.js');
+    const decoded = verifyToken(authHeader.replace('Bearer ', ''));
+    const user = await User.findOne({ where: { id: decoded.userId }, attributes: ['id', 'email'] });
+    if (!user) return next();
+    const tm = await TeamMember.findOne({ where: { memberEmail: user.email.toLowerCase(), status: 'active' } });
+    if (tm?.role === 'Viewer') {
+      return res.status(403).json({ error: 'Access denied', message: 'Viewer role cannot perform this action' });
+    }
+    next();
+  } catch {
+    next();
+  }
+};
 
 const router = express.Router();
 const PLACEHOLDERS = ['resume_from_quick_apply', 'resume_from_profile', 'resume_uploaded'];
@@ -466,7 +486,7 @@ router.get('/job/:jobId/ai-scores', async (req, res) => {
 });
 
 // POST /api/applications/job/:jobId/recalculate-scores - Recalculate AI scores for all applications
-router.post('/job/:jobId/recalculate-scores', async (req, res) => {
+router.post('/job/:jobId/recalculate-scores', blockViewer, async (req, res) => {
   try {
     const { jobId } = req.params;
     
@@ -614,7 +634,7 @@ router.get('/job/:jobId/hired-count', async (req, res) => {
 });
 
 // PUT /api/applications/:id/status - Update application status
-router.put('/:id/status', [
+router.put('/:id/status', blockViewer, [
   body('status').isIn(['pending', 'applied', 'reviewed', 'shortlisted', 'interviewed', 'rejected', 'hired']).withMessage('Invalid status')
 ], async (req, res) => {
   try {
@@ -853,7 +873,7 @@ router.get('/', async (req, res) => {
 });
 
 // PUT /api/applications/:id/withdraw - Withdraw application
-router.put('/:id/withdraw', async (req, res) => {
+router.put('/:id/withdraw', blockViewer, async (req, res) => {
   try {
     const { reason } = req.body;
     const application = await Application.findByPk(req.params.id);
@@ -872,7 +892,7 @@ router.put('/:id/withdraw', async (req, res) => {
 });
 
 // DELETE /api/applications/:id - Delete application
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', blockViewer, async (req, res) => {
   try {
     console.log('Attempting to delete application:', req.params.id);
     const application = await Application.findByPk(req.params.id);
