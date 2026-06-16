@@ -7,6 +7,26 @@ import Job from '../models/Job.js';
 import { meetingService } from '../services/meetingService.js';
 import { sendInterviewScheduledEmail } from '../services/emailService.js';
 import NotificationService from '../services/notificationService.js';
+import TeamMember from '../models/TeamMember.js';
+
+// Block Viewer role from write operations
+const blockViewer = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return next();
+    const { verifyToken } = await import('../utils/jwt.js');
+    const decoded = verifyToken(authHeader.replace('Bearer ', ''));
+    const user = await User.findOne({ where: { id: decoded.userId }, attributes: ['id', 'email'] });
+    if (!user) return next();
+    const tm = await TeamMember.findOne({ where: { memberEmail: user.email.toLowerCase(), status: 'active' } });
+    if (tm?.role === 'Viewer') {
+      return res.status(403).json({ error: 'Access denied', message: 'Viewer role cannot perform this action' });
+    }
+    next();
+  } catch {
+    next();
+  }
+};
 
 const router = express.Router();
 
@@ -156,7 +176,7 @@ router.get('/candidate/:email', async (req, res) => {
 });
 
 // POST /api/interviews/schedule - Schedule new interview
-router.post('/schedule', async (req, res) => {
+router.post('/schedule', blockViewer, async (req, res) => {
   try {
     const { applicationId, candidateId, candidateEmail, candidateName, employerId, employerEmail: bodyEmployerEmail, jobId, scheduledDate, duration, type, meetingLink, location, notes, round, interviewer } = req.body;
     
@@ -262,7 +282,7 @@ router.post('/schedule', async (req, res) => {
 });
 
 // POST /api/interviews/create-with-meeting - Schedule interview with meeting link
-router.post('/create-with-meeting', async (req, res) => {
+router.post('/create-with-meeting', blockViewer, async (req, res) => {
   try {
     const { applicationId, candidateId, candidateEmail, jobId, scheduledDate, duration, type, platform, notes } = req.body;
     
@@ -357,7 +377,7 @@ router.patch('/:id/confirm', async (req, res) => {
 });
 
 // PATCH /api/interviews/:id/reschedule - Reschedule interview
-router.patch('/:id/reschedule', async (req, res) => {
+router.patch('/:id/reschedule', blockViewer, async (req, res) => {
   try {
     const { id } = req.params;
     const { scheduledDate } = req.body;
@@ -374,7 +394,7 @@ router.patch('/:id/reschedule', async (req, res) => {
 });
 
 // PUT /api/interviews/:id/status - Update interview status
-router.put('/:id/status', async (req, res) => {
+router.put('/:id/status', blockViewer, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -390,7 +410,7 @@ router.put('/:id/status', async (req, res) => {
 });
 
 // DELETE /api/interviews/:id - Delete interview
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', blockViewer, async (req, res) => {
   try {
     const { id } = req.params;
     const deleted = await Interview.destroy({ where: { id } });

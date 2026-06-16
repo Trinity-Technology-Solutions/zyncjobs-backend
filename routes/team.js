@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { Op } from 'sequelize';
 import TeamMember from '../models/TeamMember.js';
 import User from '../models/User.js';
 import nodemailer from 'nodemailer';
@@ -221,7 +222,7 @@ router.get('/', async (req, res) => {
 
 import { canPostJobs, canAccessTeam } from '../middleware/teamAuth.js';
 
-// ── POST /api/team — invite a member (requires canInviteMembers permission) ─────────────────────────────────
+// ── POST /api/team — invite a member (Owner only) ─────────────────────────────────
 router.post('/', canAccessTeam, async (req, res) => {
   try {
     const { employerId, memberEmail, memberName, role, companyName, password } = req.body;
@@ -302,11 +303,13 @@ router.post('/', canAccessTeam, async (req, res) => {
           password: hashedPassword,
           companyName: companyName || user.companyName || employerId,
           verificationStatus: 'verified',
+          isActive: true,
+          status: 'active',
           isFirstLogin: true
         });
       } catch (updateError) {
         if (updateError.message.includes('isFirstLogin')) {
-          await user.update({ password: hashedPassword, verificationStatus: 'verified' });
+          await user.update({ password: hashedPassword, verificationStatus: 'verified', isActive: true, status: 'active' });
         } else {
           throw updateError;
         }
@@ -492,9 +495,17 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await TeamMember.destroy({ where: { id } });
-    if (!deleted) return res.status(404).json({ error: 'Member not found' });
-    res.json({ message: 'Member removed' });
+    const member = await TeamMember.findByPk(id);
+    if (!member) return res.status(404).json({ error: 'Member not found' });
+
+    // Deactivate their User account so they cannot login anymore
+    await User.update(
+      { isActive: false, status: 'suspended' },
+      { where: { email: { [Op.iLike]: member.memberEmail } } }
+    );
+
+    await member.destroy();
+    res.json({ message: 'Member removed and account deactivated' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

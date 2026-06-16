@@ -38,10 +38,10 @@ const ROLE_PERMISSIONS = {
     canAccessDashboard: true,
     canAccessJobPosting: false,
     canAccessJobManagement: false,
-    canAccessApplications: false,
+    canAccessApplications: true,
     canAccessCandidateRanking: false,
-    canAccessInterviews: false,
-    canAccessPostedJobs: false,
+    canAccessInterviews: true,
+    canAccessPostedJobs: true,
     canAccessTeam: false,
     canAccessAIRecruiter: false,
     canAccessAIRejection: false,
@@ -264,6 +264,36 @@ router.get('/user-info', async (req, res) => {
       }
     });
 
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+// GET /api/access/permissions - Get full permission set for current user (used by frontend to disable buttons)
+router.get('/permissions', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+
+    const token = authHeader.replace('Bearer ', '');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findByPk(decoded.userId);
+    if (!user) return res.status(401).json({ error: 'Invalid token' });
+
+    const teamMember = await TeamMember.findOne({
+      where: { memberEmail: { [Op.iLike]: user.email }, status: 'active' }
+    });
+
+    const role = teamMember ? teamMember.role : 'Owner';
+    const permissions = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS['Owner'];
+
+    res.json({
+      role,
+      isTeamMember: !!teamMember,
+      isViewOnly: role === 'Viewer',
+      canEdit: role !== 'Viewer',
+      permissions
+    });
   } catch (error) {
     res.status(401).json({ error: 'Invalid token' });
   }
