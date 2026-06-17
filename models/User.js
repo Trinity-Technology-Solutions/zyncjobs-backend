@@ -88,6 +88,14 @@ const User = sequelize.define('User', {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   },
+  plan: {
+    type: DataTypes.STRING,
+    defaultValue: 'free',
+    allowNull: false,
+    validate: {
+      isIn: [['free', 'pro', 'enterprise']]
+    }
+  },
   lastLogin: DataTypes.DATE,
   verificationStatus: {
     type: DataTypes.ENUM('pending', 'pending_admin', 'verified', 'rejected'),

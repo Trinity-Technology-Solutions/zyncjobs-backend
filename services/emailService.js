@@ -568,7 +568,101 @@ export const sendEmployerApprovedEmail = async (employerEmail, employerName) => 
   }
 };
 
-export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendJobAlertEmail, sendWelcomeEmail, sendFollowUpReminderEmail, sendEmployerApplicationEmail, sendEmployerApprovedEmail };
+// Send admin reminder email to candidates/employers
+export const sendReminderEmail = async (userEmail, userName, subject, message, userType = 'both') => {
+  try {
+    const { baseTemplate, ctaButton, divider, infoBox, FRONTEND_URL } = await import('./emailTemplates.js');
+    const name = userName || 'User';
+    const personalizedMessage = message.replace(/\{\{name\}\}/g, name);
+
+    const isCandidate = userType === 'candidates' || userType === 'both';
+    const isEmployer = userType === 'employers' || userType === 'both';
+
+    let roleSpecificContent = '';
+    if (isCandidate && isEmployer) {
+      roleSpecificContent = `
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;">
+        <tr>
+          <td style="width:50%;padding:6px;vertical-align:top;">
+            <div style="background:#F0FDF4;border:1.5px solid #10B981;border-radius:14px;padding:14px 12px;text-align:center;">
+              <div style="margin-bottom:6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.5" cy="7" r="4" stroke="#10B981" stroke-width="2"/><path d="M20 8v6" stroke="#10B981" stroke-width="2" stroke-linecap="round"/><path d="M23 11h-6" stroke="#10B981" stroke-width="2" stroke-linecap="round"/></svg></div>
+              <p style="color:#065F46;font-size:11px;font-weight:700;margin:0;">Candidates</p>
+              <p style="color:#047857;font-size:10px;margin:2px 0 0;">Find your dream job</p>
+            </div>
+          </td>
+          <td style="width:50%;padding:6px;vertical-align:top;">
+            <div style="background:#EFF6FF;border:1.5px solid #3B82F6;border-radius:14px;padding:14px 12px;text-align:center;">
+              <div style="margin-bottom:6px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="7" width="20" height="14" rx="2" stroke="#3B82F6" stroke-width="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" stroke="#3B82F6" stroke-width="2"/></svg></div>
+              <p style="color:#1E40AF;font-size:11px;font-weight:700;margin:0;">Employers</p>
+              <p style="color:#1D4ED8;font-size:10px;margin:2px 0 0;">Hire top talent</p>
+            </div>
+          </td>
+        </tr>
+      </table>`;
+    } else if (isCandidate) {
+      roleSpecificContent = `
+      <div style="background:#F0FDF4;border:1.5px solid #10B981;border-radius:14px;padding:16px;text-align:center;margin:16px 0;">
+        <div style="margin-bottom:6px;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8.5" cy="7" r="4" stroke="#10B981" stroke-width="2"/><path d="M20 8v6" stroke="#10B981" stroke-width="2" stroke-linecap="round"/><path d="M23 11h-6" stroke="#10B981" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <p style="color:#065F46;font-size:13px;font-weight:700;margin:0;">Candidate Account</p>
+      </div>`;
+    } else if (isEmployer) {
+      roleSpecificContent = `
+      <div style="background:#EFF6FF;border:1.5px solid #3B82F6;border-radius:14px;padding:16px;text-align:center;margin:16px 0;">
+        <div style="margin-bottom:6px;"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="7" width="20" height="14" rx="2" stroke="#3B82F6" stroke-width="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" stroke="#3B82F6" stroke-width="2"/></svg></div>
+        <p style="color:#1E40AF;font-size:13px;font-weight:700;margin:0;">Employer Account</p>
+      </div>`;
+    }
+
+    const content = `
+      <!-- Hero -->
+      <div style="background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);padding:36px 40px;text-align:center;">
+        <div style="margin-bottom:10px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke="white" stroke-width="2"/><path d="M12 6v6l4 2" stroke="white" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">${subject}</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">Reminder from ZyncJobs Admin</p>
+      </div>
+
+      <!-- Body -->
+      <div style="padding:36px 40px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name}!</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">${personalizedMessage.replace(/\n/g, '<br>')}</p>
+
+        ${roleSpecificContent}
+
+        ${divider()}
+
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('Visit ZyncJobs', FRONTEND_URL)}
+          <p style="margin:12px 0 0;"><a href="${FRONTEND_URL}/dashboard" style="color:#4F46E5;font-size:13px;text-decoration:none;">Go to your dashboard &rarr;</a></p>
+        </div>
+
+        ${divider()}
+
+        <!-- Support -->
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td style="background:#F9FAFB;border-radius:10px;padding:16px 20px;">
+              <p style="color:#1F2937;font-size:13px;font-weight:700;margin:0 0 6px;">Need help?</p>
+              <p style="color:#6B7280;font-size:13px;margin:0;">Contact us at <a href="mailto:Admin@zyncjobs.com" style="color:#5C6BC8;">Admin@zyncjobs.com</a></p>
+            </td>
+          </tr>
+        </table>
+      </div>`;
+
+    await transporter.sendMail({
+      from: `"ZyncJobs Admin" <${process.env.SMTP_FROM_EMAIL}>`,
+      to: userEmail,
+      subject,
+      html: baseTemplate(content, `Reminder from ZyncJobs: ${subject}`)
+    });
+    console.log('✅ Reminder email sent to:', userEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Reminder email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplicationStatusEmail, sendJobAlertEmail, sendWelcomeEmail, sendFollowUpReminderEmail, sendEmployerApplicationEmail, sendEmployerApprovedEmail, sendReminderEmail };
 
 // Send admin invitation email
 export const sendAdminInviteEmail = async (toEmail, name, role, token) => {

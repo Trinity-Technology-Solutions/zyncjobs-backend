@@ -29,18 +29,19 @@ const router = express.Router();
 router.post('/job-titles', async (req, res) => {
   try {
     const { input } = req.body;
-    
-    if (!input || input.length < 1) {
-      return res.json({ suggestions: [] });
-    }
+    if (!input || input.length < 1) return res.json({ suggestions: [] });
 
-    const suggestions = await mistralService.generateJobTitleSuggestions(input);
+    const raw = await callGroq({
+      feature: 'job-titles',
+      messages: [{ role: 'user', content: `Suggest 5 relevant job titles that match or relate to "${input}". Return only the titles, one per line, no numbering or bullets.` }],
+      maxTokens: 400,
+      temperature: 0.4,
+    });
+    const suggestions = raw.split('\n').map(l => l.replace(/^[-•*\d.\s]+/, '').trim()).filter(l => l.length > 1).slice(0, 5);
     res.json({ suggestions });
   } catch (error) {
     console.error('Job title suggestions error:', error);
-    // Return fallback suggestions instead of error
-    const fallbackSuggestions = mistralService.getFallbackJobTitles(input);
-    res.json({ suggestions: fallbackSuggestions });
+    res.json({ suggestions: [] });
   }
 });
 
@@ -48,18 +49,19 @@ router.post('/job-titles', async (req, res) => {
 router.post('/skills', async (req, res) => {
   try {
     const { input } = req.body;
-    
-    if (!input || input.length < 1) {
-      return res.json({ suggestions: [] });
-    }
+    if (!input || input.length < 1) return res.json({ suggestions: [] });
 
-    const suggestions = await mistralService.generateSkillSuggestions(input);
+    const raw = await callGroq({
+      feature: 'skills',
+      messages: [{ role: 'user', content: `Suggest 5 relevant skills that match or relate to "${input}". Return only the skill names, one per line, no numbering or bullets.` }],
+      maxTokens: 400,
+      temperature: 0.4,
+    });
+    const suggestions = raw.split('\n').map(l => l.replace(/^[-•*\d.\s]+/, '').trim()).filter(l => l.length > 1).slice(0, 5);
     res.json({ suggestions });
   } catch (error) {
     console.error('Skill suggestions error:', error);
-    // Return fallback suggestions instead of error
-    const fallbackSuggestions = mistralService.getFallbackSkills(input);
-    res.json({ suggestions: fallbackSuggestions });
+    res.json({ suggestions: [] });
   }
 });
 
@@ -67,18 +69,19 @@ router.post('/skills', async (req, res) => {
 router.post('/locations', async (req, res) => {
   try {
     const { input } = req.body;
-    
-    if (!input || input.length < 1) {
-      return res.json({ suggestions: [] });
-    }
+    if (!input || input.length < 1) return res.json({ suggestions: [] });
 
-    const suggestions = await mistralService.generateLocationSuggestions(input);
+    const raw = await callGroq({
+      feature: 'locations',
+      messages: [{ role: 'user', content: `Suggest 5 cities or locations that match or relate to "${input}". Include both Indian cities and "Remote" if relevant. Return only the location names, one per line, no numbering or bullets.` }],
+      maxTokens: 400,
+      temperature: 0.4,
+    });
+    const suggestions = raw.split('\n').map(l => l.replace(/^[-•*\d.\s]+/, '').trim()).filter(l => l.length > 1).slice(0, 5);
     res.json({ suggestions });
   } catch (error) {
     console.error('Location suggestions error:', error);
-    // Return fallback suggestions instead of error
-    const fallbackSuggestions = mistralService.getFallbackLocations(input);
-    res.json({ suggestions: fallbackSuggestions });
+    res.json({ suggestions: [] });
   }
 });
 
@@ -245,14 +248,13 @@ router.post('/suggest', async (req, res) => {
       return res.json({ suggestions: [] });
     }
 
-    // OpenRouter replaced with Groq
-    const response = { ok: false };
-
-    if (!response.ok) return res.json({ suggestions: [] });
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || '';
-    const suggestions = content.split('\n').map(l => l.replace(/^[-•*\d.]+\s*/, '').trim()).filter(l => l.length > 1).slice(0, 8);
+    const raw = await callGroq({
+      feature: 'default',
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 500,
+      temperature: 0.4,
+    });
+    const suggestions = raw.split('\n').map(l => l.replace(/^[-•*\d.\s]+/, '').trim()).filter(l => l.length > 1).slice(0, 8);
     res.json({ suggestions });
   } catch (error) {
     console.error('AI suggest error:', error);

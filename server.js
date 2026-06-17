@@ -89,6 +89,7 @@ import aiRejectionSettingsRoutes from './routes/aiRejectionSettings.js';
 import credentialingRoutes from './routes/credentialing.js';
 import salaryInsightsRoutes from './routes/salaryInsights.js';
 import resumeBuilderRoutes from './routes/resumeBuilder.js';
+import { callGroq } from './services/groqService.js';
 import gdprRoutes from './routes/gdpr.js';
 import contactRoutes from './routes/contact.js';
 import aiRoutes from './routes/ai.js';
@@ -673,33 +674,21 @@ app.post('/api/chat', async (req, res) => {
 
     console.log('💬 Chat request:', { message, session_id });
 
-    // Check if OpenRouter API key exists
     if (!process.env.GROQ_API_KEY) {
-      console.error('❌ OpenRouter API key not found');
       return res.json({
         response: "I'm ZyncJobs AI Assistant! I can help you with job searching, resume building, interview preparation, and career advice. What would you like to know?",
         sources: []
       });
     }
 
-    // Call OpenRouter API with Mistral
-    // OpenRouter replaced with Groq
-    const response = { ok: false };
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ OpenRouter API error: ${response.status} - ${errorText}`);
-
-      // Provide helpful fallback response based on common queries
-      const fallbackResponse = getFallbackResponse(message);
-      return res.json({
-        response: fallbackResponse,
-        sources: []
-      });
-    }
-
-    const data = await response.json();
-    const aiResponse = data.choices?.[0]?.message?.content || getFallbackResponse(message);
+    const systemMsg = 'You are ZyncJobs AI Assistant, a helpful career and job search advisor. Give concise, practical advice. Max 3 paragraphs.';
+    const aiResponse = await callGroq({
+      feature: 'career-coach',
+      systemPrompt: systemMsg,
+      messages: [{ role: 'user', content: message }],
+      maxTokens: 600,
+      temperature: 0.7,
+    });
 
     console.log('✅ Chat response generated successfully');
 
@@ -752,18 +741,33 @@ function getFallbackResponse(message) {
 app.post('/api/generate-content', async (req, res) => {
   try {
     const { type, jobTitle, company, degree, school } = req.body;
-    let content = '';
+    if (!type) return res.status(400).json({ error: 'type is required' });
 
-    if (type === 'experience') {
-      content = `• Managed daily operations and improved efficiency by implementing new processes\n• Collaborated with cross-functional teams to deliver high-quality results\n• Analyzed data and provided insights to support strategic decision-making`;
-    } else if (type === 'education') {
-      content = `Graduated with ${degree || 'Bachelor\'s degree'} from ${school || 'University'}. Completed coursework in relevant subjects and developed strong analytical skills.`;
-    } else if (type === 'summary') {
-      content = `Dedicated ${jobTitle || 'professional'} with strong background and proven track record of delivering results.`;
+    if (!process.env.GROQ_API_KEY) {
+      return res.json({ content: '' });
     }
 
-    res.json({ content });
+    let prompt;
+    if (type === 'experience') {
+      prompt = `Write 3 professional resume bullet points for a ${jobTitle || 'professional'}${company ? ` at ${company}` : ''}. Each bullet should start with a strong action verb and include quantified achievements. Return only the bullets, one per line, no numbering.`;
+    } else if (type === 'education') {
+      prompt = `Write a professional education description for a resume: Graduated with ${degree || 'Bachelor\'s degree'} from ${school || 'University'}. Keep it 1-2 sentences.`;
+    } else if (type === 'summary') {
+      prompt = `Write a 2-sentence professional resume summary for a ${jobTitle || 'professional'}. Keep it concise and impactful.`;
+    } else {
+      return res.status(400).json({ error: 'Invalid type' });
+    }
+
+    const content = await callGroq({
+      feature: 'jd-generate',
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 300,
+      temperature: 0.7,
+    });
+
+    res.json({ content: content || '' });
   } catch (error) {
+    console.error('generate-content error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -804,7 +808,8 @@ RULES:
 - "jobTitle": Exact position title only.
 - "jobType": Array from: ["Full-time"], ["Part-time"], ["Contract"], ["Internship"]. Default ["Full-time"].
 - "workSetting": Exactly one of: Remote, Hybrid, On-site.
-- "skills": Array of ALL skills mentioned in the JD — technical, domain-specific, professional certifications, tools, and soft skills. For non-tech roles (HSE, HR, Finance, Healthcare etc.) extract domain skills like "NEBOSH", "Risk Assessment", "HSE Inspection", "OSHA", "Fire Safety" etc. Extract EVERYTHING listed under skills/requirements/qualifications sections.
+- "mustHaveSkills": Array of REQUIRED / MANDATORY / MUST-HAVE skills from the JD. Look for sections labeled "Must Have", "Required Skills", "Mandatory Skills", "Key Skills", "Technical Skills", "Primary Skills", "Core Skills", or skills listed under "Requirements" / "Qualifications". Include technical skills, domain-specific skills, certifications, tools. For non-tech roles (HSE, HR, Finance, Healthcare etc.) extract domain skills like "NEBOSH", "Risk Assessment", "HSE Inspection", "OSHA", "Fire Safety" etc.
+- "goodToHaveSkills": Array of OPTIONAL / PREFERRED / NICE-TO-HAVE skills from the JD. Look for sections labeled "Good to Have", "Nice to Have", "Preferred Skills", "Bonus Skills", "Additional Skills", "Optional Skills", "Desired Skills". If no such section exists, return empty array [].
 - "experienceRange": MUST be in format "X-Y years" or "X+ years" using digits only. Examples: "3-5 years", "5-8 years", "2+ years". Extract from text like "5-8 Years", "3 to 5 years", "minimum 5 years".${preExtract.experienceRange ? ` Detected: "${preExtract.experienceRange}"` : ""}
 - "experienceLevel": One of: Entry, Mid, Senior, Lead.
 - "salaryMin": 0 always.
@@ -827,7 +832,8 @@ JSON:
   "location": "",
   "jobType": ["Full-time"],
   "workSetting": "On-site",
-  "skills": [],
+  "mustHaveSkills": [],
+  "goodToHaveSkills": [],
   "experienceLevel": "Mid",
   "experienceRange": "",
   "salaryMin": 0,
@@ -844,11 +850,10 @@ JSON:
     // Use Groq first (fastest), fallback to Gemini
     let content = '';
     try {
-      const { callGroq } = await import('./services/groqService.js');
       content = await callGroq({
         systemPrompt: '',
         messages: [{ role: 'user', content: prompt }],
-        maxTokens: 1500,
+        maxTokens: 2500,
         temperature: 0.1,
       });
     } catch (groqErr) {
@@ -858,7 +863,7 @@ JSON:
         content = await callGeminiChat({
           systemPrompt: '',
           messages: [{ role: 'user', content: prompt }],
-          maxTokens: 1500,
+          maxTokens: 2500,
           temperature: 0.1,
         });
       } catch (geminiErr) {
@@ -866,71 +871,49 @@ JSON:
         return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
       }
     }
-    const cleaned = content.trim().replace(/```json|```/g, '');
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
 
-    if (!jsonMatch) {
-      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
-    }
+    // Process AI response
+    if (content) {
+      try {
+        const cleaned = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+        const parsed = JSON.parse(cleaned);
 
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonMatch[0]);
-    } catch {
-      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
-    }
+        const companyName = sanitizeCompany(parsed.company || '', preExtract.company);
+        const location = sanitizeLocation(parsed.location || '', preExtract.location);
 
-    // Post-process: validate and fix company
-    parsed.company = ''; // Never auto-fill company from JD
-
-    // Normalize experienceRange to "X years - Y years" format for frontend dropdowns
-    if (parsed.experienceRange) {
-      const er = parsed.experienceRange.toString()
-        .replace(/[\u2013\u2014\u2012]/g, '-')
-        .replace(/\s*years?\s*/gi, '')
-        .trim();
-      const snapMin = n => { const o=[0,1,2,3,4,5,6,7,8,9,10,12,15,20]; const c=o.reduce((a,b)=>Math.abs(b-n)<Math.abs(a-n)?b:a); return `${c} year${c!==1?'s':''}`; };
-      const snapMax = n => { const o=[1,2,3,4,5,6,7,8,9,10,12,15,20,25]; const c=o.reduce((a,b)=>Math.abs(b-n)<Math.abs(a-n)?b:a); return `${c} year${c!==1?'s':''}`; };
-      const rm = er.match(/(\d+)\s*(?:-+|to)\s*(\d+)/i);
-      const rs = er.match(/(\d+)\s*\+/);
-      if (rm) parsed.experienceRange = `${snapMin(+rm[1])} - ${snapMax(+rm[2])}`;
-      else if (rs) { const n=+rs[1]; parsed.experienceRange = `${snapMin(n)} - ${snapMax(Math.min(n+2,25))}`; }
-      else { const m=er.match(/(\d+)/); if(m){ const n=+m[1]; parsed.experienceRange=`${snapMin(n)} - ${snapMax(Math.min(n+2,25))}`; } }
-    }
-
-    // Post-process: validate and fix location
-    parsed.location = sanitizeLocation(parsed.location, preExtract.location);
-
-    // Never auto-fill salary from JD
-    parsed.salaryMin = 0;
-    parsed.salaryMax = 0;
-
-    // Ensure arrays
-    if (!Array.isArray(parsed.skills)) parsed.skills = [];
-    if (parsed.skills.length > 0 && parsed.jobTitle) {
-      // Only filter for clearly tech roles — preserve all skills for non-tech roles
-      const isTechRole = /software|developer|programmer|frontend|backend|fullstack|devops|data scientist|machine learning/i.test(parsed.jobTitle);
-      if (isTechRole) {
-        parsed.skills = filterSkillsByJobTitle(parsed.skills, parsed.jobTitle);
+        return res.json({
+          success: true,
+          data: {
+            company: companyName,
+            jobTitle: parsed.jobTitle || preExtract.jobTitle || '',
+            location,
+            jobType: Array.isArray(parsed.jobType) ? parsed.jobType : ['Full-time'],
+            workSetting: parsed.workSetting || 'On-site',
+            skills: Array.isArray(parsed.mustHaveSkills) ? parsed.mustHaveSkills : [],
+            goodToHaveSkills: Array.isArray(parsed.goodToHaveSkills) ? parsed.goodToHaveSkills : [],
+            experienceLevel: parsed.experienceLevel || 'Mid',
+            experienceRange: parsed.experienceRange || preExtract.experienceRange || '',
+            salaryMin: parsed.salaryMin || 0,
+            salaryMax: parsed.salaryMax || 0,
+            currency: parsed.currency || 'INR',
+            jobCategory: parsed.jobCategory || 'Information Technology',
+            description: parsed.description || text,
+            responsibilities: Array.isArray(parsed.responsibilities) ? parsed.responsibilities : [],
+            requirements: Array.isArray(parsed.requirements) ? parsed.requirements : [],
+            educationLevel: parsed.educationLevel || "Bachelor's Degree",
+            priority: parsed.priority || 'Medium',
+          }
+        });
+      } catch (parseErr) {
+        console.warn('Failed to parse AI response as JSON:', parseErr.message);
+        return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
       }
+    } else {
+      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
     }
-    if (!Array.isArray(parsed.responsibilities)) parsed.responsibilities = [];
-    if (!Array.isArray(parsed.requirements)) parsed.requirements = [];
-    if (!Array.isArray(parsed.jobType)) parsed.jobType = parsed.jobType ? [parsed.jobType] : ['Full-time'];
-
-    // If description is empty, use original text
-    if (!parsed.description) parsed.description = text;
-    // If jobTitle is empty or looks like a metadata line, use pre-extracted
-    const metaPat = /^(experience|exp|salary|location|skills?|department|employment|\*\*)/i;
-    if (!parsed.jobTitle || metaPat.test(parsed.jobTitle)) parsed.jobTitle = preExtract.jobTitle || '';
-    // If experienceRange still empty, use pre-extracted
-    if (!parsed.experienceRange && preExtract.experienceRange) parsed.experienceRange = preExtract.experienceRange;
-
-    console.log('✅ Job post parsed - company:', parsed.company, '| title:', parsed.jobTitle, '| location:', parsed.location);
-    res.json({ success: true, data: parsed });
-  } catch (error) {
-    console.error('❌ Job post parse error:', error.message);
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error('Parse-job-post error:', err.message);
+    return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
   }
 });
 
@@ -1154,98 +1137,54 @@ function buildFallbackParsed(text, preExtract) {
 app.post('/api/generate-job-description', async (req, res) => {
   try {
     const { jobTitle, company, jobType, location } = req.body;
+    if (!jobTitle) return res.status(400).json({ error: 'Job title is required' });
 
-    if (!jobTitle) {
-      return res.status(400).json({ error: 'Job title is required' });
+    if (!process.env.GROQ_API_KEY) {
+      const companyName = company || 'our company';
+      return res.json({
+        description: `We are looking for a ${jobTitle} to join ${companyName}. The ideal candidate will have relevant experience and skills for this role.`,
+        requirements: `• 2+ years of relevant experience\n• Strong technical skills\n• Excellent communication and teamwork abilities`
+      });
     }
 
-    const description = generateJobDescription(jobTitle, company, jobType, location);
-    const requirements = generateJobRequirements(jobTitle);
+    const prompt = `You are an expert HR professional. Generate a professional job description and requirements for the role below.
 
-    res.json({ description, requirements });
+Job Title: ${jobTitle}${company ? `\nCompany: ${company}` : ''}${location ? `\nLocation: ${location}` : ''}${jobType ? `\nType: ${jobType}` : ''}
+
+Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
+{
+  "description": "Job Summary paragraph\\n\\nKey Responsibilities\\n• Responsibility 1\\n• Responsibility 2\\n• Responsibility 3\\n• Responsibility 4\\n• Responsibility 5",
+  "requirements": "• Requirement 1\\n• Requirement 2\\n• Requirement 3\\n• Requirement 4\\n• Requirement 5"
+}
+
+Use plain section headings and • for bullet points. Do not use **, *, or any markdown.`;
+
+    const raw = await callGroq({
+      feature: 'jd-generate',
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 800,
+      temperature: 0.4,
+    });
+
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Could not parse AI response as JSON');
+    }
+    const result = JSON.parse(jsonMatch[0]);
+    res.json({
+      description: result.description || '',
+      requirements: result.requirements || ''
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('generate-job-description error:', error.message);
+    const companyName = company || 'our company';
+    res.json({
+      description: `We are looking for a ${jobTitle} to join ${companyName}. The ideal candidate will have relevant experience and skills for this role.`,
+      requirements: `• 2+ years of relevant experience\n• Strong technical skills\n• Excellent communication and teamwork abilities`
+    });
   }
 });
-
-function generateJobDescription(jobTitle, company, jobType, location) {
-  const companyName = company || 'our company';
-
-  const templates = {
-    'react': `We are seeking a skilled React Developer to join ${companyName}. You will be responsible for developing user interface components and implementing them following well-known React.js workflows.
-
-Key Responsibilities:
-• Develop new user-facing features using React.js
-• Build reusable components and front-end libraries
-• Translate designs and wireframes into high-quality code
-• Optimize components for maximum performance
-• Collaborate with team members and stakeholders`,
-
-    'python': `Join ${companyName} as a Python Developer and contribute to building scalable applications. You will work on backend development, API integration, and data processing solutions.
-
-Key Responsibilities:
-• Develop and maintain Python applications
-• Design and implement RESTful APIs
-• Work with databases and data processing
-• Write clean, maintainable, and efficient code
-• Collaborate with cross-functional teams`,
-
-    'full stack': `We are looking for a Full Stack Developer to join ${companyName}. You will work on both front-end and back-end development.
-
-Key Responsibilities:
-• Develop front-end website architecture
-• Design and develop back-end applications and APIs
-• Create servers and databases for functionality
-• Ensure cross-platform optimization
-• Work with development teams and product managers`
-  };
-
-  const key = Object.keys(templates).find(k => jobTitle.toLowerCase().includes(k));
-  return key ? templates[key] : `Join ${companyName} as a ${jobTitle} and be part of our dynamic team.
-
-Key Responsibilities:
-• Execute core responsibilities related to ${jobTitle.toLowerCase()} role
-• Collaborate with team members on various projects
-• Contribute to company goals and objectives
-• Maintain high standards of work quality
-• Stay updated with industry trends`;
-}
-
-function generateJobRequirements(jobTitle) {
-  const templates = {
-    'react': `• 3+ years of experience with React.js
-• Strong proficiency in JavaScript
-• Experience with React.js workflows (Redux, Flux)
-• Familiarity with RESTful APIs
-• Knowledge of modern authorization mechanisms
-• Experience with front-end development tools
-• Bachelor's degree in Computer Science or related field`,
-
-    'python': `• 3+ years of experience in Python development
-• Strong knowledge of Python frameworks (Django, Flask)
-• Experience with databases (PostgreSQL, MySQL, MongoDB)
-• Familiarity with RESTful API development
-• Knowledge of version control systems (Git)
-• Experience with cloud platforms (AWS, Azure)
-• Bachelor's degree in Computer Science or related field`,
-
-    'full stack': `• 4+ years of experience in full-stack development
-• Proficiency in front-end technologies (HTML, CSS, JavaScript)
-• Strong backend development skills (Node.js, Python, Java)
-• Experience with databases (SQL and NoSQL)
-• Knowledge of cloud services and deployment
-• Familiarity with version control and CI/CD
-• Bachelor's degree in Computer Science or related field`
-  };
-
-  const key = Object.keys(templates).find(k => jobTitle.toLowerCase().includes(k));
-  return key ? templates[key] : `• 2+ years of relevant experience
-• Strong technical skills related to the position
-• Excellent communication and teamwork abilities
-• Problem-solving and analytical thinking skills
-• Bachelor's degree in relevant field or equivalent experience
-• Proficiency in relevant tools and technologies`;
-}
 
 // Serve service worker with correct MIME type
 app.get('/sw.js', (req, res) => {

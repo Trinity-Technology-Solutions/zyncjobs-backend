@@ -163,4 +163,87 @@ router.post('/broadcast', authenticateToken, requireRole(['admin', 'super_admin'
   }
 });
 
+// POST /api/admin/notifications/reminder - Send reminder email with status tracking
+router.post('/reminder', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
+  try {
+    const { userType = 'both', subject, message, recipientIds } = req.body;
+    if (!subject || !message) return res.status(400).json({ error: 'Subject and message are required' });
+
+    const User = (await import('../models/User.js')).default;
+    const EmailLog = (await import('../models/EmailLog.js')).default;
+    const { sendReminderEmail } = await import('../services/emailService.js');
+    const { Op } = await import('sequelize');
+
+    let users;
+    if (recipientIds && recipientIds.length > 0) {
+      users = await User.findAll({
+        where: { id: { [Op.in]: recipientIds }, isActive: true },
+        attributes: ['id', 'name', 'email', 'role']
+      });
+    } else {
+      const where = { isActive: true };
+      if (userType === 'candidates') where.role = 'candidate';
+      else if (userType === 'employers') where.role = 'employer';
+      else where.role = { [Op.in]: ['candidate', 'employer'] };
+      users = await User.findAll({ where, attributes: ['id', 'name', 'email', 'role'] });
+    }
+
+    let sent = 0, failed = 0;
+
+    for (const user of users) {
+      try {
+        const userName = user.name || user.email || 'User';
+        const result = await sendReminderEmail(user.email, userName, subject, message, userType);
+        if (result.success) sent++;
+        else failed++;
+      } catch (emailError) {
+        failed++;
+        console.error('Reminder email failed for', user.email, emailError.message);
+      }
+    }
+
+    const logEntry = await EmailLog.create({
+      subject,
+      message,
+      userType,
+      recipients: users.length,
+      sent,
+      failed,
+      status: failed > 0 && sent > 0 ? 'partial' : failed > 0 ? 'failed' : 'sent',
+      adminId: req.user?.id || '',
+      adminEmail: req.user?.email || '',
+      sentAt: new Date()
+    });
+
+    res.json({
+      message: `Reminder email sent to ${sent}/${users.length} users`,
+      sent,
+      failed,
+      total: users.length,
+      logId: logEntry.id
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/admin/notifications/status - Get email delivery history
+router.get('/status', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
+  try {
+    const EmailLog = (await import('../models/EmailLog.js')).default;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const { rows, count } = await EmailLog.findAndCountAll({
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset
+    });
+
+    res.json({ records: rows, total: count });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

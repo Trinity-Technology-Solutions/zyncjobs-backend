@@ -176,6 +176,7 @@ router.post('/ats-score', async (req, res) => {
     const { resumeData } = req.body;
     if (!resumeData) return res.status(400).json({ error: 'resumeData is required' });
 
+    // Rule-based scoring (always available)
     const hasName = !!(resumeData.personalInfo?.name);
     const hasEmail = !!(resumeData.personalInfo?.email);
     const hasPhone = !!(resumeData.personalInfo?.phone);
@@ -185,7 +186,6 @@ router.post('/ats-score', async (req, res) => {
     const hasEducation = (resumeData.education || []).length > 0;
     const hasExperience = (resumeData.experience || []).length > 0;
 
-    // Rule-based scoring (fast, no AI needed)
     let score = 0;
     const breakdown = [];
     const suggestions = [];
@@ -218,6 +218,43 @@ router.post('/ats-score', async (req, res) => {
     score += eduScore;
     breakdown.push({ label: 'Education', score: eduScore, max: 10 });
     if (!hasEducation) suggestions.push('Add your education details');
+
+    // Enhance with AI analysis if available
+    if (process.env.GROQ_API_KEY) {
+      try {
+        const aiPrompt = `Analyze this resume and provide ATS optimization suggestions. Return ONLY a JSON object with "score"(number 0-100), "suggestions"(array of strings).
+
+Resume Data:
+${JSON.stringify(resumeData, null, 2)}
+
+Rules:
+- Evaluate ATS-friendliness: keyword usage, action verbs, quantifiable achievements, formatting
+- Score should reflect how well the resume would perform with ATS systems
+- Provide 2-3 specific, actionable suggestions for improvement`;
+
+        const raw = await callGroq({
+          feature: 'resume-score',
+          messages: [{ role: 'user', content: aiPrompt }],
+          maxTokens: 600,
+          temperature: 0.3,
+        });
+
+        const cleaned = raw.replace(/```json|```/g, '').trim();
+        const match = cleaned.match(/\{[\s\S]*\}/);
+        if (match) {
+          const aiResult = JSON.parse(match[0]);
+          if (typeof aiResult.score === 'number') {
+            // Blend AI score with rule-based score (weighted)
+            score = Math.round(score * 0.5 + aiResult.score * 0.5);
+          }
+          if (Array.isArray(aiResult.suggestions)) {
+            suggestions.push(...aiResult.suggestions);
+          }
+        }
+      } catch (aiErr) {
+        console.warn('AI ATS scoring unavailable, using rule-based score only:', aiErr.message);
+      }
+    }
 
     res.json({ score: Math.min(100, score), breakdown, suggestions });
   } catch (err) {
