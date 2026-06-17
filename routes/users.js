@@ -379,7 +379,8 @@ router.post('/register', registrationGuard, [
       location: user.location,
       verificationStatus: user.verificationStatus,
       companyProfile: user.companyProfile,
-      teamRole: teamInvite?.role || null
+      teamRole: teamInvite?.role || null,
+      plan: user.plan || 'free'
     };
 
     const message = finalVerificationStatus === 'verified'
@@ -632,6 +633,7 @@ router.post('/login', async (req, res) => {
       ownerEmail: teamMemberData?.ownerEmail || null,
       isFirstLogin: user.isFirstLogin || false,
       permissions: teamMemberData?.permissions || null,
+      plan: user.plan || 'free',
       ...profileData
     };
 
@@ -1314,6 +1316,24 @@ router.get('/team-permissions', authenticateToken, async (req, res) => {
         employerId: user.employerId
       });
     }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/users/update-plan - Update user's plan
+router.put('/update-plan', async (req, res) => {
+  try {
+    const { email, plan } = req.body;
+    if (!email || !plan) {
+      return res.status(400).json({ error: 'email and plan are required' });
+    }
+    const user = await User.findOne({ where: { email } });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    await user.update({ plan });
+    res.json({ success: true, plan: user.plan });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

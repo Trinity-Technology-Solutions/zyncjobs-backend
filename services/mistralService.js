@@ -1,19 +1,65 @@
-const JOB_TITLES = ['Software Engineer', 'Product Manager', 'Data Scientist', 'DevOps Engineer', 'Frontend Developer', 'Backend Developer', 'Full Stack Developer', 'UI/UX Designer', 'Business Analyst', 'Project Manager'];
-const SKILLS = ['JavaScript', 'Python', 'React', 'Node.js', 'SQL', 'AWS', 'Docker', 'TypeScript', 'Java', 'Git', 'MongoDB', 'PostgreSQL'];
-const LOCATIONS = ['Bangalore', 'Mumbai', 'Delhi', 'Hyderabad', 'Chennai', 'Pune', 'Kolkata', 'Remote'];
+import { callGroq } from './groqService.js';
 
-const filter = (list, input) => list.filter(i => i.toLowerCase().includes(input.toLowerCase())).slice(0, 5);
+async function aiSuggest(prompt, feature = 'default') {
+  const text = await callGroq({
+    feature,
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 400,
+    temperature: 0.4,
+  });
+  return text.split('\n')
+    .map(l => l.replace(/^[-•*\d.\s]+/, '').trim())
+    .filter(l => l.length > 1)
+    .slice(0, 5);
+}
 
 const mistralService = {
-  generateJobTitleSuggestions: async (input) => filter(JOB_TITLES, input),
-  generateSkillSuggestions: async (input) => filter(SKILLS, input),
-  generateLocationSuggestions: async (input) => filter(LOCATIONS, input),
-  generateJobDescription: async (jobTitle, company, location) => {
-    return `We are looking for a ${jobTitle}${company ? ` at ${company}` : ''}${location ? ` in ${location}` : ''}. The ideal candidate will have relevant experience and skills for this role.`;
+  generateJobTitleSuggestions: async (input) => {
+    try {
+      return await aiSuggest(
+        `Suggest 5 relevant job titles that match or relate to "${input}". Return only the titles, one per line, no numbering or bullets.`,
+        'job-titles'
+      );
+    } catch {
+      return [];
+    }
   },
-  getFallbackJobTitles: (input) => filter(JOB_TITLES, input),
-  getFallbackSkills: (input) => filter(SKILLS, input),
-  getFallbackLocations: (input) => filter(LOCATIONS, input)
+  generateSkillSuggestions: async (input) => {
+    try {
+      return await aiSuggest(
+        `Suggest 5 relevant skills that match or relate to "${input}". Return only the skill names, one per line, no numbering or bullets.`,
+        'skills'
+      );
+    } catch {
+      return [];
+    }
+  },
+  generateLocationSuggestions: async (input) => {
+    try {
+      return await aiSuggest(
+        `Suggest 5 cities or locations that match or relate to "${input}". Include both Indian cities and "Remote" if relevant. Return only the location names, one per line, no numbering or bullets.`,
+        'locations'
+      );
+    } catch {
+      return [];
+    }
+  },
+  generateJobDescription: async (jobTitle, company, location) => {
+    try {
+      const prompt = `Write a 3-4 sentence professional job description for a ${jobTitle}${company ? ` at ${company}` : ''}${location ? ` in ${location}` : ''}. Keep it concise and professional.`;
+      return await callGroq({
+        feature: 'jd-generate',
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 300,
+        temperature: 0.4,
+      });
+    } catch {
+      return `We are looking for a ${jobTitle}${company ? ` at ${company}` : ''}${location ? ` in ${location}` : ''}. The ideal candidate will have relevant experience and skills for this role.`;
+    }
+  },
+  getFallbackJobTitles: () => [],
+  getFallbackSkills: () => [],
+  getFallbackLocations: () => []
 };
 
 export default mistralService;

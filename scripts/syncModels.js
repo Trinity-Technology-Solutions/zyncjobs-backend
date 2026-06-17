@@ -26,6 +26,7 @@ import '../models/PasswordReset.js';
 import '../models/Credentialing.js';
 import '../models/GdprConsent.js';
 import '../models/TalentCandidate.js';
+import '../models/EmailLog.js';
 
 const syncModels = async () => {
   try {

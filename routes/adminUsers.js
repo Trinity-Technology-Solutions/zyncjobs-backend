@@ -20,7 +20,7 @@ const superAdminGuard = [authenticateToken, requireSuperAdmin];
 // GET /api/admin/users — list all users with filters
 router.get('/', ...adminGuard, async (req, res) => {
   try {
-    const { page = 1, limit = 20, role, search, isActive } = req.query;
+    const { page = 1, limit = 100, role, search, isActive } = req.query;
     const where = {};
     if (role) where.role = role.includes(',') ? { [Op.in]: role.split(',') } : role;
     if (isActive !== undefined) where.isActive = isActive === 'true';

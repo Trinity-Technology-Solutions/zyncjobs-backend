@@ -150,4 +150,31 @@ router.put('/:conversationId/read/:userId', async (req, res) => {
   }
 });
 
+// Delete a message (only sender can delete)
+router.delete('/delete/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId query parameter is required' });
+    }
+
+    const message = await Message.findByPk(id);
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    // Only allow the sender to delete their own messages
+    if (message.senderId !== userId) {
+      return res.status(403).json({ error: 'You can only delete your own messages' });
+    }
+
+    await message.destroy();
+    res.json({ success: true, message: 'Message deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
