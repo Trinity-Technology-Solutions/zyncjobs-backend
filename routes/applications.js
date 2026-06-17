@@ -601,6 +601,66 @@ router.get('/job/:jobId/export-csv', async (req, res) => {
   }
 });
 
+// GET /api/applications/job/:jobId/bulk-download-resumes - ZIP all resumes for a job
+router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      return res.status(400).json({ error: 'Valid job ID is required' });
+    }
+
+    const applications = await Application.findAll({ where: { jobId }, order: [['createdAt', 'DESC']] });
+    if (!applications.length) return res.status(404).json({ error: 'No applications found' });
+
+    const resolved = [];
+    for (const app of applications) {
+      const fileUrl = await resolveResumeFileUrl(app);
+      if (fileUrl) resolved.push({ app, fileUrl });
+    }
+    if (!resolved.length) return res.status(404).json({ error: 'No resumes available to download' });
+
+    const job = await Job.findByPk(jobId);
+    const jobTitle = (job?.jobTitle || job?.title || 'job').replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_');
+
+    const { default: archiver } = await import('archiver');
+    const { default: path } = await import('path');
+    const { existsSync } = await import('fs');
+
+    const archive = archiver('zip', { zlib: { level: 6 } });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${jobTitle}_resumes.zip"`);
+    archive.pipe(res);
+
+    for (const { app, fileUrl } of resolved) {
+      const safeName = (app.candidateName || 'candidate').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+      const urlWithoutQuery = fileUrl.split('?')[0];
+      const ext = urlWithoutQuery.split('.').pop()?.toLowerCase() || 'pdf';
+      const entryName = `${safeName}_${String(app.id).slice(0, 8)}.${ext}`;
+      try {
+        if (fileUrl.includes('amazonaws.com')) {
+          const { stream } = await getResumeStreamFromS3(fileUrl);
+          archive.append(stream, { name: entryName });
+        } else {
+          const localPath = fileUrl.startsWith('/')
+            ? fileUrl
+            : path.join(process.cwd(), fileUrl.replace(/^\/api/, ''));
+          if (existsSync(localPath)) {
+            archive.file(localPath, { name: entryName });
+          }
+        }
+      } catch (e) {
+        console.error(`[bulk-download] Skipping ${app.id}:`, e.message);
+      }
+    }
+
+    await archive.finalize();
+  } catch (error) {
+    console.error('Bulk download error:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/applications/job/:jobId/count - Get application count for a job (supports ?status=)
 router.get('/job/:jobId/count', async (req, res) => {
   try {
