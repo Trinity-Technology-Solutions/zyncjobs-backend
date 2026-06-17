@@ -65,8 +65,7 @@ const User = sequelize.define('User', {
   status: {
     type: DataTypes.ENUM('active', 'suspended', 'deleted'),
     defaultValue: 'active',
-    allowNull: false,
-    comment: 'Account status: active, suspended, or deleted'
+    allowNull: false
   },
   googleId: {
     type: DataTypes.STRING,
