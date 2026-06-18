@@ -8,9 +8,10 @@ import { Op } from 'sequelize';
 
 const router = express.Router();
 const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
+const viewGuard = [authenticateToken, requireRole(['admin', 'super_admin', 'manager'])];
 
 // GET /api/admin/verifications?status=pending
-router.get('/', ...adminGuard, async (req, res) => {
+router.get('/', ...viewGuard, async (req, res) => {
   try {
     const { status = 'pending' } = req.query;
     const where = { role: 'employer' };

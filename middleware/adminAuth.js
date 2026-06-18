@@ -14,7 +14,7 @@ export const adminAuth = async (req, res, next) => {
     const decoded = verifyToken(token);
     const user = await User.findOne({ where: { id: decoded.userId } });
     
-    if (!user || !['admin', 'super_admin'].includes(user.role) || !user.isActive) {
+    if (!user || !['admin', 'super_admin', 'manager'].includes(user.role) || !user.isActive) {
       logAdminAction('UNAUTHORIZED_ACCESS', { 
         ip: req.ip, 
         userAgent: req.get('User-Agent'),
@@ -40,7 +40,7 @@ export const adminAuth = async (req, res, next) => {
 
 // Super admin check
 export const superAdminAuth = (req, res, next) => {
-  if (req.user?.role !== 'super_admin' && req.user?.email !== 'admin@zyncjobs.com') {
+  if (req.user?.role !== 'super_admin' && req.user?.email !== 'admin@zyncjobs.com' && req.user?.email !== 'antony@trinitetech.com') {
     return res.status(403).json({ error: 'Super admin access required' });
   }
   next();

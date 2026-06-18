@@ -13,6 +13,7 @@ import { logAdminAction } from './adminAudit.js';
 
 const router = express.Router();
 const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
+const viewGuard = [authenticateToken, requireRole(['admin', 'super_admin', 'manager'])];
 const superAdminGuard = [authenticateToken, requireSuperAdmin];
 
 // ── Static/named routes FIRST (before /:id wildcard) ─────────────────
@@ -187,7 +188,7 @@ router.post('/accept-invite', async (req, res) => {
 });
 
 // GET /api/admin/users/gdpr/stats
-router.get('/gdpr/stats', ...adminGuard, async (req, res) => {
+router.get('/gdpr/stats', ...viewGuard, async (req, res) => {
   try {
     const now = new Date();
     const sixMonthsAgo  = new Date(now - 180 * 24 * 60 * 60 * 1000);
@@ -209,7 +210,7 @@ router.get('/gdpr/stats', ...adminGuard, async (req, res) => {
 });
 
 // GET /api/admin/users/gdpr/records
-router.get('/gdpr/records', ...adminGuard, async (req, res) => {
+router.get('/gdpr/records', ...viewGuard, async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
     const where = {};
@@ -293,7 +294,7 @@ router.get('/:id', ...adminGuard, async (req, res) => {
 router.put('/:id/role', ...adminGuard, async (req, res) => {
   try {
     const { role } = req.body;
-    const validRoles = ['candidate', 'employer', 'admin', 'super_admin'];
+    const validRoles = ['candidate', 'employer', 'admin', 'super_admin', 'manager'];
     if (!validRoles.includes(role)) return res.status(400).json({ error: 'Invalid role' });
 
     const requestorRole = req.user?.role;
