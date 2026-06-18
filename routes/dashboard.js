@@ -63,38 +63,58 @@ router.get('/stats', async (req, res) => {
       return res.json({ activeJobs: 0, applications: 0, interviews: 0, hired: 0 });
     }
 
-    // For team members: resolve owner email via team membership
-    let resolvedEmail = employerEmail.trim();
-    const teamRecord = await (await import('../models/TeamMember.js')).default.findOne({
-      where: { memberEmail: resolvedEmail.toLowerCase() }
+    // Resolve team owner email
+    const TeamMember = (await import('../models/TeamMember.js')).default;
+    let ownerEmail = employerEmail.trim().toLowerCase();
+    const teamRecord = await TeamMember.findOne({
+      where: { memberEmail: ownerEmail }
     });
     if (teamRecord?.employerId) {
-      resolvedEmail = teamRecord.employerId;
+      if (teamRecord.employerId.includes('@')) {
+        ownerEmail = teamRecord.employerId.toLowerCase();
+      } else {
+        const ownerRecord = await TeamMember.findOne({
+          where: { employerId: teamRecord.employerId, role: 'Owner' },
+          attributes: ['memberEmail']
+        });
+        if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
+      }
     }
+
+    // Collect all team member emails under this owner
+    const allEmails = [ownerEmail];
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail']
+    });
+    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+    const uniqueEmails = [...new Set(allEmails)];
+
+    const emailFilter = { [Op.in]: uniqueEmails };
     
-    // Get company-wide data using resolved owner email
+    // Get company-wide data across all team members
     const activeJobs = await Job.count({
       where: {
-        employerEmail: { [Op.iLike]: resolvedEmail },
+        employerEmail: emailFilter,
         isActive: true,
         status: { [Op.in]: ['approved', 'pending'] }
       }
     });
     
     const applications = await Application.count({
-      where: { employerEmail: { [Op.iLike]: resolvedEmail } }
+      where: { employerEmail: emailFilter }
     });
     
     const interviews = await Application.count({
       where: {
-        employerEmail: { [Op.iLike]: resolvedEmail },
+        employerEmail: emailFilter,
         status: { [Op.in]: ['shortlisted', 'interviewed'] }
       }
     });
     
     const hired = await Application.count({
       where: {
-        employerEmail: { [Op.iLike]: resolvedEmail },
+        employerEmail: emailFilter,
         status: 'hired'
       }
     });
@@ -115,18 +135,35 @@ router.get('/recent-activity', async (req, res) => {
       return res.json([]);
     }
 
-    // For team members: resolve owner email
-    let resolvedEmail = employerEmail.trim();
+    // Resolve team owner email
     const TeamMember = (await import('../models/TeamMember.js')).default;
+    let ownerEmail = employerEmail.trim().toLowerCase();
     const teamRecord = await TeamMember.findOne({
-      where: { memberEmail: resolvedEmail.toLowerCase() }
+      where: { memberEmail: ownerEmail }
     });
     if (teamRecord?.employerId) {
-      resolvedEmail = teamRecord.employerId;
+      if (teamRecord.employerId.includes('@')) {
+        ownerEmail = teamRecord.employerId.toLowerCase();
+      } else {
+        const ownerRecord = await TeamMember.findOne({
+          where: { employerId: teamRecord.employerId, role: 'Owner' },
+          attributes: ['memberEmail']
+        });
+        if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
+      }
     }
+
+    // Collect all team member emails
+    const allEmails = [ownerEmail];
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail']
+    });
+    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+    const uniqueEmails = [...new Set(allEmails)];
     
     const recentJobs = await Job.findAll({
-      where: { employerEmail: { [Op.iLike]: resolvedEmail } },
+      where: { employerEmail: { [Op.in]: uniqueEmails } },
       order: [['createdAt', 'DESC']],
       limit: 3
     });
