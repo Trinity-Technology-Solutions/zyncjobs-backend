@@ -536,6 +536,72 @@ router.post('/job/:jobId/recalculate-scores', blockViewer, async (req, res) => {
   }
 });
 
+// GET /api/applications/job/:jobId/export-csv - Export all applications as CSV
+router.get('/job/:jobId/export-csv', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    if (!jobId || jobId === 'undefined' || jobId === 'null') {
+      return res.status(400).json({ error: 'Valid job ID is required' });
+    }
+
+    const applications = await Application.findAll({ where: { jobId }, order: [['createdAt', 'DESC']] });
+    if (!applications.length) return res.status(404).json({ error: 'No applications found' });
+
+    const job = await Job.findByPk(jobId);
+    const jobTitle = (job?.jobTitle || job?.title || 'job').replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_');
+
+    const headers = [
+      'Candidate Name',
+      'Email',
+      'Phone',
+      'Status',
+      'Applied Date',
+      'Job Title',
+      'Experience',
+      'Education',
+      'Skills',
+      'Cover Letter',
+      'AI Score',
+      'AI Suggestion',
+      'Resume URL',
+      'Quick Apply',
+      'Application ID'
+    ];
+
+    const csvRows = [headers.map(h => `"${h}"`).join(',')];
+
+    for (const app of applications) {
+      const row = [
+        app.candidateName || '',
+        app.candidateEmail || '',
+        app.candidatePhone || '',
+        app.status || '',
+        app.createdAt ? new Date(app.createdAt).toISOString().split('T')[0] : '',
+        job?.jobTitle || job?.title || '',
+        app.candidateExperience || '',
+        app.candidateEducation || '',
+        Array.isArray(app.skills) ? app.skills.join('; ') : '',
+        (app.coverLetter || '').replace(/"/g, '""'),
+        app.aiScore != null ? String(app.aiScore) : '',
+        app.aiSuggestion || '',
+        app.resumeUrl || '',
+        app.isQuickApply ? 'Yes' : 'No',
+        app.id || app._id || ''
+      ];
+      csvRows.push(row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','));
+    }
+
+    const csvContent = csvRows.join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${jobTitle}_applications.csv"`);
+    res.send(csvContent);
+  } catch (error) {
+    console.error('CSV export error:', error);
+    if (!res.headersSent) res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/applications/job/:jobId/bulk-download-resumes - ZIP all resumes for a job
 router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
   try {
@@ -547,7 +613,6 @@ router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
     const applications = await Application.findAll({ where: { jobId }, order: [['createdAt', 'DESC']] });
     if (!applications.length) return res.status(404).json({ error: 'No applications found' });
 
-    // Pre-resolve all resume URLs before streaming
     const resolved = [];
     for (const app of applications) {
       const fileUrl = await resolveResumeFileUrl(app);
@@ -569,7 +634,8 @@ router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
 
     for (const { app, fileUrl } of resolved) {
       const safeName = (app.candidateName || 'candidate').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
-      const ext = fileUrl.split('?')[0].split('.').pop()?.toLowerCase() || 'pdf';
+      const urlWithoutQuery = fileUrl.split('?')[0];
+      const ext = urlWithoutQuery.split('.').pop()?.toLowerCase() || 'pdf';
       const entryName = `${safeName}_${String(app.id).slice(0, 8)}.${ext}`;
       try {
         if (fileUrl.includes('amazonaws.com')) {

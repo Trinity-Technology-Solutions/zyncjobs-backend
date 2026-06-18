@@ -821,6 +821,7 @@ RULES:
 - "requirements": Array of up to 8 requirement bullet points extracted from the JD.
 - "educationLevel": Degree required e.g. "Bachelor's Degree".
 - "priority": One of: Low, Medium, High, Urgent.
+- "benefits": Array of benefits explicitly offered by the employer. Extract from sections labeled "Benefits", "Perks", "What We Offer". Look for specific named benefits like "Health insurance", "Dental insurance", "Vision insurance", "Life insurance", "Visa sponsorship", "Green card sponsorship", "AD&D insurance", "Paid time off", "401k", "Stock options", etc. Do NOT include generic mentions in requirements/qualifications sections. Return empty array [] if no benefits section found.
 
 JOB POST:
 ${text.substring(0, 5000)}
@@ -844,7 +845,8 @@ JSON:
   "responsibilities": [],
   "requirements": [],
   "educationLevel": "Bachelor's Degree",
-  "priority": "Medium"
+  "priority": "Medium",
+  "benefits": []
 }`;
 
     // Use Groq first (fastest), fallback to Gemini

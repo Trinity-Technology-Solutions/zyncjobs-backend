@@ -8,6 +8,9 @@ import { requireRole } from '../middleware/roleAuth.js';
 
 const router = express.Router();
 
+const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
+const viewGuard = [authenticateToken, requireRole(['admin', 'super_admin', 'manager'])];
+
 // Helper: normalize any array field
 function normalizeArray(val) {
   if (!val) return [];
@@ -22,7 +25,7 @@ function normalizeArray(val) {
 }
 
 // GET /api/admin/jobs/pending - Get pending jobs
-router.get('/pending', async (req, res) => {
+router.get('/pending', ...viewGuard, async (req, res) => {
   try {
     const { page = 1, limit = 20, company, status = 'pending' } = req.query;
     
@@ -52,7 +55,7 @@ router.get('/pending', async (req, res) => {
 });
 
 // GET /api/admin/jobs/summary - Moderation summary
-router.get('/summary', async (req, res) => {
+router.get('/summary', ...viewGuard, async (req, res) => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -86,7 +89,7 @@ router.get('/summary', async (req, res) => {
 });
 
 // GET /api/admin/jobs/:jobId - Get single job details
-router.get('/:jobId', async (req, res) => {
+router.get('/:jobId', ...viewGuard, async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.jobId);
     
@@ -151,7 +154,7 @@ router.post('/:jobId/reject', authenticateToken, requireRole(['admin', 'super_ad
 });
 
 // POST /api/admin/jobs/:jobId/flag - Mark job as suspicious
-router.post('/:jobId/flag', async (req, res) => {
+router.post('/:jobId/flag', ...adminGuard, async (req, res) => {
   try {
     const { flag_type, notes, flagged_by } = req.body;
     
@@ -179,7 +182,7 @@ router.post('/:jobId/flag', async (req, res) => {
 });
 
 // POST /api/admin/jobs/:jobId/note - Add admin notes
-router.post('/:jobId/note', async (req, res) => {
+router.post('/:jobId/note', ...adminGuard, async (req, res) => {
   try {
     const { note, admin_id } = req.body;
     
@@ -208,7 +211,7 @@ router.post('/:jobId/note', async (req, res) => {
 });
 
 // POST /api/admin/jobs/:jobId/analyze - AI analyze job
-router.post('/:jobId/analyze', async (req, res) => {
+router.post('/:jobId/analyze', ...adminGuard, async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.jobId);
     if (!job) {
@@ -239,7 +242,7 @@ router.post('/:jobId/analyze', async (req, res) => {
 });
 
 // PUT /api/admin/jobs/:jobId - Update job details
-router.put('/:jobId', async (req, res) => {
+router.put('/:jobId', ...adminGuard, async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.jobId);
     if (!job) return res.status(404).json({ error: 'Job not found' });

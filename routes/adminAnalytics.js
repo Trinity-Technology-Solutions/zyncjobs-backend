@@ -9,7 +9,7 @@ import { requireRole } from '../middleware/roleAuth.js';
 
 const router = express.Router();
 
-const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin'])];
+const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin', 'manager'])];
 
 // Health check endpoint for admin routes
 router.get('/health', async (req, res) => {
@@ -292,6 +292,90 @@ router.get('/top-roles', ...adminGuard, async (req, res) => {
     `, { type: 'SELECT' });
     res.json(rows.map(r => ({ role: r.role, applications: parseInt(r.count) })));
   } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// GET /api/admin/analytics/all-applications — all applications across all companies (super admin)
+router.get('/all-applications', ...adminGuard, async (req, res) => {
+  try {
+    const { page = 1, limit = 50, status, company } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    let whereClause = '';
+    const params = [];
+
+    if (status) {
+      params.push(status);
+      whereClause += ` AND a.status = $${params.length}`;
+    }
+    if (company) {
+      params.push(`%${company}%`);
+      whereClause += ` AND j.company ILIKE $${params.length}`;
+    }
+
+    // Paginated list
+    const countResult = await sequelize.query(`
+      SELECT COUNT(*) as total
+      FROM applications a
+      LEFT JOIN jobs j ON a."jobId" = j.id
+      WHERE 1=1 ${whereClause}
+    `, { bind: params, type: 'SELECT' });
+
+    const total = parseInt(countResult[0].total);
+
+    params.push(parseInt(limit));
+    params.push(offset);
+
+    const applications = await sequelize.query(`
+      SELECT
+        a.id, a."candidateName", a."candidateEmail", a."candidatePhone",
+        a.status, a."createdAt", a."aiScore", a."isQuickApply",
+        COALESCE(j."jobTitle", j.title, 'Unknown') as "jobTitle",
+        COALESCE(j.company, 'Unknown') as company,
+        j."companyLogo", j."employerId"
+      FROM applications a
+      LEFT JOIN jobs j ON a."jobId" = j.id
+      WHERE 1=1 ${whereClause}
+      ORDER BY a."createdAt" DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, { bind: params, type: 'SELECT' });
+
+    // Counts by status
+    const statusCounts = await sequelize.query(`
+      SELECT status, COUNT(*)::int as count
+      FROM applications
+      GROUP BY status
+    `, { type: 'SELECT' });
+
+    // Counts by company
+    const companyCounts = await sequelize.query(`
+      SELECT COALESCE(j.company, 'Unknown') as company, COUNT(*)::int as count
+      FROM applications a
+      LEFT JOIN jobs j ON a."jobId" = j.id
+      GROUP BY j.company
+      ORDER BY count DESC
+    `, { type: 'SELECT' });
+
+    // Total count
+    const totalApps = await Application.count();
+
+    res.json({
+      applications,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit))
+      },
+      counts: {
+        byStatus: statusCounts.reduce((acc, r) => ({ ...acc, [r.status]: parseInt(r.count) }), {}),
+        byCompany: companyCounts.reduce((acc, r) => ({ ...acc, [r.company || 'Unknown']: parseInt(r.count) }), {}),
+        total: totalApps
+      }
+    });
+  } catch (error) {
+    console.error('All applications error:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 export default router;
