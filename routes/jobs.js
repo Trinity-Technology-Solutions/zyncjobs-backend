@@ -341,26 +341,44 @@ router.get('/employer/:employerId', async (req, res) => {
 // GET /api/jobs/employer/email/:email - Get jobs by employer email (company-wide)
 router.get('/employer/email/:email', async (req, res) => {
   try {
-    let employerEmail = req.params.email;
+    const requestEmail = req.params.email.toLowerCase();
 
-    // For team members: auto-resolve to owner email
+    // Resolve team owner email
     const TeamMember = (await import('../models/TeamMember.js')).default;
+    let ownerEmail = requestEmail;
     const teamRecord = await TeamMember.findOne({
-      where: { memberEmail: employerEmail.toLowerCase() }
+      where: { memberEmail: requestEmail }
     });
     if (teamRecord?.employerId) {
-      const isEmail = teamRecord.employerId.includes('@');
-      if (isEmail) {
-        employerEmail = teamRecord.employerId;
+      if (teamRecord.employerId.includes('@')) {
+        ownerEmail = teamRecord.employerId.toLowerCase();
       } else {
-        const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
-        if (ownerUser?.email) employerEmail = ownerUser.email;
+        const ownerRecord = await TeamMember.findOne({
+          where: { employerId: teamRecord.employerId, role: 'Owner' },
+          attributes: ['memberEmail']
+        });
+        if (ownerRecord?.memberEmail) {
+          ownerEmail = ownerRecord.memberEmail.toLowerCase();
+        } else {
+          const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
+          if (ownerUser?.email) ownerEmail = ownerUser.email.toLowerCase();
+        }
       }
     }
+
+    // Collect all team member emails under this owner
+    const allEmails = [ownerEmail];
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail']
+    });
+    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+
+    const uniqueEmails = [...new Set(allEmails)];
     
     const jobs = await Job.findAll({ 
       where: {
-        employerEmail: { [Op.iLike]: employerEmail },
+        employerEmail: { [Op.in]: uniqueEmails },
         isActive: true,
         status: { [Op.in]: ['approved', 'pending'] }
       },
