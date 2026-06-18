@@ -18,21 +18,6 @@ export const baseTemplate = (content, previewText = '') => `
     <tr><td align="center">
       <table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;">
 
-        <!-- ═══ HEADER ═══ -->
-        <tr><td style="padding:0;">
-          <table width="100%" cellpadding="0" cellspacing="0"
-            style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);border-radius:22px 22px 0 0;">
-            <tr>
-              <td style="padding:32px 32px 28px;text-align:center;">
-                <a href="${FRONTEND_URL}" style="text-decoration:none;">
-                  <span style="color:#FFFFFF;font-size:26px;font-weight:900;letter-spacing:1px;">ZyncJobs</span>
-                </a>
-                <p style="color:rgba(255,255,255,0.75);font-size:12px;margin:4px 0 0;letter-spacing:0.5px;">Your Career Journey Starts Here</p>
-              </td>
-            </tr>
-          </table>
-        </td></tr>
-
         <!-- ═══ BODY ═══ -->
         <tr><td style="background:#FFFFFF;padding:0;">
           ${content}

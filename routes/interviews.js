@@ -289,7 +289,7 @@ router.post('/schedule', blockViewer, async (req, res) => {
           candidateName || candidateEmail,
           job?.jobTitle || job?.title || 'Position',
           job?.company || 'Company',
-          { scheduledDate, duration, type, meetingLink, location, notes },
+          { id: interview.id, scheduledDate, duration, type, meetingLink, location, notes },
           employerEmail,
           employerName
         );
@@ -376,7 +376,7 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
         candidate.name || candidateEmail,
         job?.jobTitle || job?.title || 'Position',
         job?.company || 'Company',
-        { scheduledDate, duration, type, meetingLink, notes },
+        { id: interview.id, scheduledDate, duration, type, meetingLink, notes },
         employerEmail,
         employerName
       );
@@ -402,6 +402,63 @@ router.patch('/:id/confirm', async (req, res) => {
   } catch (error) {
     console.error('Confirm interview API error:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/interviews/:id/accept - Candidate accepts interview via email link
+router.get('/:id/accept', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const interview = await Interview.findByPk(id, {
+      include: [
+        { model: Job, attributes: ['jobTitle', 'title', 'company'] },
+        { model: User, as: 'employer', attributes: ['name', 'email', 'companyName'] }
+      ]
+    });
+
+    if (!interview) {
+      return res.status(404).json({ success: false, message: 'Interview not found' });
+    }
+
+    if (interview.status === 'confirmed' || interview.candidateConfirmed) {
+      return res.send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;"><div style="font-size:48px;margin-bottom:16px;">&#9989;</div><h1 style="color:#1F2937;margin:0 0 8px;">Already Confirmed</h1><p style="color:#6B7280;margin:0;">You have already accepted this interview invitation.</p></div></body></html>`);
+    }
+
+    await Interview.update(
+      { candidateConfirmed: true, status: 'confirmed' },
+      { where: { id } }
+    );
+
+    // Send confirmation email to employer
+    try {
+      const { sendInterviewAcceptedEmail } = await import('../services/emailService.js');
+      const job = interview.Job || null;
+      const employer = interview.employer || null;
+      await sendInterviewAcceptedEmail(
+        employer?.email || interview.employerEmail,
+        employer?.companyName || job?.company || 'Company',
+        interview.candidateName || interview.candidateEmail,
+        job?.jobTitle || job?.title || 'Position',
+        interview.scheduledDate
+      );
+    } catch (emailError) {
+      console.error('Acceptance email error:', emailError.message);
+    }
+
+    // Create in-app notification
+    try {
+      await NotificationService.createInterviewNotification(interview);
+    } catch (notifError) {
+      console.error('Notification error:', notifError.message);
+    }
+
+    const jobTitle = interview.Job?.jobTitle || interview.Job?.title || 'Position';
+    const company = interview.Job?.company || 'Company';
+
+    res.send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;box-shadow:0 4px 12px rgba(0,0,0,0.1);"><div style="font-size:48px;margin-bottom:16px;">&#10004;&#65039;</div><h1 style="color:#1F2937;margin:0 0 8px;">Interview Accepted!</h1><p style="color:#4B5563;margin:0 0 4px;line-height:1.6;">You have accepted the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.</p><p style="color:#6B7280;font-size:14px;margin:16px 0 0;">The recruiter has been notified. Check your email for details.</p></div></body></html>`);
+  } catch (error) {
+    console.error('Accept interview error:', error);
+    res.status(500).send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;"><div style="font-size:48px;margin-bottom:16px;">&#10060;</div><h1 style="color:#DC2626;margin:0 0 8px;">Something went wrong</h1><p style="color:#6B7280;margin:0;">${error.message}</p></div></body></html>`);
   }
 });
 
