@@ -38,54 +38,83 @@ router.get('/', async (req, res) => {
   try {
     const { employerId, employerEmail } = req.query;
     
-    const conditions = [];
-    if (employerId && employerId.includes('@')) conditions.push({ employerEmail: employerId });
-    else if (isValidUUID(employerId)) conditions.push({ employerId });
-    if (employerEmail && employerEmail !== '') conditions.push({ employerEmail });
-
-    if (conditions.length === 0) return res.json([]);
-
-    const where = conditions.length === 1 ? conditions[0] : { [Op.or]: conditions };
-
-    console.log('📅 Fetching interviews for:', { employerId, employerEmail });
+    // Determine the primary email to identify the company
+    const primaryEmail = (employerEmail || employerId || '').trim().toLowerCase();
+    if (!primaryEmail || !primaryEmail.includes('@')) {
+      // Fallback to UUID-based lookup
+      if (isValidUUID(employerId)) {
+        console.log('📅 Fetching interviews for UUID:', employerId);
+        const interviews = await Interview.findAll({
+          where: { employerId },
+          order: [['scheduledDate', 'DESC']]
+        });
+        const formatted = await formatInterviews(interviews);
+        return res.json(formatted);
+      }
+      return res.json([]);
+    }
+    
+    // Resolve the owner email: check if primaryEmail is a team member
+    let ownerEmail = primaryEmail;
+    const memberRecord = await TeamMember.findOne({
+      where: { memberEmail: primaryEmail }
+    });
+    if (memberRecord?.employerId) {
+      ownerEmail = memberRecord.employerId.toLowerCase();
+    }
+    
+    // Collect all company emails: owner + all active team members
+    const companyEmails = new Set([ownerEmail]);
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail']
+    });
+    teamMembers.forEach(m => companyEmails.add(m.memberEmail.toLowerCase()));
+    
+    console.log('📅 Fetching interviews for company emails:', [...companyEmails]);
     
     const interviews = await Interview.findAll({
-      where,
+      where: {
+        [Op.or]: [...companyEmails].map(email => ({
+          employerEmail: { [Op.iLike]: email }
+        }))
+      },
       order: [['scheduledDate', 'DESC']]
     });
-    
-    console.log('✅ Found interviews:', interviews.length);
-    
-    const formattedInterviews = await Promise.all(interviews.map(async (interview) => {
-      let job = null;
-      if (interview.jobId) {
-        job = await Job.findByPk(interview.jobId);
-      }
-      
-      return {
-        _id: interview.id,
-        candidateName: interview.candidateName,
-        candidateEmail: interview.candidateEmail,
-        jobTitle: job?.jobTitle || job?.title || 'N/A',
-        company: job?.company || 'N/A',
-        date: interview.scheduledDate,
-        time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        duration: interview.duration,
-        type: interview.type,
-        status: interview.status,
-        meetingLink: interview.meetingLink,
-        location: interview.location,
-        notes: interview.notes,
-        createdAt: interview.createdAt
-      };
-    }));
-    
-    res.json(formattedInterviews);
+
+    const formattedInterviews = await formatInterviews(interviews);
+    return res.json(formattedInterviews);
   } catch (error) {
     console.error('Interviews API error:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
+// Helper to format interview data with job details
+async function formatInterviews(interviews) {
+  return Promise.all(interviews.map(async (interview) => {
+    let job = null;
+    if (interview.jobId) {
+      job = await Job.findByPk(interview.jobId);
+    }
+    return {
+      _id: interview.id,
+      candidateName: interview.candidateName,
+      candidateEmail: interview.candidateEmail,
+      jobTitle: job?.jobTitle || job?.title || 'N/A',
+      company: job?.company || 'N/A',
+      date: interview.scheduledDate,
+      time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      duration: interview.duration,
+      type: interview.type,
+      status: interview.status,
+      meetingLink: interview.meetingLink,
+      location: interview.location,
+      notes: interview.notes,
+      createdAt: interview.createdAt
+    };
+  }));
+}
 
 // GET /api/interviews/my-interviews - Get user's interviews
 router.get('/my-interviews', async (req, res) => {
