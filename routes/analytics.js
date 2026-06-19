@@ -3,6 +3,7 @@ import { Op } from 'sequelize';
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
 import Analytics from '../models/Analytics.js';
+import { formatJobCode } from '../utils/idGenerator.js';
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ router.get('/profile/:email', async (req, res) => {
 
     if (userType === 'employer') {
       // For employers: Jobs Posted and Applications Received
-      const jobsPosted = await Job.count({ 
+      const jobsPosted = await Job.count({
         where: {
           [Op.or]: [
             { employerEmail: { [Op.iLike]: `%${email}%` } },
@@ -26,7 +27,7 @@ router.get('/profile/:email', async (req, res) => {
         }
       });
 
-      const applicationsReceived = await Application.count({ 
+      const applicationsReceived = await Application.count({
         where: {
           employerEmail: { [Op.iLike]: `%${email}%` }
         }
@@ -40,7 +41,7 @@ router.get('/profile/:email', async (req, res) => {
       });
     } else {
       // For candidates: Real analytics from database
-      const applicationsSent = await Application.count({ 
+      const applicationsSent = await Application.count({
         where: {
           candidateEmail: { [Op.iLike]: `%${email}%` }
         }
@@ -60,7 +61,7 @@ router.get('/profile/:email', async (req, res) => {
           eventType: 'search_appearance'
         }
       });
-      
+
       console.log('📊 Search appearances count for', email, ':', searchAppearances);
 
       const recruiterActions = await Analytics.count({
@@ -154,16 +155,16 @@ router.get('/recruiter-actions/:email', async (req, res) => {
       // Build recruiter object — prefer Profile > User > metadata > email domain
       const name = recruiterUser?.name || meta.recruiterName || 'Recruiter';
       const title = recruiterProfile?.title || recruiterProfile?.roleTitle || recruiterUser?.title || meta.recruiterTitle || 'HR';
-      
+
       // Company: try every possible source
       let company = recruiterProfile?.companyName ||
-                    recruiterUser?.companyName || recruiterUser?.company ||
-                    meta.company || '';
-      
+        recruiterUser?.companyName || recruiterUser?.company ||
+        meta.company || '';
+
       // Last resort: derive company from email domain
       if (!company && recruiterUser?.email) {
         const domain = recruiterUser.email.split('@')[1];
-        if (domain && !['gmail.com','yahoo.com','outlook.com','hotmail.com'].includes(domain)) {
+        if (domain && !['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com'].includes(domain)) {
           company = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
         }
       }
@@ -200,30 +201,30 @@ router.get('/search-appearances/:email', async (req, res) => {
   try {
     const { email } = req.params;
     console.log('🔍 Search appearances request for:', email);
-    
+
     const appearances = await Analytics.findAll({
       where: { email: { [Op.iLike]: `%${email}%` }, eventType: 'search_appearance' },
       order: [['createdAt', 'DESC']],
       limit: 100 // Increased limit for debugging
     });
-    
+
     console.log('🔍 Found appearances:', appearances.length);
-    
+
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
     const thisWeek = await Analytics.count({
       where: { email: { [Op.iLike]: `%${email}%` }, eventType: 'search_appearance', createdAt: { [Op.gte]: weekAgo } }
     });
-    
+
     const keywordMap = {};
     appearances.forEach(a => {
       const kw = a.metadata && (a.metadata.searchQuery || a.metadata.keyword);
       if (kw) keywordMap[kw] = (keywordMap[kw] || 0) + 1;
     });
-    const topKeywords = Object.entries(keywordMap).sort((a,b) => b[1]-a[1]).slice(0,10).map(([kw]) => kw);
-    
+    const topKeywords = Object.entries(keywordMap).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([kw]) => kw);
+
     console.log('🔍 Response:', { total: appearances.length, thisWeek, topKeywords: topKeywords.length });
-    
+
     res.json({ appearances, thisWeek, topKeywords });
   } catch (error) {
     console.error('Search appearances error:', error);
@@ -235,14 +236,14 @@ router.get('/search-appearances/:email', async (req, res) => {
 router.get('/debug/:email', async (req, res) => {
   try {
     const { email } = req.params;
-    
+
     // Get all analytics records for this email
     const allRecords = await Analytics.findAll({
       where: { email: { [Op.iLike]: `%${email}%` } },
       order: [['createdAt', 'DESC']],
       limit: 50
     });
-    
+
     // Group by event type
     const byType = {};
     allRecords.forEach(record => {
@@ -254,7 +255,7 @@ router.get('/debug/:email', async (req, res) => {
         metadata: record.metadata
       });
     });
-    
+
     res.json({
       email,
       totalRecords: allRecords.length,
@@ -270,11 +271,73 @@ router.get('/debug/:email', async (req, res) => {
   }
 });
 
+// GET /api/analytics/jobs/:email - Get jobs with code, title, company, location for employer
+router.get('/jobs/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    const { range = '30d' } = req.query;
+
+    const daysMap = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 };
+    const days = daysMap[range] || 30;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    // Resolve team member → owner email
+    const TeamMember = (await import('../models/TeamMember.js')).default;
+    let ownerEmail = email;
+    const teamRecord = await TeamMember.findOne({ where: { memberEmail: email.toLowerCase() } }).catch(() => null);
+    if (teamRecord?.employerId) ownerEmail = teamRecord.employerId;
+
+    const jobs = await Job.findAll({
+      where: {
+        employerEmail: { [Op.iLike]: ownerEmail },
+        isActive: true,
+        createdAt: { [Op.gte]: since }
+      },
+      attributes: ['id', 'jobTitle', 'company', 'location', 'positionId', 'views', 'applicationsCount', 'createdAt'],
+      order: [['createdAt', 'DESC']],
+      limit: 50
+    });
+
+    const jobIds = jobs.map(j => j.id).filter(Boolean);
+    const appCounts = await Application.findAll({
+      where: { jobId: { [Op.in]: jobIds } },
+      attributes: ['jobId'],
+      raw: true
+    });
+
+    const appCountsMap = {};
+    appCounts.forEach(app => {
+      appCountsMap[app.jobId] = (appCountsMap[app.jobId] || 0) + 1;
+    });
+
+    const result = jobs.map(job => {
+      const jobCode = formatJobCode(job.positionId, job.company);
+      return {
+        id: job.id,
+        jobTitle: job.jobTitle,
+        company: job.company,
+        location: job.location,
+        jobCode,
+        positionId: job.positionId,
+        views: job.views || 0,
+        applications: appCountsMap[job.id] || 0,
+        posted: job.createdAt
+      };
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Analytics jobs error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/analytics/recent-activity/:email - Get recent activity for candidate
 router.get('/recent-activity/:email', async (req, res) => {
   try {
     const { email } = req.params;
-    
+
     // Get recent applications with job details
     const recentApplications = await Application.findAll({
       where: { candidateEmail: { [Op.iLike]: `%${email}%` } },
@@ -310,7 +373,7 @@ router.get('/recent-activity/:email', async (req, res) => {
     recentEvents.forEach(event => {
       let icon = '📊';
       let message = event.eventType;
-      
+
       if (event.eventType === 'profile_view') {
         icon = '👁️';
         message = `Your profile was viewed${event.metadata?.company ? ` by ${event.metadata.company}` : ''}`;
@@ -334,7 +397,7 @@ router.get('/recent-activity/:email', async (req, res) => {
 
     // Sort by timestamp and return top 10
     activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    
+
     res.json(activities.slice(0, 10));
   } catch (error) {
     console.error('❌ Recent activity error:', error);

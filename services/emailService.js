@@ -8,8 +8,11 @@ const transporter = nodemailer.createTransport({
   port: parseInt(process.env.SMTP_PORT),
   secure: false,
   auth: {
-    user: process.env.SMTP_USER,
+    user: process.env.SMTP_EMAIL || process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD
+  },
+  tls: {
+    rejectUnauthorized: false
   }
 });
 
@@ -57,7 +60,7 @@ export const sendJobApplicationEmail = async (candidateEmail, candidateName, job
       </div>`;
 
     await transporter.sendMail({
-      from: `"ZyncJobs" <${process.env.SMTP_FROM_EMAIL}>`,
+      from: `"ZyncJobs" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_EMAIL}>`,
       to: candidateEmail,
       subject: `✅ Application Submitted — ${jobTitle} at ${company}`,
       html: baseTemplate(content, `Your application for ${jobTitle} at ${company} has been received.`)
@@ -137,11 +140,11 @@ export const sendApplicationStatusEmail = async (candidateEmail, candidateName, 
     const name = candidateName || 'there';
 
     const statusConfig = {
-      applied:     { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="14 2 14 8 20 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="16" y1="13" x2="8" y2="13" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="17" x2="8" y2="17" stroke="white" stroke-width="2" stroke-linecap="round"/><polyline points="10 9 9 9 8 9" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>', title: 'Application Received', msg: 'Your application is under review. We\'ll keep you posted!', color: '#3B82F6' },
-      reviewed:    { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="white" stroke-width="2"/></svg>', title: 'Application Reviewed', msg: 'The hiring team has reviewed your application and is evaluating next steps.', color: '#F59E0B' },
+      applied: { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="14 2 14 8 20 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="16" y1="13" x2="8" y2="13" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="17" x2="8" y2="17" stroke="white" stroke-width="2" stroke-linecap="round"/><polyline points="10 9 9 9 8 9" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>', title: 'Application Received', msg: 'Your application is under review. We\'ll keep you posted!', color: '#3B82F6' },
+      reviewed: { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="white" stroke-width="2"/></svg>', title: 'Application Reviewed', msg: 'The hiring team has reviewed your application and is evaluating next steps.', color: '#F59E0B' },
       shortlisted: { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>', title: 'You\'re Shortlisted!', msg: 'Congratulations! You\'ve been shortlisted. Expect to hear from us soon about next steps.', color: '#10B981' },
-      hired:       { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>', title: 'Congratulations! You\'re Hired!', msg: 'We are thrilled to offer you this position. Welcome to the team!', color: '#059669' },
-      rejected:    { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/><path d="M12 8v4" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="1" fill="white"/></svg>', title: 'Application Update', msg: 'After careful review, we\'ve decided to move forward with other candidates. We encourage you to keep applying!', color: '#6B7280' },
+      hired: { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><polyline points="20 6 9 17 4 12" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>', title: 'Congratulations! You\'re Hired!', msg: 'We are thrilled to offer you this position. Welcome to the team!', color: '#059669' },
+      rejected: { icon: '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/><path d="M12 8v4" stroke="white" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="16" r="1" fill="white"/></svg>', title: 'Application Update', msg: 'After careful review, we\'ve decided to move forward with other candidates. We encourage you to keep applying!', color: '#6B7280' },
     };
     const cfg = statusConfig[status] || statusConfig.applied;
 
@@ -288,8 +291,8 @@ export const sendWelcomeEmail = async (userEmail, userName, userType, verificati
         <h2 style="color:#1F2937;font-size:20px;margin:0 0 12px;">Hi ${name}!</h2>
         <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
           ${isEmployer
-            ? 'Your employer account is ready. Start posting jobs and find top talent faster with AI-powered matching.'
-            : 'Your account is ready. Discover thousands of jobs tailored to your skills and experience.'}
+        ? 'Your employer account is ready. Start posting jobs and find top talent faster with AI-powered matching.'
+        : 'Your account is ready. Discover thousands of jobs tailored to your skills and experience.'}
         </p>
 
         ${isEmployer ? employerFeatures : candidateFeatures}

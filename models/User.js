@@ -37,6 +37,7 @@ const User = sequelize.define('User', {
   phone: DataTypes.STRING,
   location: DataTypes.STRING,
   title: DataTypes.STRING,
+  position: DataTypes.STRING,
   bio: DataTypes.TEXT,
   headline: DataTypes.STRING,
   skills: {

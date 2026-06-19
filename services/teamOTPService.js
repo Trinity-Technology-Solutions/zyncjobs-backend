@@ -14,18 +14,21 @@ const createTransporter = () => nodemailer.createTransport({
   auth: {
     user: process.env.SMTP_EMAIL,
     pass: process.env.SMTP_PASSWORD
+  },
+  tls: {
+    rejectUnauthorized: false
   }
 });
 
 export class TeamOTPService {
-  
+
   // Generate and send OTP to company owner
   static async sendTeamMemberOTP(teamMemberEmail, ownerEmail, memberName, companyName) {
     try {
       // Generate 6-digit OTP
       const otp = crypto.randomInt(100000, 999999).toString();
       const expiryTime = Date.now() + (5 * 60 * 1000); // 5 minutes
-      
+
       // Store OTP with team member email as key
       otpStorage.set(teamMemberEmail.toLowerCase(), {
         otp,
@@ -35,7 +38,7 @@ export class TeamOTPService {
         companyName,
         attempts: 0
       });
-      
+
       // Send OTP email to company owner
       const otpEmailHtml = `
 <!DOCTYPE html>
@@ -127,47 +130,47 @@ export class TeamOTPService {
       throw error;
     }
   }
-  
+
   // Verify OTP for team member login
   static verifyTeamMemberOTP(teamMemberEmail, providedOTP) {
     const otpData = otpStorage.get(teamMemberEmail.toLowerCase());
-    
+
     if (!otpData) {
       return { success: false, error: 'No verification code found. Please request a new one.' };
     }
-    
+
     // Check expiry
     if (Date.now() > otpData.expiryTime) {
       otpStorage.delete(teamMemberEmail.toLowerCase());
       return { success: false, error: 'Verification code expired. Please request a new one.' };
     }
-    
+
     // Check attempts
     if (otpData.attempts >= 3) {
       otpStorage.delete(teamMemberEmail.toLowerCase());
       return { success: false, error: 'Too many failed attempts. Please request a new verification code.' };
     }
-    
+
     // Verify OTP
     if (otpData.otp !== providedOTP.toString()) {
       otpData.attempts++;
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: `Invalid verification code. ${3 - otpData.attempts} attempts remaining.`,
         attemptsLeft: 3 - otpData.attempts
       };
     }
-    
+
     // OTP verified successfully
     otpStorage.delete(teamMemberEmail.toLowerCase());
-    return { 
-      success: true, 
+    return {
+      success: true,
       message: 'Verification successful',
       ownerEmail: otpData.ownerEmail,
       companyName: otpData.companyName
     };
   }
-  
+
   // Clean expired OTPs (call this periodically)
   static cleanExpiredOTPs() {
     const now = Date.now();
@@ -177,17 +180,17 @@ export class TeamOTPService {
       }
     }
   }
-  
+
   // Get OTP status for team member
   static getOTPStatus(teamMemberEmail) {
     const otpData = otpStorage.get(teamMemberEmail.toLowerCase());
-    
+
     if (!otpData) {
       return { exists: false };
     }
-    
+
     const timeLeft = Math.max(0, otpData.expiryTime - Date.now());
-    
+
     return {
       exists: true,
       timeLeft: Math.floor(timeLeft / 1000), // seconds

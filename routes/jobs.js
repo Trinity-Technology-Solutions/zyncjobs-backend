@@ -3,11 +3,14 @@ import { body, validationResult } from 'express-validator';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import Company from '../models/Company.js';
-import { Op, literal } from 'sequelize';
+import TeamMember from '../models/TeamMember.js';
+import Application from '../models/Application.js';
+import Interview from '../models/Interview.js';
+import { Op, literal, fn, col } from 'sequelize';
 import { requireRole, requirePermission, PERMISSIONS, requireTeamRole } from '../middleware/roleAuth.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { mistralDetector } from '../utils/mistralJobDetector.js';
-import { generateEmployerId, generatePositionId, generatePositionIdWithYear } from '../utils/idGenerator.js';
+import { generateEmployerId, generatePositionId, generatePositionIdWithYear, formatJobCode } from '../utils/idGenerator.js';
 import { maxJobsGuard, getJobStatus } from '../middleware/settingsMiddleware.js';
 import fs from 'fs';
 import path from 'path';
@@ -118,7 +121,7 @@ function generateJobCode(jobTitle, company) {
   const companyCode = company.replace(/[^a-zA-Z0-9]/g, '').substring(0, 3).toUpperCase();
   const timestamp = Date.now().toString().slice(-6);
   const randomNum = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-  
+
   return `${titleCode}${companyCode}${timestamp}${randomNum}`;
 }
 
@@ -126,49 +129,49 @@ function generateJobCode(jobTitle, company) {
 function getJobHeaderImage(jobTitle, skills = []) {
   const title = jobTitle.toLowerCase();
   const skillsStr = skills.join(' ').toLowerCase();
-  
+
   // Tech/Software Development
-  if (title.includes('developer') || title.includes('engineer') || title.includes('programmer') || 
-      title.includes('software') || skillsStr.includes('javascript') || skillsStr.includes('python') || 
-      skillsStr.includes('java') || skillsStr.includes('react')) {
+  if (title.includes('developer') || title.includes('engineer') || title.includes('programmer') ||
+    title.includes('software') || skillsStr.includes('javascript') || skillsStr.includes('python') ||
+    skillsStr.includes('java') || skillsStr.includes('react')) {
     return 'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=800&h=400&fit=crop';
   }
-  
+
   // Data Science/Analytics
-  if (title.includes('data') || title.includes('analyst') || title.includes('scientist') || 
-      skillsStr.includes('sql') || skillsStr.includes('python') || skillsStr.includes('tableau')) {
+  if (title.includes('data') || title.includes('analyst') || title.includes('scientist') ||
+    skillsStr.includes('sql') || skillsStr.includes('python') || skillsStr.includes('tableau')) {
     return 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&h=400&fit=crop';
   }
-  
+
   // DevOps/Cloud
-  if (title.includes('devops') || title.includes('cloud') || title.includes('aws') || 
-      skillsStr.includes('docker') || skillsStr.includes('kubernetes')) {
+  if (title.includes('devops') || title.includes('cloud') || title.includes('aws') ||
+    skillsStr.includes('docker') || skillsStr.includes('kubernetes')) {
     return 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&h=400&fit=crop';
   }
-  
+
   // UI/UX Design
-  if (title.includes('designer') || title.includes('ui') || title.includes('ux') || 
-      skillsStr.includes('figma') || skillsStr.includes('photoshop')) {
+  if (title.includes('designer') || title.includes('ui') || title.includes('ux') ||
+    skillsStr.includes('figma') || skillsStr.includes('photoshop')) {
     return 'https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800&h=400&fit=crop';
   }
-  
+
   // Marketing/Digital
-  if (title.includes('marketing') || title.includes('digital') || title.includes('seo') || 
-      title.includes('content')) {
+  if (title.includes('marketing') || title.includes('digital') || title.includes('seo') ||
+    title.includes('content')) {
     return 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&h=400&fit=crop';
   }
-  
+
   // Finance/Accounting
   if (title.includes('finance') || title.includes('accounting') || title.includes('analyst')) {
     return 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800&h=400&fit=crop';
   }
-  
+
   // Project Management
-  if (title.includes('project') || title.includes('manager') || title.includes('scrum') || 
-      title.includes('agile')) {
+  if (title.includes('project') || title.includes('manager') || title.includes('scrum') ||
+    title.includes('agile')) {
     return 'https://images.unsplash.com/photo-1552664730-d307ca884978?w=800&h=400&fit=crop';
   }
-  
+
   // Default tech/business image
   return 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&h=400&fit=crop';
 }
@@ -189,74 +192,74 @@ function getCompanyLogo(companyName, dbLogo = null) {
 // Helper function to auto-assign category from job title
 function getCategoryFromTitle(jobTitle) {
   const title = jobTitle.toLowerCase();
-  
-  if (title.includes('software') || title.includes('developer') || title.includes('engineer') || 
-      title.includes('programmer') || title.includes('frontend') || title.includes('backend') || 
-      title.includes('fullstack') || title.includes('full stack')) {
+
+  if (title.includes('software') || title.includes('developer') || title.includes('engineer') ||
+    title.includes('programmer') || title.includes('frontend') || title.includes('backend') ||
+    title.includes('fullstack') || title.includes('full stack')) {
     return 'Software Development';
   }
-  
-  if (title.includes('data') || title.includes('analyst') || title.includes('scientist') || 
-      title.includes('analytics') || title.includes('bi ')) {
+
+  if (title.includes('data') || title.includes('analyst') || title.includes('scientist') ||
+    title.includes('analytics') || title.includes('bi ')) {
     return 'Data Science & Analytics';
   }
-  
-  if (title.includes('devops') || title.includes('cloud') || title.includes('infrastructure') || 
-      title.includes('sre') || title.includes('system')) {
+
+  if (title.includes('devops') || title.includes('cloud') || title.includes('infrastructure') ||
+    title.includes('sre') || title.includes('system')) {
     return 'DevOps & Cloud';
   }
-  
-  if (title.includes('designer') || title.includes('ui') || title.includes('ux') || 
-      title.includes('graphic') || title.includes('product design')) {
+
+  if (title.includes('designer') || title.includes('ui') || title.includes('ux') ||
+    title.includes('graphic') || title.includes('product design')) {
     return 'Design';
   }
-  
-  if (title.includes('marketing') || title.includes('digital') || title.includes('seo') || 
-      title.includes('content') || title.includes('social media')) {
+
+  if (title.includes('marketing') || title.includes('digital') || title.includes('seo') ||
+    title.includes('content') || title.includes('social media')) {
     return 'Marketing';
   }
-  
+
   if (title.includes('sales') || title.includes('business development') || title.includes('account')) {
     return 'Sales';
   }
-  
-  if (title.includes('hr') || title.includes('human resource') || title.includes('recruiter') || 
-      title.includes('talent')) {
+
+  if (title.includes('hr') || title.includes('human resource') || title.includes('recruiter') ||
+    title.includes('talent')) {
     return 'Human Resources';
   }
-  
+
   if (title.includes('finance') || title.includes('accounting') || title.includes('accountant')) {
     return 'Finance & Accounting';
   }
-  
-  if (title.includes('project') || title.includes('manager') || title.includes('scrum') || 
-      title.includes('product manager') || title.includes('program')) {
+
+  if (title.includes('project') || title.includes('manager') || title.includes('scrum') ||
+    title.includes('product manager') || title.includes('program')) {
     return 'Project Management';
   }
-  
-  if (title.includes('qa') || title.includes('quality') || title.includes('test') || 
-      title.includes('automation')) {
+
+  if (title.includes('qa') || title.includes('quality') || title.includes('test') ||
+    title.includes('automation')) {
     return 'Quality Assurance';
   }
-  
+
   if (title.includes('security') || title.includes('cyber')) {
     return 'Cybersecurity';
   }
 
   if (title.includes('hse') || title.includes('health safety') || title.includes('safety') ||
-      title.includes('environment') || title.includes('inspector')) {
+    title.includes('environment') || title.includes('inspector')) {
     return 'Health, Safety & Environment';
   }
 
   if (title.includes('civil') || title.includes('structural') || title.includes('infrastructure') ||
-      title.includes('construction') || title.includes('site engineer')) {
+    title.includes('construction') || title.includes('site engineer')) {
     return 'Engineering & Construction';
   }
-  
+
   if (title.includes('support') || title.includes('customer success') || title.includes('help desk')) {
     return 'Customer Support';
   }
-  
+
   return 'Other';
 }
 
@@ -278,7 +281,7 @@ function normalizeArray(val) {
 router.get('/', async (req, res) => {
   try {
     const { page = 1, limit = 10, location, jobType, search, sort } = req.query;
-    
+
     const where = { isActive: true, status: 'approved' };
     if (location) where.location = { [Op.iLike]: `%${location}%` };
     if (jobType) where.jobType = Array.isArray(jobType) ? { [Op.in]: jobType } : jobType;
@@ -289,24 +292,25 @@ router.get('/', async (req, res) => {
         { description: { [Op.iLike]: `%${search}%` } }
       ];
     }
-    
+
     const jobs = await Job.findAll({
       where,
       order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']],
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
-    
+
     const result = jobs.map(job => {
       const jobJson = job.toJSON();
-      return { 
-        ...jobJson, 
-        companyLogo: getCompanyLogo(job.company, job.companyLogo), 
-        salary: { 
-          min: jobJson.salaryMin, 
-          max: jobJson.salaryMax, 
-          currency: jobJson.currency || 'INR' 
-        } 
+      return {
+        ...jobJson,
+        jobCode: formatJobCode(job.positionId, job.company),
+        companyLogo: getCompanyLogo(job.company, job.companyLogo),
+        salary: {
+          min: jobJson.salaryMin,
+          max: jobJson.salaryMax,
+          currency: jobJson.currency || 'INR'
+        }
       };
     });
 
@@ -320,7 +324,7 @@ router.get('/', async (req, res) => {
 // GET /api/jobs/employer/:employerId - Get jobs by employer ID
 router.get('/employer/:employerId', async (req, res) => {
   try {
-    const jobs = await Job.findAll({ 
+    const jobs = await Job.findAll({
       where: {
         employerId: req.params.employerId,
         isActive: true,
@@ -330,7 +334,12 @@ router.get('/employer/:employerId', async (req, res) => {
     });
     const jobsWithLogos = jobs.map(job => {
       const jobJson = job.toJSON();
-      return { ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
+      return {
+        ...jobJson,
+        jobCode: formatJobCode(job.positionId, job.company),
+        companyLogo: getCompanyLogo(job.company, job.companyLogo),
+        salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' }
+      };
     });
     res.json(jobsWithLogos);
   } catch (error) {
@@ -341,58 +350,205 @@ router.get('/employer/:employerId', async (req, res) => {
 // GET /api/jobs/employer/email/:email - Get jobs by employer email (company-wide)
 router.get('/employer/email/:email', async (req, res) => {
   try {
-    const requestEmail = req.params.email.toLowerCase();
+    let employerEmail = req.params.email;
 
-    // Resolve team owner email
-    const TeamMember = (await import('../models/TeamMember.js')).default;
-    let ownerEmail = requestEmail;
+    // For team members: auto-resolve to owner email
     const teamRecord = await TeamMember.findOne({
-      where: { memberEmail: requestEmail }
+      where: { memberEmail: employerEmail.toLowerCase() }
     });
-    if (teamRecord?.employerId) {
-      if (teamRecord.employerId.includes('@')) {
-        ownerEmail = teamRecord.employerId.toLowerCase();
-      } else {
-        const ownerRecord = await TeamMember.findOne({
-          where: { employerId: teamRecord.employerId, role: 'Owner' },
-          attributes: ['memberEmail']
-        });
-        if (ownerRecord?.memberEmail) {
-          ownerEmail = ownerRecord.memberEmail.toLowerCase();
-        } else {
-          const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
-          if (ownerUser?.email) ownerEmail = ownerUser.email.toLowerCase();
-        }
-      }
+
+    const isOwner = !teamRecord || teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
+
+    // Determine ALL company-wide emails to use for analytics (only if owner)
+    const ownerEmailAddr = teamRecord?.employerId || employerEmail;
+    
+    let jobEmailsToQuery = [employerEmail.toLowerCase()];
+    if (isOwner) {
+      // Get all team member emails for this owner
+      const teamMembers = await TeamMember.findAll({
+        where: { employerId: ownerEmailAddr },
+        attributes: ['memberEmail'],
+        raw: true
+      });
+      const companyEmails = [ownerEmailAddr.toLowerCase(), ...teamMembers.map(m => m.memberEmail.toLowerCase())];
+      jobEmailsToQuery = [...new Set(companyEmails.filter(Boolean))];
     }
 
-    // Collect all team member emails under this owner
-    const allEmails = [ownerEmail];
-    const teamMembers = await TeamMember.findAll({
-      where: { employerId: ownerEmail, status: 'active' },
-      attributes: ['memberEmail']
-    });
-    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+    const whereClause = {};
 
-    const uniqueEmails = [...new Set(allEmails)];
-    
-    const jobs = await Job.findAll({ 
-      where: {
-        employerEmail: { [Op.in]: uniqueEmails },
-        isActive: true,
-        status: { [Op.in]: ['approved', 'pending'] }
-      },
-      order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']]
+    if (isOwner) {
+      whereClause.employerEmail = { [Op.in]: jobEmailsToQuery };
+    } else {
+      // Team member: show only their own posted jobs OR jobs assigned to them
+      whereClause[Op.or] = [
+        { employerEmail: { [Op.iLike]: employerEmail } },
+        { assignedTo: { [Op.iLike]: employerEmail } }
+      ];
+    }
+
+    const { assignedTo } = req.query;
+    if (assignedTo) {
+      whereClause.assignedTo = assignedTo;
+    }
+
+    const jobs = await Job.findAll({
+      where: whereClause,
+      order: [['createdAt', 'DESC']]
     });
+
+    const jobIds = jobs.map(j => j.id).filter(Boolean);
+    const positionIds = jobs.map(j => j.positionId).filter(Boolean);
+
+    // Filter positionIds and jobIds to ensure we only query valid UUIDs on the jobId column
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validJobIds = jobIds.filter(id => uuidRegex.test(id));
+    const validPositionIdsAsUuid = positionIds.filter(id => uuidRegex.test(id));
+    const allValidUuidJobIds = [...new Set([...validJobIds, ...validPositionIdsAsUuid])];
+
+    const orConditions = [];
+    if (isOwner) {
+      const emailConditions = jobEmailsToQuery.map(email => ({ employerEmail: { [Op.iLike]: email } }));
+      orConditions.push(...emailConditions);
+    } else {
+      orConditions.push({ employerEmail: { [Op.iLike]: employerEmail } });
+    }
+
+    if (allValidUuidJobIds.length > 0) {
+      orConditions.push({ jobId: { [Op.in]: allValidUuidJobIds } });
+    }
+
+    // Fetch ALL applications and interviews for this company team - ultra reliable
+    let allApps = [];
+    let allInts = [];
+
+    try {
+      allApps = await Application.findAll({
+        where: {
+          [Op.or]: orConditions
+        },
+        raw: true
+      });
+    } catch (e) {
+      console.error('Analytics: App fetch fallback', e.message);
+      allApps = await Application.findAll({
+        where: allValidUuidJobIds.length > 0 ? { jobId: { [Op.in]: allValidUuidJobIds } } : { id: null },
+        raw: true
+      });
+    }
+
+    try {
+      allInts = await Interview.findAll({
+        where: {
+          [Op.or]: orConditions
+        },
+        raw: true
+      });
+    } catch (e) {
+      console.error('Analytics: Interview fetch fallback', e.message);
+      allInts = await Interview.findAll({
+        where: allValidUuidJobIds.length > 0 ? { jobId: { [Op.in]: allValidUuidJobIds } } : { id: null },
+        raw: true
+      });
+    }
     
+    console.log(`🔍 [ANALYTICS] Debug Status:`);
+    console.log(`- Employer: ${employerEmail}`);
+    console.log(`- Jobs found: ${jobs.length}`);
+    console.log(`- Applications fetched: ${allApps.length}`);
+    console.log(`- Interviews fetched: ${allInts.length}`);
+    if (allApps.length > 0) {
+      console.log(`- Sample App 0 JobID: ${allApps[0].jobId}`);
+    }
+
+    // In-memory aggregation with broad matching
+    const statsMap = {};
+    let matchedApps = 0;
+
+    allApps.forEach(app => {
+      // Robust key check for raw query results
+      const jid = app.jobId || app.jobid || app.JobId || app.job_id || app.JOBID;
+      if (!jid) return;
+
+      const jidStr = String(jid).toLowerCase();
+      const job = jobs.find(j =>
+        (j.id && String(j.id).toLowerCase() === jidStr) ||
+        (j.positionId && String(j.positionId).toLowerCase() === jidStr)
+      );
+
+      if (!job) {
+        if (matchedApps < 20) {
+          console.warn(`⚠️ [ANALYTICS] App ${app.id} (Candidate: ${app.candidateName}) has jobId ${jid} which matches NO jobs for this employer.`);
+          console.log(`   Expected JobIDs (first 5): ${jobIds.slice(0, 5).join(', ')}`);
+        }
+        return;
+      }
+
+      matchedApps++;
+      const key = job.id;
+      if (!statsMap[key]) statsMap[key] = { apps: 0, hired: 0, rejected: 0, sched: 0, comp: 0 };
+
+      statsMap[key].apps++;
+      const s = (app.status || '').toLowerCase();
+      if (s === 'hired') statsMap[key].hired++;
+      else if (s === 'rejected') statsMap[key].rejected++;
+    });
+
+    console.log(`✅ [ANALYTICS] Matched ${matchedApps} of ${allApps.length} applications to active jobs.`);
+
+    let matchedInts = 0;
+    allInts.forEach(intl => {
+      const jid = intl.jobId || intl.jobid || intl.JobId || intl.job_id || intl.JOBID;
+      if (!jid) return;
+
+      const jidStr = String(jid).toLowerCase();
+      const job = jobs.find(j =>
+        (j.id && String(j.id).toLowerCase() === jidStr) ||
+        (j.positionId && String(j.positionId).toLowerCase() === jidStr)
+      );
+
+      if (!job) return;
+
+      matchedInts++;
+      const key = job.id;
+      if (!statsMap[key]) statsMap[key] = { apps: 0, hired: 0, rejected: 0, sched: 0, comp: 0 };
+
+      const s = (intl.status || '').toLowerCase();
+      if (['scheduled', 'confirmed', 'rescheduled'].includes(s)) statsMap[key].sched++;
+      else if (s === 'completed') statsMap[key].comp++;
+    });
+
     const jobsWithLogos = jobs.map(job => {
       const jobJson = job.toJSON();
-      return { ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } };
+      const s = statsMap[job.id] || { apps: 0, hired: 0, rejected: 0, sched: 0, comp: 0 };
+      return {
+        ...jobJson,
+        jobCode: formatJobCode(job.positionId, job.company),
+        companyLogo: getCompanyLogo(job.company, job.companyLogo),
+        salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' },
+        applicationCount: s.apps,
+        interviewScheduled: s.sched,
+        interviewCompleted: s.comp,
+        hired: s.hired,
+        rejected: s.rejected
+      };
     });
-    
+
+    // Calculate total applications and interview stats across ALL fetched data
+    const totalAppsCount = allApps.length;
+    const totalIntsCount = allInts.length;
+    const totalHiresCount = allApps.filter(a => (a.status || '').toLowerCase() === 'hired').length;
+    const totalRejectedCount = allApps.filter(a => (a.status || '').toLowerCase() === 'rejected').length;
+
+    res.setHeader('x-total-applications', String(totalAppsCount));
+    res.setHeader('x-total-interviews', String(totalIntsCount));
+    res.setHeader('x-total-hired', String(totalHiresCount));
+    res.setHeader('x-total-rejected', String(totalRejectedCount));
+    res.setHeader('Access-Control-Expose-Headers', 'x-total-applications, x-total-interviews, x-total-hired, x-total-rejected');
+
     res.json(jobsWithLogos);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('CRITICAL: Employer jobs route failed:', error);
+    res.status(500).json({ error: 'Failed to fetch jobs with analytics' });
   }
 });
 
@@ -402,7 +558,13 @@ router.get('/position/:positionId', async (req, res) => {
     const job = await Job.findOne({ where: { positionId: req.params.positionId, isActive: true } });
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({
+      ...jobJson,
+      jobCode: formatJobCode(job.positionId, job.company),
+      companyLogo: getCompanyLogo(job.company, job.companyLogo),
+      jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []),
+      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' }
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -412,7 +574,7 @@ router.get('/position/:positionId', async (req, res) => {
 router.get('/search/query', async (req, res) => {
   try {
     const { q, limit = 10, page = 1 } = req.query;
-    
+
     if (!q || q.trim().length === 0) {
       return res.json([]);
     }
@@ -439,6 +601,7 @@ router.get('/search/query', async (req, res) => {
       const jobJson = job.toJSON();
       return {
         ...jobJson,
+        jobCode: formatJobCode(job.positionId, job.company),
         companyLogo: getCompanyLogo(job.company, job.companyLogo),
         salary: {
           min: jobJson.salaryMin,
@@ -483,6 +646,7 @@ router.get('/search', async (req, res) => {
       const jobJson = job.toJSON();
       return {
         ...jobJson,
+        jobCode: formatJobCode(job.positionId, job.company),
         companyLogo: getCompanyLogo(job.company, job.companyLogo),
         salary: {
           min: jobJson.salaryMin,
@@ -596,9 +760,9 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
         const slug = generateSlug(job.jobTitle, job.company, job.id);
         await job.update({ slug });
         geocodeLocation(job.location).then(coords => {
-          if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => {});
-        }).catch(() => {});
-        vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
+          if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => { });
+        }).catch(() => { });
+        vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => { });
 
         results.push({ success: true, id: job.id, jobTitle: job.jobTitle });
       } catch (jobErr) {
@@ -673,7 +837,7 @@ router.post('/', maxJobsGuard, [
 
     console.log('Raw jobData before processing:', JSON.stringify(jobData, null, 2));
     console.log('🔍 locationType:', jobData.locationType, '| languages:', jobData.languages, '| country:', jobData.country);
-    
+
     // Normalize jobType - handle array, string array literal {"Full-time"}, or plain string
     if (Array.isArray(jobData.jobType)) {
       jobData.jobType = jobData.jobType[0] || 'Full-time';
@@ -689,7 +853,7 @@ router.post('/', maxJobsGuard, [
     if (!jobData.experienceLevel || !validExpLevels.includes(jobData.experienceLevel)) {
       jobData.experienceLevel = 'Mid';
     }
-    
+
     // Flatten salary object if it exists
     if (jobData.salary) {
       jobData.salaryMin = jobData.salary.min;
@@ -699,29 +863,29 @@ router.post('/', maxJobsGuard, [
     }
 
     console.log('Available functions:', { generateEmployerId, generatePositionId, generatePositionIdWithYear });
-    
+
     // Generate position ID with year - inline fallback if import fails
     const generatePositionIdWithYearFallback = async () => {
       const year = new Date().getFullYear();
       const sequence = await generatePositionId();
       return `${year}-${sequence}`;
     };
-    
-    const positionId = typeof generatePositionIdWithYear === 'function' 
-      ? await generatePositionIdWithYear() 
+
+    const positionId = typeof generatePositionIdWithYear === 'function'
+      ? await generatePositionIdWithYear()
       : await generatePositionIdWithYearFallback();
-    
+
     // Ensure skills and languages are properly formatted as arrays
     jobData.skills = normalizeArray(jobData.skills);
     jobData.languages = normalizeArray(jobData.languages);
-    
+
     console.log('Skills before create:', jobData.skills, 'Type:', typeof jobData.skills, 'IsArray:', Array.isArray(jobData.skills));
     console.log('JobType before create:', jobData.jobType, 'Type:', typeof jobData.jobType);
     console.log('Full jobData object being sent to Job.create:', JSON.stringify(jobData, null, 2));
-    
+
     // Auto-assign category if not provided
     const autoCategory = jobData.jobCategory || getCategoryFromTitle(jobData.jobTitle);
-    
+
     // Explicitly construct the job creation object to avoid any spread issues
     // Auto-link to Company table (only if company already exists — no auto-create)
     let companyId = null;
@@ -733,6 +897,19 @@ router.post('/', maxJobsGuard, [
       }
     } catch (e) {
       console.warn('Company auto-link failed:', e.message);
+    }
+
+    // New validation: If assignedTo is provided, it MUST be a valid team member of this company
+    if (jobData.assignedTo) {
+      const isTeamMember = await TeamMember.findOne({
+        where: {
+          employerId: resolvedEmployerEmail,
+          memberEmail: { [Op.iLike]: jobData.assignedTo.trim() }
+        }
+      });
+      if (!isTeamMember) {
+        return res.status(400).json({ error: `Invalid assignment: ${jobData.assignedTo} is not a registered team member of this company.` });
+      }
     }
 
     const jobCreateData = {
@@ -760,26 +937,28 @@ router.post('/', maxJobsGuard, [
       status: getJobStatus(),
       employerEmail: resolvedEmployerEmail,
       postedBy: resolvedEmployerEmail,
+      postedByName: jobData.postedByName || null,
+      assignedTo: jobData.assignedTo || null,
       companyId,
       refreshCount: 0,
       originalPostedAt: new Date()
     };
-    
+
     console.log('Final jobCreateData:', JSON.stringify(jobCreateData, null, 2));
-    
+
     const job = await Job.create(jobCreateData);
     // Generate and save slug after creation (needs the UUID)
     const slug = generateSlug(job.jobTitle, job.company, job.id);
-    
+
     // Geocode location for radius search (non-blocking)
     geocodeLocation(jobCreateData.location).then(coords => {
-      if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => {});
-    }).catch(() => {});
+      if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => { });
+    }).catch(() => { });
 
     await job.update({ slug });
 
     // Index for semantic search (non-blocking)
-    vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
+    vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => { });
 
     console.log('Job created - Employer ID:', employerId, 'Position ID:', job.positionId, 'Job ID:', job.id);
     res.status(201).json(job);
@@ -798,7 +977,13 @@ router.get('/:id', async (req, res) => {
     }
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({
+      ...jobJson,
+      jobCode: formatJobCode(job.positionId, job.company),
+      companyLogo: getCompanyLogo(job.company, job.companyLogo),
+      jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []),
+      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' }
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -840,7 +1025,7 @@ router.put('/:id', async (req, res) => {
     const allowed = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
       'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
       'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
-      'applicationDeadline', 'isActive', 'status', 'jobHeaderImage'];
+      'applicationDeadline', 'isActive', 'status', 'jobHeaderImage', 'assignedTo', 'postedByName'];
 
     const updates = {};
     for (const key of allowed) {
@@ -853,7 +1038,7 @@ router.put('/:id', async (req, res) => {
       updates.salaryMax = req.body.salary.max;
       if (req.body.salary.currency) updates.currency = req.body.salary.currency;
     }
-    
+
     // Format description with bullets if updated
     if (updates.description) {
       updates.description = formatDescriptionWithBullets(updates.description);
@@ -876,13 +1061,18 @@ router.put('/:id', async (req, res) => {
     // Re-geocode if location changed (non-blocking)
     if (updates.location) {
       geocodeLocation(updates.location).then(coords => {
-        if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => {});
-      }).catch(() => {});
+        if (coords) job.update({ latitude: coords.latitude, longitude: coords.longitude }).catch(() => { });
+      }).catch(() => { });
     }
     // Re-index after update (non-blocking)
-    vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => {});
+    vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => { });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({
+      ...jobJson,
+      jobCode: formatJobCode(job.positionId, job.company),
+      companyLogo: getCompanyLogo(job.company, job.companyLogo),
+      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' }
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -895,9 +1085,9 @@ router.put('/:id/reactivate', async (req, res) => {
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    
+
     await job.update({ isActive: true });
-    
+
     res.json({ message: 'Job reactivated successfully', job });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -909,7 +1099,7 @@ router.post('/:id/refresh', async (req, res) => {
   try {
     const { userPlan = 'free' } = req.body;
     const result = await JobRefreshService.refreshJob(req.params.id, userPlan);
-    
+
     if (result.success) {
       res.json(result);
     } else {
@@ -918,8 +1108,8 @@ router.post('/:id/refresh', async (req, res) => {
     }
   } catch (error) {
     console.error('Error in refresh endpoint:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: error.message,
       code: 'INTERNAL_ERROR'
     });
@@ -931,7 +1121,7 @@ router.get('/:id/refresh-status', async (req, res) => {
   try {
     const { userPlan = 'free' } = req.query;
     const result = await JobRefreshService.getRefreshStatus(req.params.id, userPlan);
-    
+
     if (result.success) {
       res.json(result);
     } else {
@@ -940,8 +1130,8 @@ router.get('/:id/refresh-status', async (req, res) => {
     }
   } catch (error) {
     console.error('Error in refresh status endpoint:', error);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: error.message,
       code: 'INTERNAL_ERROR'
     });

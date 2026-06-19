@@ -225,7 +225,7 @@ import { canPostJobs, canAccessTeam } from '../middleware/teamAuth.js';
 // ── POST /api/team — invite a member (Owner only) ─────────────────────────────────
 router.post('/', canAccessTeam, async (req, res) => {
   try {
-    const { employerId, memberEmail, memberName, role, companyName, password } = req.body;
+    const { employerId, memberEmail, memberName, role, position, companyName, password } = req.body;
     if (!employerId || !memberEmail) return res.status(400).json({ error: 'employerId and memberEmail required' });
 
     const existing = await TeamMember.findOne({ where: { employerId, memberEmail } });
@@ -254,6 +254,7 @@ router.post('/', canAccessTeam, async (req, res) => {
       await member.update({
         memberName: memberName || memberEmail.split('@')[0],
         role: role || 'Recruiter',
+        position: position || 'Recruiter',
         companyName: companyName || employerId
       });
       console.log(`✅ Updated existing pending member: ${memberEmail}`);
@@ -264,6 +265,7 @@ router.post('/', canAccessTeam, async (req, res) => {
         memberEmail,
         memberName: memberName || memberEmail.split('@')[0],
         role: role || 'Recruiter',
+        position: position || 'Recruiter',
         status: role === 'Owner' ? 'active' : 'pending',
         inviteToken: null, // No tokens needed for credentials flow
         companyName: companyName || employerId
@@ -279,6 +281,7 @@ router.post('/', canAccessTeam, async (req, res) => {
           password: hashedPassword,
           name: memberName || memberEmail.split('@')[0],
           role: 'employer',
+          position: position || 'Recruiter',
           companyName: companyName || employerId,
           verificationStatus: 'verified',  // team members are pre-verified
           isFirstLogin: true
@@ -290,6 +293,7 @@ router.post('/', canAccessTeam, async (req, res) => {
             password: hashedPassword,
             name: memberName || memberEmail.split('@')[0],
             role: 'employer',
+            position: position || 'Recruiter',
             companyName: companyName || employerId,
             verificationStatus: 'verified'
           });

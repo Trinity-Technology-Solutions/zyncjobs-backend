@@ -8,6 +8,7 @@ import { meetingService } from '../services/meetingService.js';
 import { sendInterviewScheduledEmail } from '../services/emailService.js';
 import NotificationService from '../services/notificationService.js';
 import TeamMember from '../models/TeamMember.js';
+import { formatJobCode } from '../utils/idGenerator.js';
 
 // Block Viewer role from write operations
 const blockViewer = async (req, res, next) => {
@@ -120,7 +121,7 @@ async function formatInterviews(interviews) {
 router.get('/my-interviews', async (req, res) => {
   try {
     const userId = req.user?.id || req.query.userId;
-    
+
     const orConditions = [];
     if (isValidUUID(userId)) {
       orConditions.push({ candidateId: userId }, { employerId: userId });
@@ -136,7 +137,7 @@ router.get('/my-interviews', async (req, res) => {
       ],
       order: [['scheduledDate', 'DESC']]
     });
-    
+
     res.json(interviews);
   } catch (error) {
     console.error('My interviews API error:', error);
@@ -178,6 +179,7 @@ router.get('/candidate/:email', async (req, res) => {
         jobId: {
           _id: job?.id,
           jobTitle: job?.jobTitle || job?.title || 'Position',
+          jobCode: job ? formatJobCode(job.positionId, job.company) : null,
           company: job?.company || 'Company'
         },
         candidateEmail: iv.candidateEmail,
@@ -208,7 +210,7 @@ router.get('/candidate/:email', async (req, res) => {
 router.post('/schedule', blockViewer, async (req, res) => {
   try {
     const { applicationId, candidateId, candidateEmail, candidateName, employerId, employerEmail: bodyEmployerEmail, jobId, scheduledDate, duration, type, meetingLink, location, notes, round, interviewer } = req.body;
-    
+
     console.log('📅 Schedule request:', { candidateEmail, employerId, bodyEmployerEmail });
 
     let finalCandidateId = candidateId;
@@ -269,21 +271,21 @@ router.post('/schedule', blockViewer, async (req, res) => {
     });
 
     console.log('✅ Interview saved:', interview.id);
-    
+
     try {
       await NotificationService.createInterviewNotification(interview);
       console.log('🔔 Interview notification created');
     } catch (notificationError) {
       console.error('⚠️ Interview notification creation failed:', notificationError.message);
     }
-    
+
     if (candidateEmail) {
       try {
         // Get employer details
         const employer = finalEmployerId ? await User.findByPk(finalEmployerId) : null;
         const employerEmail = employer?.email || (typeof employerId === 'string' && employerId.includes('@') ? employerId : null);
         const employerName = employer?.companyName || employer?.name || job?.company;
-        
+
         await sendInterviewScheduledEmail(
           candidateEmail,
           candidateName || candidateEmail,
@@ -298,11 +300,11 @@ router.post('/schedule', blockViewer, async (req, res) => {
         console.error('❌ Email error:', emailError.message);
       }
     }
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       message: 'Interview scheduled successfully',
-      interview 
+      interview
     });
   } catch (error) {
     console.error('❌ Error:', error.message);
@@ -314,7 +316,7 @@ router.post('/schedule', blockViewer, async (req, res) => {
 router.post('/create-with-meeting', blockViewer, async (req, res) => {
   try {
     const { applicationId, candidateId, candidateEmail, jobId, scheduledDate, duration, type, platform, notes } = req.body;
-    
+
     // Step 1: Generate meeting link
     let meetingLink = '';
     if (type === 'video' && platform === 'zoom') {
@@ -364,13 +366,13 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
     } catch (notificationError) {
       console.error('⚠️ Notification failed:', notificationError.message);
     }
-    
+
     if (candidate && candidate.email) {
       // Get employer details
       const employer = application.employerId ? await User.findByPk(application.employerId) : null;
       const employerEmail = employer?.email || application.employerEmail || job?.employerEmail;
       const employerName = employer?.companyName || employer?.name || job?.company;
-      
+
       await sendInterviewScheduledEmail(
         candidate.email,
         candidate.name || candidateEmail,
@@ -484,10 +486,10 @@ router.put('/:id/status', blockViewer, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
+
     await Interview.update({ status }, { where: { id } });
     const interview = await Interview.findByPk(id);
-    
+
     res.json({ success: true, interview });
   } catch (error) {
     console.error('Update interview status error:', error);
