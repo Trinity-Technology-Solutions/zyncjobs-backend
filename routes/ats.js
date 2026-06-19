@@ -50,17 +50,7 @@ export async function logActivity(companyId, userId, userName, userEmail, action
 // Owner-only: blocks team members and non-employers
 router.get('/dashboard', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role !== 'employer') {
-      return res.status(403).json({ error: 'Access denied. Owner account required.' });
-    }
-    const isMember = await TeamMember.findOne({
-      where: { memberEmail: { [Op.iLike]: req.user.email }, status: 'active' }
-    });
-    if (isMember) {
-      return res.status(403).json({ error: 'Access denied. Only the company owner can view this page.' });
-    }
-
-    const companyId = req.user.email; // always scope to owner's email
+    const companyId = req.query.companyId || await resolveCompanyId(req.user);
     const recruiters = await getCompanyRecruiterEmails(companyId);
     const emails = recruiters.map(r => r.email);
 

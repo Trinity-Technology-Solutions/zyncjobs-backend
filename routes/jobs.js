@@ -350,48 +350,147 @@ router.get('/employer/:employerId', async (req, res) => {
 // GET /api/jobs/employer/email/:email - Get jobs by employer email (company-wide)
 router.get('/employer/email/:email', async (req, res) => {
   try {
-    const requestEmail = req.params.email.toLowerCase();
+    let employerEmail = req.params.email;
 
-    // Resolve team owner email
-    const TeamMember = (await import('../models/TeamMember.js')).default;
-    let ownerEmail = requestEmail;
+    // For team members: auto-resolve to owner email
     const teamRecord = await TeamMember.findOne({
-      where: { memberEmail: requestEmail }
+      where: { memberEmail: employerEmail.toLowerCase() }
     });
-    if (teamRecord?.employerId) {
-      if (teamRecord.employerId.includes('@')) {
-        ownerEmail = teamRecord.employerId.toLowerCase();
-      } else {
-        const ownerRecord = await TeamMember.findOne({
-          where: { employerId: teamRecord.employerId, role: 'Owner' },
-          attributes: ['memberEmail']
-        });
-        if (ownerRecord?.memberEmail) {
-          ownerEmail = ownerRecord.memberEmail.toLowerCase();
-        } else {
-          const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
-          if (ownerUser?.email) ownerEmail = ownerUser.email.toLowerCase();
-        }
-      }
+
+    const isOwner = !teamRecord || teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
+
+    // Determine ALL company-wide emails to use for analytics (only if owner)
+    const ownerEmailAddr = teamRecord?.employerId || employerEmail;
+    
+    let jobEmailsToQuery = [employerEmail.toLowerCase()];
+    if (isOwner) {
+      // Get all team member emails for this owner
+      const teamMembers = await TeamMember.findAll({
+        where: { employerId: ownerEmailAddr },
+        attributes: ['memberEmail'],
+        raw: true
+      });
+      const companyEmails = [ownerEmailAddr.toLowerCase(), ...teamMembers.map(m => m.memberEmail.toLowerCase())];
+      jobEmailsToQuery = [...new Set(companyEmails.filter(Boolean))];
     }
 
-    // Collect all team member emails under this owner
-    const allEmails = [ownerEmail];
-    const teamMembers = await TeamMember.findAll({
-      where: { employerId: ownerEmail, status: 'active' },
-      attributes: ['memberEmail']
-    });
-    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+    const whereClause = {};
 
-    const uniqueEmails = [...new Set(allEmails)];
+    if (isOwner) {
+      whereClause.employerEmail = { [Op.in]: jobEmailsToQuery };
+    } else {
+      // Team member: show only their own posted jobs OR jobs assigned to them
+      whereClause[Op.or] = [
+        { employerEmail: { [Op.iLike]: employerEmail } },
+        { assignedTo: { [Op.iLike]: employerEmail } }
+      ];
+    }
+
+    const { assignedTo } = req.query;
+    if (assignedTo) {
+      whereClause.assignedTo = assignedTo;
+    }
+
+    const jobs = await Job.findAll({
+      where: whereClause,
+      order: [['createdAt', 'DESC']]
+    });
+
+    const jobIds = jobs.map(j => j.id).filter(Boolean);
+    const positionIds = jobs.map(j => j.positionId).filter(Boolean);
+
+    // Filter positionIds and jobIds to ensure we only query valid UUIDs on the jobId column
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validJobIds = jobIds.filter(id => uuidRegex.test(id));
+    const validPositionIdsAsUuid = positionIds.filter(id => uuidRegex.test(id));
+    const allValidUuidJobIds = [...new Set([...validJobIds, ...validPositionIdsAsUuid])];
+
+    const orConditions = [];
+    if (isOwner) {
+      const emailConditions = jobEmailsToQuery.map(email => ({ employerEmail: { [Op.iLike]: email } }));
+      orConditions.push(...emailConditions);
+    } else {
+      orConditions.push({ employerEmail: { [Op.iLike]: employerEmail } });
+    }
+
+    if (allValidUuidJobIds.length > 0) {
+      orConditions.push({ jobId: { [Op.in]: allValidUuidJobIds } });
+    }
+
+    // Fetch ALL applications and interviews for this company team - ultra reliable
+    let allApps = [];
+    let allInts = [];
+
+    try {
+      allApps = await Application.findAll({
+        where: {
+          [Op.or]: orConditions
+        },
+        raw: true
+      });
+    } catch (e) {
+      console.error('Analytics: App fetch fallback', e.message);
+      allApps = await Application.findAll({
+        where: allValidUuidJobIds.length > 0 ? { jobId: { [Op.in]: allValidUuidJobIds } } : { id: null },
+        raw: true
+      });
+    }
+
+    try {
+      allInts = await Interview.findAll({
+        where: {
+          [Op.or]: orConditions
+        },
+        raw: true
+      });
+    } catch (e) {
+      console.error('Analytics: Interview fetch fallback', e.message);
+      allInts = await Interview.findAll({
+        where: allValidUuidJobIds.length > 0 ? { jobId: { [Op.in]: allValidUuidJobIds } } : { id: null },
+        raw: true
+      });
+    }
     
-    const jobs = await Job.findAll({ 
-      where: {
-        employerEmail: { [Op.in]: uniqueEmails },
-        isActive: true,
-        status: { [Op.in]: ['approved', 'pending'] }
-      },
-      order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']]
+    console.log(`🔍 [ANALYTICS] Debug Status:`);
+    console.log(`- Employer: ${employerEmail}`);
+    console.log(`- Jobs found: ${jobs.length}`);
+    console.log(`- Applications fetched: ${allApps.length}`);
+    console.log(`- Interviews fetched: ${allInts.length}`);
+    if (allApps.length > 0) {
+      console.log(`- Sample App 0 JobID: ${allApps[0].jobId}`);
+    }
+
+    // In-memory aggregation with broad matching
+    const statsMap = {};
+    let matchedApps = 0;
+
+    allApps.forEach(app => {
+      // Robust key check for raw query results
+      const jid = app.jobId || app.jobid || app.JobId || app.job_id || app.JOBID;
+      if (!jid) return;
+
+      const jidStr = String(jid).toLowerCase();
+      const job = jobs.find(j =>
+        (j.id && String(j.id).toLowerCase() === jidStr) ||
+        (j.positionId && String(j.positionId).toLowerCase() === jidStr)
+      );
+
+      if (!job) {
+        if (matchedApps < 20) {
+          console.warn(`⚠️ [ANALYTICS] App ${app.id} (Candidate: ${app.candidateName}) has jobId ${jid} which matches NO jobs for this employer.`);
+          console.log(`   Expected JobIDs (first 5): ${jobIds.slice(0, 5).join(', ')}`);
+        }
+        return;
+      }
+
+      matchedApps++;
+      const key = job.id;
+      if (!statsMap[key]) statsMap[key] = { apps: 0, hired: 0, rejected: 0, sched: 0, comp: 0 };
+
+      statsMap[key].apps++;
+      const s = (app.status || '').toLowerCase();
+      if (s === 'hired') statsMap[key].hired++;
+      else if (s === 'rejected') statsMap[key].rejected++;
     });
 
     console.log(`✅ [ANALYTICS] Matched ${matchedApps} of ${allApps.length} applications to active jobs.`);
