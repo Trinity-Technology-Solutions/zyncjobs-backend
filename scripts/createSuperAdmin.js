@@ -12,6 +12,19 @@ const createSuperAdmin = async () => {
     const existing = await User.findOne({ where: { email: email.toLowerCase() } });
     if (existing) {
       console.log(`User ${email} already exists with role: ${existing.role}`);
+      console.log('Upgrading to super_admin...');
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await existing.update({
+        role,
+        password: hashedPassword,
+        isActive: true,
+        status: 'active',
+        emailVerified: true
+      });
+      console.log('Upgraded to super_admin successfully!');
+      console.log('Email:', email);
+      console.log('Password:', password);
+      console.log('Role:', role);
       await sequelize.close();
       process.exit(0);
     }
