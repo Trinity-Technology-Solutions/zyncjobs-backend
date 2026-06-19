@@ -63,51 +63,61 @@ router.get('/stats', async (req, res) => {
       return res.json({ activeJobs: 0, applications: 0, interviews: 0, hired: 0 });
     }
 
-    let resolvedEmail = employerEmail.trim();
-    let isOwner = true;
-    const teamRecord = await (await import('../models/TeamMember.js')).default.findOne({
-      where: { memberEmail: resolvedEmail.toLowerCase() }
+    // Resolve team owner email
+    const TeamMember = (await import('../models/TeamMember.js')).default;
+    let ownerEmail = employerEmail.trim().toLowerCase();
+    const teamRecord = await TeamMember.findOne({
+      where: { memberEmail: ownerEmail }
     });
-    if (teamRecord) {
-      isOwner = teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
-      if (teamRecord.employerId) {
-        const isEmail = teamRecord.employerId.includes('@');
-        if (isEmail) {
-          resolvedEmail = teamRecord.employerId;
-        } else {
-          const ownerUser = await (await import('../models/User.js')).default.findOne({ where: { employerId: teamRecord.employerId } });
-          if (ownerUser?.email) resolvedEmail = ownerUser.email;
-        }
+    if (teamRecord?.employerId) {
+      if (teamRecord.employerId.includes('@')) {
+        ownerEmail = teamRecord.employerId.toLowerCase();
+      } else {
+        const ownerRecord = await TeamMember.findOne({
+          where: { employerId: teamRecord.employerId, role: 'Owner' },
+          attributes: ['memberEmail']
+        });
+        if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
       }
     }
+
+    // Collect all team member emails under this owner
+    const allEmails = [ownerEmail];
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail']
+    });
+    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+    const uniqueEmails = [...new Set(allEmails)];
+
+    const emailFilter = { [Op.in]: uniqueEmails };
     
-    if (isOwner) {
-      // Get company-wide data using resolved owner email
-      const activeJobs = await Job.count({
-        where: {
-          employerEmail: { [Op.iLike]: resolvedEmail },
-          isActive: true,
-          status: { [Op.in]: ['approved', 'pending'] }
-        }
-      });
-      
-      const applications = await Application.count({
-        where: { employerEmail: { [Op.iLike]: resolvedEmail } }
-      });
-      
-      const interviews = await Application.count({
-        where: {
-          employerEmail: { [Op.iLike]: resolvedEmail },
-          status: { [Op.in]: ['shortlisted', 'interviewed'] }
-        }
-      });
-      
-      const hired = await Application.count({
-        where: {
-          employerEmail: { [Op.iLike]: resolvedEmail },
-          status: 'hired'
-        }
-      });
+    // Get company-wide data across all team members
+    const activeJobs = await Job.count({
+      where: {
+        employerEmail: emailFilter,
+        isActive: true,
+        status: { [Op.in]: ['approved', 'pending'] }
+      }
+    });
+    
+    const applications = await Application.count({
+      where: { employerEmail: emailFilter }
+    });
+    
+    const interviews = await Application.count({
+      where: {
+        employerEmail: emailFilter,
+        status: { [Op.in]: ['shortlisted', 'interviewed'] }
+      }
+    });
+    
+    const hired = await Application.count({
+      where: {
+        employerEmail: emailFilter,
+        status: 'hired'
+      }
+    });
 
       return res.json({ activeJobs, applications, interviews, hired });
     } else {
@@ -169,37 +179,35 @@ router.get('/recent-activity', async (req, res) => {
       return res.json([]);
     }
 
-    let resolvedEmail = employerEmail.trim();
-    let isOwner = true;
+    // Resolve team owner email
     const TeamMember = (await import('../models/TeamMember.js')).default;
+    let ownerEmail = employerEmail.trim().toLowerCase();
     const teamRecord = await TeamMember.findOne({
-      where: { memberEmail: resolvedEmail.toLowerCase() }
+      where: { memberEmail: ownerEmail }
     });
-    if (teamRecord) {
-      isOwner = teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
-      if (teamRecord.employerId) {
-        const isEmail = teamRecord.employerId.includes('@');
-        if (isEmail) {
-          resolvedEmail = teamRecord.employerId;
-        } else {
-          const ownerUser = await (await import('../models/User.js')).default.findOne({ where: { employerId: teamRecord.employerId } });
-          if (ownerUser?.email) resolvedEmail = ownerUser.email;
-        }
+    if (teamRecord?.employerId) {
+      if (teamRecord.employerId.includes('@')) {
+        ownerEmail = teamRecord.employerId.toLowerCase();
+      } else {
+        const ownerRecord = await TeamMember.findOne({
+          where: { employerId: teamRecord.employerId, role: 'Owner' },
+          attributes: ['memberEmail']
+        });
+        if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
       }
     }
-    
-    let whereClause = {};
-    if (isOwner) {
-      whereClause.employerEmail = { [Op.iLike]: resolvedEmail };
-    } else {
-      whereClause[Op.or] = [
-        { employerEmail: { [Op.iLike]: employerEmail } },
-        { assignedTo: { [Op.iLike]: employerEmail } }
-      ];
-    }
+
+    // Collect all team member emails
+    const allEmails = [ownerEmail];
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail']
+    });
+    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+    const uniqueEmails = [...new Set(allEmails)];
     
     const recentJobs = await Job.findAll({
-      where: whereClause,
+      where: { employerEmail: { [Op.in]: uniqueEmails } },
       order: [['createdAt', 'DESC']],
       limit: 3
     });

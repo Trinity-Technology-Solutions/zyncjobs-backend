@@ -774,6 +774,9 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
     const interviewDate = new Date(scheduledDate);
     const typeLabel = type === 'video' ? 'Video Call' : type === 'phone' ? 'Phone Call' : 'In Person';
 
+    const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:5000').split(',')[0].trim();
+    const acceptLink = `${BACKEND_URL}/api/interviews/${encodeURIComponent(interviewDetails.id || '')}/accept`;
+
     const content = `
       <!-- Hero -->
       <div style="background:linear-gradient(135deg,#7C3AED 0%,#4F46E5 100%);padding:36px 40px;text-align:center;">
@@ -786,8 +789,14 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
       <div style="padding:36px 40px;">
         <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name}!</h2>
         <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
-          Your interview for <strong>${jobTitle}</strong> at <strong>${company}</strong> has been confirmed. Here are your details:
+          Your interview for <strong>${jobTitle}</strong> at <strong>${company}</strong> has been scheduled. Please confirm your availability by clicking the button below:
         </p>
+
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('Accept Interview', acceptLink, '#10B981')}
+        </div>
+
+        <p style="color:#6B7280;font-size:13px;text-align:center;margin:0 0 24px;">If you cannot attend, please reply to this email to reschedule.</p>
 
         ${infoBox(`
           <table cellpadding="0" cellspacing="0" width="100%">
@@ -828,6 +837,55 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
     return { success: true };
   } catch (error) {
     console.error('❌ Interview email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Send interview acceptance notification to employer/scheduler
+export const sendInterviewAcceptedEmail = async (employerEmail, companyName, candidateName, jobTitle, interviewDate) => {
+  try {
+    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const name = candidateName || 'A candidate';
+    const date = interviewDate ? new Date(interviewDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'the scheduled date';
+    const time = interviewDate ? new Date(interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'the scheduled time';
+
+    const content = `
+      <div style="background:linear-gradient(135deg,#059669 0%,#10B981 100%);padding:36px 40px;text-align:center;">
+        <div style="margin-bottom:10px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/><path d="M8 12l3 3 5-5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Candidate Accepted Interview!</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">The candidate has confirmed their interview</p>
+      </div>
+
+      <div style="padding:36px 40px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Interview Accepted!</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
+          <strong>${name}</strong> has accepted the interview for <strong>${jobTitle}</strong> at <strong>${companyName}</strong>.
+        </p>
+
+        ${infoBox(`
+          <table cellpadding="0" cellspacing="0" width="100%">
+            <tr><td style="padding:6px 0;width:120px;"><span style="color:#6B7280;font-size:13px;">Date</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${date}</strong></td></tr>
+            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Time</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${time}</strong></td></tr>
+          </table>
+        `, '#059669')}
+
+        ${divider()}
+
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('View Interview Details', `${FRONTEND_URL}/interviews`, '#059669')}
+        </div>
+      </div>`;
+
+    await transporter.sendMail({
+      from: `"ZyncJobs" <${process.env.SMTP_FROM_EMAIL}>`,
+      to: employerEmail,
+      subject: `${name} Accepted Interview — ${jobTitle}`,
+      html: baseTemplate(content, `${name} confirmed interview for ${jobTitle}`)
+    });
+    console.log('✅ Interview acceptance email sent to:', employerEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Interview acceptance email error:', error);
     return { success: false, error: error.message };
   }
 };

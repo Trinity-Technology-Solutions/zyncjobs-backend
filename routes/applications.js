@@ -214,29 +214,36 @@ router.post('/', authenticateToken, [
 // GET /api/applications/employer/:employerEmail - Get applications by employer email (company-wide)
 router.get('/employer/:employerEmail', async (req, res) => {
   try {
-    const employerEmail = decodeURIComponent(req.params.employerEmail);
-    const { assignedTo } = req.query;
-    console.log('📋 Fetching applications for:', employerEmail, assignedTo ? `filtered by assignedTo: ${assignedTo}` : '(all)');
-
-    let whereClause = {
-      employerEmail: { [Op.iLike]: employerEmail }
-    };
-
-    // If assignedTo is provided, only show applications for jobs assigned to that email
-    if (assignedTo) {
-      const assignedJobs = await Job.findAll({
-        where: {
-          assignedTo: { [Op.iLike]: assignedTo },
-          employerEmail: { [Op.iLike]: employerEmail } // Security: only jobs belonging to this company
-        },
-        attributes: ['id']
-      });
-      const assignedJobIds = assignedJobs.map(j => j.id);
-      whereClause.jobId = { [Op.in]: assignedJobIds };
+    const requestEmail = decodeURIComponent(req.params.employerEmail).toLowerCase();
+    console.log('📋 Fetching company-wide applications for:', requestEmail);
+    
+    // Collect all team member emails
+    const TeamMember = (await import('../models/TeamMember.js')).default;
+    let ownerEmail = requestEmail;
+    const teamRecord = await TeamMember.findOne({ where: { memberEmail: requestEmail } });
+    if (teamRecord?.employerId) {
+      if (teamRecord.employerId.includes('@')) {
+        ownerEmail = teamRecord.employerId.toLowerCase();
+      } else {
+        const ownerRecord = await TeamMember.findOne({
+          where: { employerId: teamRecord.employerId, role: 'Owner' },
+          attributes: ['memberEmail']
+        });
+        if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
+      }
     }
-
-    const applications = await Application.findAll({
-      where: whereClause,
+    const allEmails = [ownerEmail];
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail']
+    });
+    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+    const uniqueEmails = [...new Set(allEmails)];
+    
+    const applications = await Application.findAll({ 
+      where: {
+        employerEmail: { [Op.in]: uniqueEmails }
+      },
       order: [['createdAt', 'DESC']]
     });
 
@@ -936,44 +943,30 @@ router.get('/', async (req, res) => {
     if (jobId) where.jobId = jobId;
     if (employerId) where.employerId = employerId;
     if (employerEmail) {
-      // Resolve team member -> owner email for owners, otherwise restrict to recruiter's jobs
-      let resolvedEmail = employerEmail;
-      let isOwner = true;
+      // Resolve team owner email and collect all team member emails
       try {
         const TeamMember = (await import('../models/TeamMember.js')).default;
-        const teamRecord = await TeamMember.findOne({ where: { memberEmail: employerEmail.toLowerCase() } });
-        if (teamRecord) {
-          isOwner = teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
-          if (teamRecord.employerId) {
-            // employerId may be an email or a short ID — check if it looks like an email
-            const isEmail = teamRecord.employerId.includes('@');
-            if (isEmail) {
-              resolvedEmail = teamRecord.employerId;
-            } else {
-              // Look up owner by employerId in User table to get their email
-              const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
-              if (ownerUser?.email) resolvedEmail = ownerUser.email;
-            }
+        let ownerEmail = employerEmail.toLowerCase();
+        const teamRecord = await TeamMember.findOne({ where: { memberEmail: ownerEmail } });
+        if (teamRecord?.employerId) {
+          if (teamRecord.employerId.includes('@')) {
+            ownerEmail = teamRecord.employerId.toLowerCase();
+          } else {
+            const ownerRecord = await TeamMember.findOne({
+              where: { employerId: teamRecord.employerId, role: 'Owner' },
+              attributes: ['memberEmail']
+            });
+            if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
           }
         }
-      } catch (e) { /* non-blocking */ }
-
-      if (isOwner) {
-        where.employerEmail = { [Op.iLike]: resolvedEmail };
-      } else {
-        // Recruiter/Team member: only show applications for jobs they posted or are assigned to them
-        const recruiterJobs = await Job.findAll({
-          where: {
-            [Op.or]: [
-              { employerEmail: { [Op.iLike]: employerEmail } },
-              { assignedTo: { [Op.iLike]: employerEmail } }
-            ]
-          },
-          attributes: ['id']
+        const allEmails = [ownerEmail];
+        const teamMembers = await TeamMember.findAll({
+          where: { employerId: ownerEmail, status: 'active' },
+          attributes: ['memberEmail']
         });
-        const jobIds = recruiterJobs.map(j => j.id);
-        where.jobId = { [Op.in]: jobIds };
-      }
+        teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+        where.employerEmail = { [Op.in]: [...new Set(allEmails)] };
+      } catch (e) { /* non-blocking */ }
     }
 
     // If no pagination params, return all

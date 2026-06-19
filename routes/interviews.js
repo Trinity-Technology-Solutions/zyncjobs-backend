@@ -38,109 +38,84 @@ const isValidUUID = (val) =>
 router.get('/', async (req, res) => {
   try {
     const { employerId, employerEmail } = req.query;
-
-    let resolvedEmail = employerEmail;
-    let isOwner = true;
-    let memberEmail = employerEmail ? employerEmail.toLowerCase() : null;
-
-    if (employerEmail) {
-      try {
-        const TeamMember = (await import('../models/TeamMember.js')).default;
-        const teamRecord = await TeamMember.findOne({ where: { memberEmail } });
-        if (teamRecord) {
-          isOwner = teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
-          if (teamRecord.employerId) {
-            const isEmail = teamRecord.employerId.includes('@');
-            if (isEmail) {
-              resolvedEmail = teamRecord.employerId;
-            } else {
-              const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
-              if (ownerUser?.email) resolvedEmail = ownerUser.email;
-            }
-          }
-        }
-      } catch (e) { /* non-blocking */ }
-    }
-
-    const where = {};
-    if (isOwner) {
-      const conditions = [];
-      if (employerId && employerId.includes('@')) conditions.push({ employerEmail: employerId });
-      else if (isValidUUID(employerId)) conditions.push({ employerId });
-      if (resolvedEmail && resolvedEmail !== '') conditions.push({ employerEmail: resolvedEmail });
-
-      if (conditions.length === 0) return res.json([]);
-      where[Op.or] = conditions;
-    } else {
-      // Recruiter/Team member: only show interviews for jobs they posted or are assigned to them
-      const recruiterJobs = await Job.findAll({
-        where: {
-          [Op.or]: [
-            { employerEmail: { [Op.iLike]: memberEmail } },
-            { assignedTo: { [Op.iLike]: memberEmail } }
-          ]
-        },
-        attributes: ['id']
-      });
-      const jobIds = recruiterJobs.map(j => j.id);
-      where.jobId = { [Op.in]: jobIds };
-    }
-
-    console.log('📅 Fetching interviews for:', { employerId, employerEmail });
-
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const offset = (page - 1) * limit;
-
-    const { count, rows: interviews } = await Interview.findAndCountAll({
-      where,
-      order: [['scheduledDate', 'DESC']],
-      limit,
-      offset
-    });
-
-    console.log('✅ Found interviews:', count);
-
-    const formattedInterviews = await Promise.all(interviews.map(async (interview) => {
-      let job = null;
-      if (interview.jobId) {
-        job = await Job.findByPk(interview.jobId);
+    
+    // Determine the primary email to identify the company
+    const primaryEmail = (employerEmail || employerId || '').trim().toLowerCase();
+    if (!primaryEmail || !primaryEmail.includes('@')) {
+      // Fallback to UUID-based lookup
+      if (isValidUUID(employerId)) {
+        console.log('📅 Fetching interviews for UUID:', employerId);
+        const interviews = await Interview.findAll({
+          where: { employerId },
+          order: [['scheduledDate', 'DESC']]
+        });
+        const formatted = await formatInterviews(interviews);
+        return res.json(formatted);
       }
-
-      return {
-        _id: interview.id,
-        candidateName: interview.candidateName,
-        candidateEmail: interview.candidateEmail,
-        jobTitle: job?.jobTitle || job?.title || 'N/A',
-        jobCode: job ? formatJobCode(job.positionId, job.company) : null,
-        company: job?.company || 'N/A',
-        date: interview.scheduledDate,
-        time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        duration: interview.duration,
-        type: interview.type,
-        status: interview.status,
-        meetingLink: interview.meetingLink,
-        location: interview.location,
-        notes: interview.notes,
-        createdAt: interview.createdAt,
-        candidateConfirmed: interview.candidateConfirmed,
-        employerConfirmed: interview.employerConfirmed,
-        jobId: job ? { ...job.toJSON(), id: interview.jobId } : null,
-        candidateId: { _id: interview.candidateId, name: interview.candidateName || 'Unknown Candidate' }
-      };
-    }));
-
-    res.json({
-      interviews: formattedInterviews,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page,
-      totalInterviews: count
+      return res.json([]);
+    }
+    
+    // Resolve the owner email: check if primaryEmail is a team member
+    let ownerEmail = primaryEmail;
+    const memberRecord = await TeamMember.findOne({
+      where: { memberEmail: primaryEmail }
     });
+    if (memberRecord?.employerId) {
+      ownerEmail = memberRecord.employerId.toLowerCase();
+    }
+    
+    // Collect all company emails: owner + all active team members
+    const companyEmails = new Set([ownerEmail]);
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail']
+    });
+    teamMembers.forEach(m => companyEmails.add(m.memberEmail.toLowerCase()));
+    
+    console.log('📅 Fetching interviews for company emails:', [...companyEmails]);
+    
+    const interviews = await Interview.findAll({
+      where: {
+        [Op.or]: [...companyEmails].map(email => ({
+          employerEmail: { [Op.iLike]: email }
+        }))
+      },
+      order: [['scheduledDate', 'DESC']]
+    });
+
+    const formattedInterviews = await formatInterviews(interviews);
+    return res.json(formattedInterviews);
   } catch (error) {
     console.error('Interviews API error:', error);
     res.status(500).json({ error: error.message });
   }
 });
+
+// Helper to format interview data with job details
+async function formatInterviews(interviews) {
+  return Promise.all(interviews.map(async (interview) => {
+    let job = null;
+    if (interview.jobId) {
+      job = await Job.findByPk(interview.jobId);
+    }
+    return {
+      _id: interview.id,
+      candidateName: interview.candidateName,
+      candidateEmail: interview.candidateEmail,
+      jobTitle: job?.jobTitle || job?.title || 'N/A',
+      company: job?.company || 'N/A',
+      date: interview.scheduledDate,
+      time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      duration: interview.duration,
+      type: interview.type,
+      status: interview.status,
+      meetingLink: interview.meetingLink,
+      location: interview.location,
+      notes: interview.notes,
+      createdAt: interview.createdAt
+    };
+  }));
+}
 
 // GET /api/interviews/my-interviews - Get user's interviews
 router.get('/my-interviews', async (req, res) => {
@@ -316,7 +291,7 @@ router.post('/schedule', blockViewer, async (req, res) => {
           candidateName || candidateEmail,
           job?.jobTitle || job?.title || 'Position',
           job?.company || 'Company',
-          { scheduledDate, duration, type, meetingLink, location, notes },
+          { id: interview.id, scheduledDate, duration, type, meetingLink, location, notes },
           employerEmail,
           employerName
         );
@@ -403,7 +378,7 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
         candidate.name || candidateEmail,
         job?.jobTitle || job?.title || 'Position',
         job?.company || 'Company',
-        { scheduledDate, duration, type, meetingLink, notes },
+        { id: interview.id, scheduledDate, duration, type, meetingLink, notes },
         employerEmail,
         employerName
       );
@@ -429,6 +404,63 @@ router.patch('/:id/confirm', async (req, res) => {
   } catch (error) {
     console.error('Confirm interview API error:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /api/interviews/:id/accept - Candidate accepts interview via email link
+router.get('/:id/accept', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const interview = await Interview.findByPk(id, {
+      include: [
+        { model: Job, attributes: ['jobTitle', 'title', 'company'] },
+        { model: User, as: 'employer', attributes: ['name', 'email', 'companyName'] }
+      ]
+    });
+
+    if (!interview) {
+      return res.status(404).json({ success: false, message: 'Interview not found' });
+    }
+
+    if (interview.status === 'confirmed' || interview.candidateConfirmed) {
+      return res.send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;"><div style="font-size:48px;margin-bottom:16px;">&#9989;</div><h1 style="color:#1F2937;margin:0 0 8px;">Already Confirmed</h1><p style="color:#6B7280;margin:0;">You have already accepted this interview invitation.</p></div></body></html>`);
+    }
+
+    await Interview.update(
+      { candidateConfirmed: true, status: 'confirmed' },
+      { where: { id } }
+    );
+
+    // Send confirmation email to employer
+    try {
+      const { sendInterviewAcceptedEmail } = await import('../services/emailService.js');
+      const job = interview.Job || null;
+      const employer = interview.employer || null;
+      await sendInterviewAcceptedEmail(
+        employer?.email || interview.employerEmail,
+        employer?.companyName || job?.company || 'Company',
+        interview.candidateName || interview.candidateEmail,
+        job?.jobTitle || job?.title || 'Position',
+        interview.scheduledDate
+      );
+    } catch (emailError) {
+      console.error('Acceptance email error:', emailError.message);
+    }
+
+    // Create in-app notification
+    try {
+      await NotificationService.createInterviewNotification(interview);
+    } catch (notifError) {
+      console.error('Notification error:', notifError.message);
+    }
+
+    const jobTitle = interview.Job?.jobTitle || interview.Job?.title || 'Position';
+    const company = interview.Job?.company || 'Company';
+
+    res.send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;box-shadow:0 4px 12px rgba(0,0,0,0.1);"><div style="font-size:48px;margin-bottom:16px;">&#10004;&#65039;</div><h1 style="color:#1F2937;margin:0 0 8px;">Interview Accepted!</h1><p style="color:#4B5563;margin:0 0 4px;line-height:1.6;">You have accepted the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.</p><p style="color:#6B7280;font-size:14px;margin:16px 0 0;">The recruiter has been notified. Check your email for details.</p></div></body></html>`);
+  } catch (error) {
+    console.error('Accept interview error:', error);
+    res.status(500).send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;"><div style="font-size:48px;margin-bottom:16px;">&#10060;</div><h1 style="color:#DC2626;margin:0 0 8px;">Something went wrong</h1><p style="color:#6B7280;margin:0;">${error.message}</p></div></body></html>`);
   }
 });
 
