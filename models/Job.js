@@ -105,6 +105,11 @@ const Job = sequelize.define('Job', {
     allowNull: true,
     comment: 'Display name of recruiter/team member who posted this job'
   },
+  assignedTo: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Email of the recruiter this job is assigned to'
+  },
   companyId: {
     type: DataTypes.UUID,
     allowNull: true,
@@ -116,8 +121,8 @@ const Job = sequelize.define('Job', {
     defaultValue: true
   },
   status: {
-    type: DataTypes.ENUM('pending', 'approved', 'rejected'),
-    defaultValue: 'approved'
+    type: DataTypes.STRING,
+    defaultValue: 'active'
   },
   slug: {
     type: DataTypes.STRING,

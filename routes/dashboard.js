@@ -63,43 +63,97 @@ router.get('/stats', async (req, res) => {
       return res.json({ activeJobs: 0, applications: 0, interviews: 0, hired: 0 });
     }
 
-    // For team members: resolve owner email via team membership
     let resolvedEmail = employerEmail.trim();
+    let isOwner = true;
     const teamRecord = await (await import('../models/TeamMember.js')).default.findOne({
       where: { memberEmail: resolvedEmail.toLowerCase() }
     });
-    if (teamRecord?.employerId) {
-      resolvedEmail = teamRecord.employerId;
+    if (teamRecord) {
+      isOwner = teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
+      if (teamRecord.employerId) {
+        const isEmail = teamRecord.employerId.includes('@');
+        if (isEmail) {
+          resolvedEmail = teamRecord.employerId;
+        } else {
+          const ownerUser = await (await import('../models/User.js')).default.findOne({ where: { employerId: teamRecord.employerId } });
+          if (ownerUser?.email) resolvedEmail = ownerUser.email;
+        }
+      }
     }
     
-    // Get company-wide data using resolved owner email
-    const activeJobs = await Job.count({
-      where: {
-        employerEmail: { [Op.iLike]: resolvedEmail },
-        isActive: true,
-        status: { [Op.in]: ['approved', 'pending'] }
-      }
-    });
-    
-    const applications = await Application.count({
-      where: { employerEmail: { [Op.iLike]: resolvedEmail } }
-    });
-    
-    const interviews = await Application.count({
-      where: {
-        employerEmail: { [Op.iLike]: resolvedEmail },
-        status: { [Op.in]: ['shortlisted', 'interviewed'] }
-      }
-    });
-    
-    const hired = await Application.count({
-      where: {
-        employerEmail: { [Op.iLike]: resolvedEmail },
-        status: 'hired'
-      }
-    });
+    if (isOwner) {
+      // Get company-wide data using resolved owner email
+      const activeJobs = await Job.count({
+        where: {
+          employerEmail: { [Op.iLike]: resolvedEmail },
+          isActive: true,
+          status: { [Op.in]: ['approved', 'pending'] }
+        }
+      });
+      
+      const applications = await Application.count({
+        where: { employerEmail: { [Op.iLike]: resolvedEmail } }
+      });
+      
+      const interviews = await Application.count({
+        where: {
+          employerEmail: { [Op.iLike]: resolvedEmail },
+          status: { [Op.in]: ['shortlisted', 'interviewed'] }
+        }
+      });
+      
+      const hired = await Application.count({
+        where: {
+          employerEmail: { [Op.iLike]: resolvedEmail },
+          status: 'hired'
+        }
+      });
 
-    res.json({ activeJobs, applications, interviews, hired });
+      return res.json({ activeJobs, applications, interviews, hired });
+    } else {
+      // Recruiter/Team member: stats restricted to their own posted/assigned jobs
+      const activeJobs = await Job.count({
+        where: {
+          [Op.or]: [
+            { employerEmail: { [Op.iLike]: employerEmail } },
+            { assignedTo: { [Op.iLike]: employerEmail } }
+          ],
+          isActive: true,
+          status: { [Op.in]: ['approved', 'pending'] }
+        }
+      });
+
+      const recruiterJobs = await Job.findAll({
+        where: {
+          [Op.or]: [
+            { employerEmail: { [Op.iLike]: employerEmail } },
+            { assignedTo: { [Op.iLike]: employerEmail } }
+          ]
+        },
+        attributes: ['id']
+      });
+      const jobIds = recruiterJobs.map(j => j.id);
+
+      const applications = await Application.count({
+        where: { jobId: { [Op.in]: jobIds } }
+      });
+
+      const interviews = await Application.count({
+        where: {
+          jobId: { [Op.in]: jobIds },
+          status: { [Op.in]: ['shortlisted', 'interviewed'] }
+        }
+      });
+
+      const hired = await Application.count({
+        where: {
+          jobId: { [Op.in]: jobIds },
+          status: 'hired'
+        }
+      });
+
+      return res.json({ activeJobs, applications, interviews, hired });
+    }
   } catch (error) {
     console.error('Stats error:', error);
     res.status(500).json({ error: error.message });
@@ -115,18 +169,37 @@ router.get('/recent-activity', async (req, res) => {
       return res.json([]);
     }
 
-    // For team members: resolve owner email
     let resolvedEmail = employerEmail.trim();
+    let isOwner = true;
     const TeamMember = (await import('../models/TeamMember.js')).default;
     const teamRecord = await TeamMember.findOne({
       where: { memberEmail: resolvedEmail.toLowerCase() }
     });
-    if (teamRecord?.employerId) {
-      resolvedEmail = teamRecord.employerId;
+    if (teamRecord) {
+      isOwner = teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
+      if (teamRecord.employerId) {
+        const isEmail = teamRecord.employerId.includes('@');
+        if (isEmail) {
+          resolvedEmail = teamRecord.employerId;
+        } else {
+          const ownerUser = await (await import('../models/User.js')).default.findOne({ where: { employerId: teamRecord.employerId } });
+          if (ownerUser?.email) resolvedEmail = ownerUser.email;
+        }
+      }
+    }
+    
+    let whereClause = {};
+    if (isOwner) {
+      whereClause.employerEmail = { [Op.iLike]: resolvedEmail };
+    } else {
+      whereClause[Op.or] = [
+        { employerEmail: { [Op.iLike]: employerEmail } },
+        { assignedTo: { [Op.iLike]: employerEmail } }
+      ];
     }
     
     const recentJobs = await Job.findAll({
-      where: { employerEmail: { [Op.iLike]: resolvedEmail } },
+      where: whereClause,
       order: [['createdAt', 'DESC']],
       limit: 3
     });

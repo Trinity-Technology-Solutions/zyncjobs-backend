@@ -8,6 +8,7 @@ import { meetingService } from '../services/meetingService.js';
 import { sendInterviewScheduledEmail } from '../services/emailService.js';
 import NotificationService from '../services/notificationService.js';
 import TeamMember from '../models/TeamMember.js';
+import { formatJobCode } from '../utils/idGenerator.js';
 
 // Block Viewer role from write operations
 const blockViewer = async (req, res, next) => {
@@ -37,36 +38,81 @@ const isValidUUID = (val) =>
 router.get('/', async (req, res) => {
   try {
     const { employerId, employerEmail } = req.query;
-    
-    const conditions = [];
-    if (employerId && employerId.includes('@')) conditions.push({ employerEmail: employerId });
-    else if (isValidUUID(employerId)) conditions.push({ employerId });
-    if (employerEmail && employerEmail !== '') conditions.push({ employerEmail });
 
-    if (conditions.length === 0) return res.json([]);
+    let resolvedEmail = employerEmail;
+    let isOwner = true;
+    let memberEmail = employerEmail ? employerEmail.toLowerCase() : null;
 
-    const where = conditions.length === 1 ? conditions[0] : { [Op.or]: conditions };
+    if (employerEmail) {
+      try {
+        const TeamMember = (await import('../models/TeamMember.js')).default;
+        const teamRecord = await TeamMember.findOne({ where: { memberEmail } });
+        if (teamRecord) {
+          isOwner = teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
+          if (teamRecord.employerId) {
+            const isEmail = teamRecord.employerId.includes('@');
+            if (isEmail) {
+              resolvedEmail = teamRecord.employerId;
+            } else {
+              const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
+              if (ownerUser?.email) resolvedEmail = ownerUser.email;
+            }
+          }
+        }
+      } catch (e) { /* non-blocking */ }
+    }
+
+    const where = {};
+    if (isOwner) {
+      const conditions = [];
+      if (employerId && employerId.includes('@')) conditions.push({ employerEmail: employerId });
+      else if (isValidUUID(employerId)) conditions.push({ employerId });
+      if (resolvedEmail && resolvedEmail !== '') conditions.push({ employerEmail: resolvedEmail });
+
+      if (conditions.length === 0) return res.json([]);
+      where[Op.or] = conditions;
+    } else {
+      // Recruiter/Team member: only show interviews for jobs they posted or are assigned to them
+      const recruiterJobs = await Job.findAll({
+        where: {
+          [Op.or]: [
+            { employerEmail: { [Op.iLike]: memberEmail } },
+            { assignedTo: { [Op.iLike]: memberEmail } }
+          ]
+        },
+        attributes: ['id']
+      });
+      const jobIds = recruiterJobs.map(j => j.id);
+      where.jobId = { [Op.in]: jobIds };
+    }
 
     console.log('📅 Fetching interviews for:', { employerId, employerEmail });
-    
-    const interviews = await Interview.findAll({
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows: interviews } = await Interview.findAndCountAll({
       where,
-      order: [['scheduledDate', 'DESC']]
+      order: [['scheduledDate', 'DESC']],
+      limit,
+      offset
     });
-    
-    console.log('✅ Found interviews:', interviews.length);
-    
+
+    console.log('✅ Found interviews:', count);
+
     const formattedInterviews = await Promise.all(interviews.map(async (interview) => {
       let job = null;
       if (interview.jobId) {
         job = await Job.findByPk(interview.jobId);
       }
-      
+
       return {
         _id: interview.id,
         candidateName: interview.candidateName,
         candidateEmail: interview.candidateEmail,
         jobTitle: job?.jobTitle || job?.title || 'N/A',
+        jobCode: job ? formatJobCode(job.positionId, job.company) : null,
         company: job?.company || 'N/A',
         date: interview.scheduledDate,
         time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -76,11 +122,20 @@ router.get('/', async (req, res) => {
         meetingLink: interview.meetingLink,
         location: interview.location,
         notes: interview.notes,
-        createdAt: interview.createdAt
+        createdAt: interview.createdAt,
+        candidateConfirmed: interview.candidateConfirmed,
+        employerConfirmed: interview.employerConfirmed,
+        jobId: job ? { ...job.toJSON(), id: interview.jobId } : null,
+        candidateId: { _id: interview.candidateId, name: interview.candidateName || 'Unknown Candidate' }
       };
     }));
-    
-    res.json(formattedInterviews);
+
+    res.json({
+      interviews: formattedInterviews,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      totalInterviews: count
+    });
   } catch (error) {
     console.error('Interviews API error:', error);
     res.status(500).json({ error: error.message });
@@ -91,7 +146,7 @@ router.get('/', async (req, res) => {
 router.get('/my-interviews', async (req, res) => {
   try {
     const userId = req.user?.id || req.query.userId;
-    
+
     const orConditions = [];
     if (isValidUUID(userId)) {
       orConditions.push({ candidateId: userId }, { employerId: userId });
@@ -107,7 +162,7 @@ router.get('/my-interviews', async (req, res) => {
       ],
       order: [['scheduledDate', 'DESC']]
     });
-    
+
     res.json(interviews);
   } catch (error) {
     console.error('My interviews API error:', error);
@@ -149,6 +204,7 @@ router.get('/candidate/:email', async (req, res) => {
         jobId: {
           _id: job?.id,
           jobTitle: job?.jobTitle || job?.title || 'Position',
+          jobCode: job ? formatJobCode(job.positionId, job.company) : null,
           company: job?.company || 'Company'
         },
         candidateEmail: iv.candidateEmail,
@@ -179,7 +235,7 @@ router.get('/candidate/:email', async (req, res) => {
 router.post('/schedule', blockViewer, async (req, res) => {
   try {
     const { applicationId, candidateId, candidateEmail, candidateName, employerId, employerEmail: bodyEmployerEmail, jobId, scheduledDate, duration, type, meetingLink, location, notes, round, interviewer } = req.body;
-    
+
     console.log('📅 Schedule request:', { candidateEmail, employerId, bodyEmployerEmail });
 
     let finalCandidateId = candidateId;
@@ -240,21 +296,21 @@ router.post('/schedule', blockViewer, async (req, res) => {
     });
 
     console.log('✅ Interview saved:', interview.id);
-    
+
     try {
       await NotificationService.createInterviewNotification(interview);
       console.log('🔔 Interview notification created');
     } catch (notificationError) {
       console.error('⚠️ Interview notification creation failed:', notificationError.message);
     }
-    
+
     if (candidateEmail) {
       try {
         // Get employer details
         const employer = finalEmployerId ? await User.findByPk(finalEmployerId) : null;
         const employerEmail = employer?.email || (typeof employerId === 'string' && employerId.includes('@') ? employerId : null);
         const employerName = employer?.companyName || employer?.name || job?.company;
-        
+
         await sendInterviewScheduledEmail(
           candidateEmail,
           candidateName || candidateEmail,
@@ -269,11 +325,11 @@ router.post('/schedule', blockViewer, async (req, res) => {
         console.error('❌ Email error:', emailError.message);
       }
     }
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       message: 'Interview scheduled successfully',
-      interview 
+      interview
     });
   } catch (error) {
     console.error('❌ Error:', error.message);
@@ -285,7 +341,7 @@ router.post('/schedule', blockViewer, async (req, res) => {
 router.post('/create-with-meeting', blockViewer, async (req, res) => {
   try {
     const { applicationId, candidateId, candidateEmail, jobId, scheduledDate, duration, type, platform, notes } = req.body;
-    
+
     // Step 1: Generate meeting link
     let meetingLink = '';
     if (type === 'video' && platform === 'zoom') {
@@ -335,13 +391,13 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
     } catch (notificationError) {
       console.error('⚠️ Notification failed:', notificationError.message);
     }
-    
+
     if (candidate && candidate.email) {
       // Get employer details
       const employer = application.employerId ? await User.findByPk(application.employerId) : null;
       const employerEmail = employer?.email || application.employerEmail || job?.employerEmail;
       const employerName = employer?.companyName || employer?.name || job?.company;
-      
+
       await sendInterviewScheduledEmail(
         candidate.email,
         candidate.name || candidateEmail,
@@ -398,10 +454,10 @@ router.put('/:id/status', blockViewer, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
+
     await Interview.update({ status }, { where: { id } });
     const interview = await Interview.findByPk(id);
-    
+
     res.json({ success: true, interview });
   } catch (error) {
     console.error('Update interview status error:', error);

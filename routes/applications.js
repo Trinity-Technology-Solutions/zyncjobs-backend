@@ -13,6 +13,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { runAutoRejection } from './aiRejectionSettings.js';
 import { getSignedResumeUrl, getResumeStreamFromS3, toSafeS3Url } from '../services/s3Service.js';
 import TeamMember from '../models/TeamMember.js';
+import { formatJobCode } from '../utils/idGenerator.js';
 
 // Block Viewer role from write operations
 const blockViewer = async (req, res, next) => {
@@ -70,7 +71,7 @@ router.post('/', authenticateToken, [
     if (req.user.role !== 'candidate') {
       return res.status(403).json({ error: 'Only candidates can apply for jobs' });
     }
-    
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       console.log('❌ Validation errors:', errors.array());
@@ -80,13 +81,13 @@ router.post('/', authenticateToken, [
     const { jobId, candidateName, candidateEmail, candidatePhone, coverLetter, candidateId, resumeUrl, resumeData, isQuickApply = false } = req.body;
 
     // Check for duplicate application
-    const existingApplication = await Application.findOne({ 
-      where: { 
-        jobId, 
+    const existingApplication = await Application.findOne({
+      where: {
+        jobId,
         candidateEmail: { [Op.iLike]: candidateEmail }
       }
     });
-    
+
     if (existingApplication) {
       console.log('⚠️ Duplicate application found');
       return res.status(400).json({ error: 'You have already applied for this job' });
@@ -167,9 +168,9 @@ router.post('/', authenticateToken, [
     // Send confirmation email to candidate
     try {
       await sendJobApplicationEmail(
-        candidateEmail, 
-        candidateName, 
-        job.jobTitle || job.title, 
+        candidateEmail,
+        candidateName,
+        job.jobTitle || job.title,
         job.company
       );
       console.log('📧 Confirmation email sent to candidate:', candidateEmail);
@@ -184,7 +185,7 @@ router.post('/', authenticateToken, [
         // Get employer details
         const employer = safeEmployerId ? await User.findByPk(safeEmployerId) : null;
         const employerName = employer?.companyName || employer?.name || job.company;
-        
+
         await sendEmployerApplicationEmail(
           employerEmail,
           job.jobTitle || job.title,
@@ -198,12 +199,12 @@ router.post('/', authenticateToken, [
       }
     }
 
-    res.status(201).json({ 
+    res.status(201).json({
       message: 'Application submitted successfully!',
-      application 
+      application
     });
     // GDPR: track activity on job apply
-    updateLastActive(req.user.id).catch(() => {});
+    updateLastActive(req.user.id).catch(() => { });
   } catch (error) {
     console.error('❌ Application error:', error);
     res.status(500).json({ error: error.message });
@@ -214,25 +215,51 @@ router.post('/', authenticateToken, [
 router.get('/employer/:employerEmail', async (req, res) => {
   try {
     const employerEmail = decodeURIComponent(req.params.employerEmail);
-    console.log('📋 Fetching company-wide applications for:', employerEmail);
-    
-    const applications = await Application.findAll({ 
-      where: {
-        employerEmail: { [Op.iLike]: employerEmail }
-      },
+    const { assignedTo } = req.query;
+    console.log('📋 Fetching applications for:', employerEmail, assignedTo ? `filtered by assignedTo: ${assignedTo}` : '(all)');
+
+    let whereClause = {
+      employerEmail: { [Op.iLike]: employerEmail }
+    };
+
+    // If assignedTo is provided, only show applications for jobs assigned to that email
+    if (assignedTo) {
+      const assignedJobs = await Job.findAll({
+        where: {
+          assignedTo: { [Op.iLike]: assignedTo },
+          employerEmail: { [Op.iLike]: employerEmail } // Security: only jobs belonging to this company
+        },
+        attributes: ['id']
+      });
+      const assignedJobIds = assignedJobs.map(j => j.id);
+      whereClause.jobId = { [Op.in]: assignedJobIds };
+    }
+
+    const applications = await Application.findAll({
+      where: whereClause,
       order: [['createdAt', 'DESC']]
     });
-    
+
     // Fetch full job details for each application
     const applicationsWithJobs = await Promise.all(
       applications.map(async (app) => {
-        const job = await Job.findByPk(app.jobId);
+        const job = await Job.findOne({
+          where: {
+            [Op.or]: [
+              { id: app.jobId },
+              { positionId: app.jobId }
+            ]
+          }
+        });
         return {
           ...app.toJSON(),
+          jobTitle: job ? (job.jobTitle || job.title) : 'Unknown Position',
+          jobCode: job ? formatJobCode(job.positionId, job.company) : '',
           jobId: job ? {
             _id: job.id,
             id: job.id,
             jobTitle: job.jobTitle || job.title,
+            jobCode: formatJobCode(job.positionId, job.company),
             company: job.company,
             location: job.location,
             jobDescription: job.jobDescription || job.description,
@@ -242,7 +269,7 @@ router.get('/employer/:employerEmail', async (req, res) => {
         };
       })
     );
-    
+
     console.log('✅ Found company-wide applications:', applications.length);
     res.json(applicationsWithJobs);
   } catch (error) {
@@ -256,24 +283,34 @@ router.get('/candidate/:email', async (req, res) => {
   try {
     const email = decodeURIComponent(req.params.email);
     console.log('Fetching applications for email:', email);
-    
-    const applications = await Application.findAll({ 
+
+    const applications = await Application.findAll({
       where: {
         candidateEmail: { [Op.iLike]: email }
       },
       order: [['createdAt', 'DESC']]
     });
-    
+
     // Fetch full job details for each application
     const applicationsWithJobs = await Promise.all(
       applications.map(async (app) => {
-        const job = await Job.findByPk(app.jobId);
+        const job = await Job.findOne({
+          where: {
+            [Op.or]: [
+              { id: app.jobId },
+              { positionId: app.jobId }
+            ]
+          }
+        });
         return {
           ...app.toJSON(),
+          jobTitle: job ? (job.jobTitle || job.title) : 'Unknown Position',
+          jobCode: job ? formatJobCode(job.positionId, job.company) : '',
           jobId: job ? {
             _id: job.id,
             id: job.id,
             jobTitle: job.jobTitle || job.title,
+            jobCode: formatJobCode(job.positionId, job.company),
             company: job.company,
             location: job.location,
             jobDescription: job.jobDescription || job.description,
@@ -283,7 +320,7 @@ router.get('/candidate/:email', async (req, res) => {
         };
       })
     );
-    
+
     console.log('Found applications:', applications.length);
     res.json(applicationsWithJobs);
   } catch (error) {
@@ -296,31 +333,39 @@ router.get('/candidate/:email', async (req, res) => {
 router.get('/job/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    
+
     console.log('📋 Fetching applications for jobId:', jobId);
-    
+
     if (!jobId || jobId === 'undefined' || jobId === 'null') {
       console.log('❌ Invalid jobId');
       return res.status(400).json({ error: 'Valid job ID is required' });
     }
 
-    const applications = await Application.findAll({ 
+    const applications = await Application.findAll({
       where: { jobId },
       order: [['createdAt', 'DESC']]
     });
-    
+
     // Get job details for scoring context
-    const job = await Job.findByPk(jobId);
-    
+    const job = await Job.findOne({
+      where: {
+        [Op.or]: [
+          { id: jobId },
+          { positionId: jobId }
+        ]
+      }
+    });
+    const jobTitle = job ? (job.jobTitle || job.title) : 'Unknown Position';
+    const jobCode = job ? formatJobCode(job.positionId, job.company) : '';
+
     // Enrich with candidate skills from Profile and calculate AI scores
-    const { Op } = await import('sequelize');
     const Profile = (await import('../models/Profile.js')).default;
     const emails = applications.map(a => a.candidateEmail).filter(Boolean);
     const profiles = emails.length > 0
       ? await Profile.findAll({ where: { email: { [Op.in]: emails } }, attributes: ['email', 'skills', 'yearsExperience', 'education', 'location', 'jobTitle'] })
       : [];
     const profilesMap = {};
-    profiles.forEach(p => { 
+    profiles.forEach(p => {
       profilesMap[p.email.toLowerCase()] = {
         skills: p.skills || [],
         yearsExperience: p.yearsExperience || '0',
@@ -332,21 +377,21 @@ router.get('/job/:jobId', async (req, res) => {
 
     const enriched = applications.map(a => {
       const profile = profilesMap[a.candidateEmail?.toLowerCase()] || {};
-      
+
       // Calculate AI scores if not already present or if job requirements changed
       let aiAnalysis = a.aiAnalysis;
       if (!aiAnalysis && job) {
         // Import scoring functions
         const candidateSkills = profile.skills || [];
         const candidateYearsExp = parseFloat(profile.yearsExperience) || 0;
-        
+
         // Simple scoring calculation (same as in aiRejectionSettings.js)
         const jobSkills = job.skills || [];
         let skillsScore = 50;
         if (jobSkills.length > 0 && candidateSkills.length > 0) {
           const matched = candidateSkills.filter(candidateSkill =>
-            jobSkills.some(jobSkill => 
-              candidateSkill.toLowerCase().includes(jobSkill.toLowerCase()) || 
+            jobSkills.some(jobSkill =>
+              candidateSkill.toLowerCase().includes(jobSkill.toLowerCase()) ||
               jobSkill.toLowerCase().includes(candidateSkill.toLowerCase()) ||
               candidateSkill.toLowerCase() === jobSkill.toLowerCase()
             )
@@ -357,7 +402,7 @@ router.get('/job/:jobId', async (req, res) => {
         } else {
           skillsScore = 0;
         }
-        
+
         // Experience scoring
         const EXP_MAP = { Entry: 0, Mid: 2, Senior: 5, Lead: 8 };
         let requiredYears = EXP_MAP[job.experienceLevel] ?? 2;
@@ -367,7 +412,7 @@ router.get('/job/:jobId', async (req, res) => {
             requiredYears = parseInt(rangeMatch[1]);
           }
         }
-        
+
         let experienceScore = 50;
         if (requiredYears === 0) {
           experienceScore = candidateYearsExp >= 0 ? 100 : 50;
@@ -379,9 +424,9 @@ router.get('/job/:jobId', async (req, res) => {
           else if (ratio >= 0.5) experienceScore = Math.round(ratio * 60);
           else experienceScore = Math.round(ratio * 40);
         }
-        
+
         const overallScore = Math.round((skillsScore * 0.6) + (experienceScore * 0.4));
-        
+
         aiAnalysis = {
           skillsScore,
           experienceScore,
@@ -390,9 +435,11 @@ router.get('/job/:jobId', async (req, res) => {
           feedback: ''
         };
       }
-      
+
       return {
         ...a.toJSON(),
+        jobTitle,
+        jobCode,
         skills: profile.skills || [],
         candidateProfile: profile,
         aiAnalysis: aiAnalysis || {
@@ -404,9 +451,9 @@ router.get('/job/:jobId', async (req, res) => {
         }
       };
     });
-    
+
     console.log('✅ Found applications:', applications.length);
-    
+
     res.json(enriched);
   } catch (error) {
     console.error('Get job applications error:', error);
@@ -418,7 +465,7 @@ router.get('/job/:jobId', async (req, res) => {
 router.get('/job/:jobId/ai-scores', async (req, res) => {
   try {
     const { jobId } = req.params;
-    
+
     if (!jobId || jobId === 'undefined' || jobId === 'null') {
       return res.status(400).json({ error: 'Valid job ID is required' });
     }
@@ -428,14 +475,14 @@ router.get('/job/:jobId/ai-scores', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    const applications = await Application.findAll({ 
+    const applications = await Application.findAll({
       where: { jobId },
       order: [['createdAt', 'DESC']]
     });
-    
+
     // Import the scoring functions from aiRejectionSettings
     const { runAutoRejection } = await import('./aiRejectionSettings.js');
-    
+
     // Calculate or retrieve AI scores for each application
     const applicationsWithScores = await Promise.all(
       applications.map(async (app) => {
@@ -447,7 +494,7 @@ router.get('/job/:jobId/ai-scores', async (req, res) => {
               aiAnalysis: app.aiAnalysis
             };
           }
-          
+
           // Calculate new AI analysis
           const result = await runAutoRejection(app, job, true); // dry run
           const aiAnalysis = result.scores || {
@@ -457,7 +504,7 @@ router.get('/job/:jobId/ai-scores', async (req, res) => {
             reasons: [],
             feedback: ''
           };
-          
+
           return {
             ...app.toJSON(),
             aiAnalysis
@@ -477,7 +524,7 @@ router.get('/job/:jobId/ai-scores', async (req, res) => {
         }
       })
     );
-    
+
     res.json(applicationsWithScores);
   } catch (error) {
     console.error('Get AI scores error:', error);
@@ -489,7 +536,7 @@ router.get('/job/:jobId/ai-scores', async (req, res) => {
 router.post('/job/:jobId/recalculate-scores', blockViewer, async (req, res) => {
   try {
     const { jobId } = req.params;
-    
+
     if (!jobId || jobId === 'undefined' || jobId === 'null') {
       return res.status(400).json({ error: 'Valid job ID is required' });
     }
@@ -499,16 +546,16 @@ router.post('/job/:jobId/recalculate-scores', blockViewer, async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    const applications = await Application.findAll({ 
+    const applications = await Application.findAll({
       where: { jobId },
       order: [['createdAt', 'DESC']]
     });
-    
+
     // Import the scoring functions from aiRejectionSettings
     const { runAutoRejection } = await import('./aiRejectionSettings.js');
-    
+
     let updatedCount = 0;
-    
+
     // Recalculate AI scores for each application
     for (const app of applications) {
       try {
@@ -524,8 +571,8 @@ router.post('/job/:jobId/recalculate-scores', blockViewer, async (req, res) => {
         console.error(`Error recalculating score for application ${app.id}:`, error);
       }
     }
-    
-    res.json({ 
+
+    res.json({
       message: `Recalculated AI scores for ${updatedCount} applications`,
       totalApplications: applications.length,
       updatedCount
@@ -711,7 +758,7 @@ router.put('/:id/status', blockViewer, [
 
     const { status, employerConfirmedRejection, note, updatedBy } = req.body;
     const application = await Application.findByPk(req.params.id);
-    
+
     if (!application) {
       return res.status(404).json({ error: 'Application not found' });
     }
@@ -761,7 +808,7 @@ router.put('/:id/status', blockViewer, [
         const employer = application.employerId ? await User.findByPk(application.employerId) : null;
         const employerEmail = application.employerEmail || job.employerEmail || job.postedBy;
         const employerName = employer?.companyName || employer?.name || job.company;
-        
+
         await sendApplicationRejectionEmail(
           application.candidateEmail,
           application.candidateName,
@@ -778,7 +825,7 @@ router.put('/:id/status', blockViewer, [
         const employer = application.employerId ? await User.findByPk(application.employerId) : null;
         const employerEmail = application.employerEmail || job.employerEmail || job.postedBy;
         const employerName = employer?.companyName || employer?.name || job.company;
-        
+
         await sendApplicationStatusEmail(
           application.candidateEmail,
           application.candidateName,
@@ -793,7 +840,7 @@ router.put('/:id/status', blockViewer, [
       console.error('Email sending failed:', emailError.message);
     }
 
-    res.json({ 
+    res.json({
       message: `Application status updated to ${status}`,
       application,
       oldStatus,
@@ -816,7 +863,7 @@ router.put('/:id', [
 
     const { coverLetter } = req.body;
     const application = await Application.findByPk(req.params.id);
-    
+
     if (!application) {
       return res.status(404).json({ error: 'Application not found' });
     }
@@ -884,29 +931,49 @@ router.get('/', async (req, res) => {
   try {
     const { status, jobId, employerId, employerEmail, page, limit } = req.query;
     const where = {};
-    
+
     if (status) where.status = status;
     if (jobId) where.jobId = jobId;
     if (employerId) where.employerId = employerId;
     if (employerEmail) {
-      // Resolve team member → owner email so team members see the company's applications
+      // Resolve team member -> owner email for owners, otherwise restrict to recruiter's jobs
       let resolvedEmail = employerEmail;
+      let isOwner = true;
       try {
         const TeamMember = (await import('../models/TeamMember.js')).default;
         const teamRecord = await TeamMember.findOne({ where: { memberEmail: employerEmail.toLowerCase() } });
-        if (teamRecord?.employerId) {
-          // employerId may be an email or a short ID — check if it looks like an email
-          const isEmail = teamRecord.employerId.includes('@');
-          if (isEmail) {
-            resolvedEmail = teamRecord.employerId;
-          } else {
-            // Look up owner by employerId in User table to get their email
-            const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
-            if (ownerUser?.email) resolvedEmail = ownerUser.email;
+        if (teamRecord) {
+          isOwner = teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
+          if (teamRecord.employerId) {
+            // employerId may be an email or a short ID — check if it looks like an email
+            const isEmail = teamRecord.employerId.includes('@');
+            if (isEmail) {
+              resolvedEmail = teamRecord.employerId;
+            } else {
+              // Look up owner by employerId in User table to get their email
+              const ownerUser = await User.findOne({ where: { employerId: teamRecord.employerId } });
+              if (ownerUser?.email) resolvedEmail = ownerUser.email;
+            }
           }
         }
       } catch (e) { /* non-blocking */ }
-      where.employerEmail = { [Op.iLike]: resolvedEmail };
+
+      if (isOwner) {
+        where.employerEmail = { [Op.iLike]: resolvedEmail };
+      } else {
+        // Recruiter/Team member: only show applications for jobs they posted or are assigned to them
+        const recruiterJobs = await Job.findAll({
+          where: {
+            [Op.or]: [
+              { employerEmail: { [Op.iLike]: employerEmail } },
+              { assignedTo: { [Op.iLike]: employerEmail } }
+            ]
+          },
+          attributes: ['id']
+        });
+        const jobIds = recruiterJobs.map(j => j.id);
+        where.jobId = { [Op.in]: jobIds };
+      }
     }
 
     // If no pagination params, return all
@@ -915,7 +982,22 @@ router.get('/', async (req, res) => {
         where,
         order: [['createdAt', 'DESC']]
       });
-      return res.json({ applications: rows, total: rows.length });
+      const enrichedRows = await Promise.all(rows.map(async (app) => {
+        const job = await Job.findOne({
+          where: {
+            [Op.or]: [
+              { id: app.jobId },
+              { positionId: app.jobId }
+            ]
+          }
+        });
+        return {
+          ...app.toJSON(),
+          jobTitle: job ? (job.jobTitle || job.title) : 'Unknown Position',
+          jobCode: job ? formatJobCode(job.positionId, job.company) : ''
+        };
+      }));
+      return res.json({ applications: enrichedRows, total: enrichedRows.length });
     }
 
     const pageNum = parseInt(page) || 1;
@@ -927,8 +1009,24 @@ router.get('/', async (req, res) => {
       offset: (pageNum - 1) * limitNum
     });
 
+    const enrichedRows = await Promise.all(rows.map(async (app) => {
+      const job = await Job.findOne({
+        where: {
+          [Op.or]: [
+            { id: app.jobId },
+            { positionId: app.jobId }
+          ]
+        }
+      });
+      return {
+        ...app.toJSON(),
+        jobTitle: job ? (job.jobTitle || job.title) : 'Unknown Position',
+        jobCode: job ? formatJobCode(job.positionId, job.company) : ''
+      };
+    }));
+
     res.json({
-      applications: rows,
+      applications: enrichedRows,
       totalPages: Math.ceil(count / limitNum),
       currentPage: pageNum,
       total: count
@@ -962,7 +1060,7 @@ router.delete('/:id', blockViewer, async (req, res) => {
   try {
     console.log('Attempting to delete application:', req.params.id);
     const application = await Application.findByPk(req.params.id);
-    
+
     if (!application) {
       console.log('Application not found:', req.params.id);
       const allApps = await Application.findAll({ attributes: ['id'] });

@@ -23,7 +23,11 @@ const TeamMember = sequelize.define('TeamMember', {
     defaultValue: ''
   },
   role: {
-    type: DataTypes.ENUM('Owner', 'Recruiter', 'Viewer'),
+    type: DataTypes.ENUM('Owner', 'Recruiter', 'Team Lead', 'Hiring Manager', 'Viewer'),
+    defaultValue: 'Recruiter'
+  },
+  position: {
+    type: DataTypes.STRING,
     defaultValue: 'Recruiter'
   },
   status: {
