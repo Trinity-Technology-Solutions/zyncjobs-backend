@@ -1,4 +1,6 @@
 import Job from '../models/Job.js';
+import TeamMember from '../models/TeamMember.js';
+import { Op } from 'sequelize';
 import { cacheDelPattern } from './redisService.js';
 
 class JobRefreshService {
@@ -156,8 +158,20 @@ class JobRefreshService {
 
   static async getRefreshAnalytics(employerEmail, userPlan = 'free') {
     try {
+      // Resolve team member → owner and collect all company emails
+      let ownerEmail = employerEmail;
+      const teamRecord = await TeamMember.findOne({ where: { memberEmail: employerEmail.toLowerCase() } }).catch(() => null);
+      if (teamRecord?.employerId) ownerEmail = teamRecord.employerId.includes('@') ? teamRecord.employerId : employerEmail;
+      const teamMembers = await TeamMember.findAll({
+        where: { employerId: ownerEmail, status: 'active' },
+        attributes: ['memberEmail'],
+        raw: true
+      });
+      const allEmails = [ownerEmail.toLowerCase(), ...teamMembers.map(m => m.memberEmail.toLowerCase())];
+      const uniqueEmails = [...new Set(allEmails.filter(Boolean))];
+
       const jobs = await Job.findAll({
-        where: { employerEmail, isActive: true },
+        where: { employerEmail: { [Op.in]: uniqueEmails }, isActive: true },
         attributes: ['id', 'jobTitle', 'refreshCount', 'lastRefreshedAt', 'originalPostedAt', 'createdAt']
       });
 

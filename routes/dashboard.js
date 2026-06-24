@@ -82,29 +82,39 @@ router.get('/stats', async (req, res) => {
     }
     
     if (isOwner) {
-      // Get company-wide data using resolved owner email
+      // Get ALL company-wide emails (owner + team members)
+      const TeamMemberModel = (await import('../models/TeamMember.js')).default;
+      const teamMembers = await TeamMemberModel.findAll({
+        where: { employerId: resolvedEmail, status: 'active' },
+        attributes: ['memberEmail'],
+        raw: true
+      });
+      const allEmails = [resolvedEmail.toLowerCase(), ...teamMembers.map(m => m.memberEmail.toLowerCase())];
+      const uniqueEmails = [...new Set(allEmails.filter(Boolean))];
+
+      // Get company-wide data using all company emails
       const activeJobs = await Job.count({
         where: {
-          employerEmail: { [Op.iLike]: resolvedEmail },
+          employerEmail: { [Op.in]: uniqueEmails },
           isActive: true,
           status: { [Op.in]: ['approved', 'pending'] }
         }
       });
       
       const applications = await Application.count({
-        where: { employerEmail: { [Op.iLike]: resolvedEmail } }
+        where: { employerEmail: { [Op.in]: uniqueEmails } }
       });
       
       const interviews = await Application.count({
         where: {
-          employerEmail: { [Op.iLike]: resolvedEmail },
+          employerEmail: { [Op.in]: uniqueEmails },
           status: { [Op.in]: ['shortlisted', 'interviewed'] }
         }
       });
       
       const hired = await Application.count({
         where: {
-          employerEmail: { [Op.iLike]: resolvedEmail },
+          employerEmail: { [Op.in]: uniqueEmails },
           status: 'hired'
         }
       });
@@ -190,7 +200,14 @@ router.get('/recent-activity', async (req, res) => {
     
     let whereClause = {};
     if (isOwner) {
-      whereClause.employerEmail = { [Op.iLike]: resolvedEmail };
+      // Include all team member emails for company-wide view
+      const teamMembers = await (await import('../models/TeamMember.js')).default.findAll({
+        where: { employerId: resolvedEmail, status: 'active' },
+        attributes: ['memberEmail'],
+        raw: true
+      });
+      const allEmails = [resolvedEmail.toLowerCase(), ...teamMembers.map(m => m.memberEmail.toLowerCase())];
+      whereClause.employerEmail = { [Op.in]: [...new Set(allEmails.filter(Boolean))] };
     } else {
       whereClause[Op.or] = [
         { employerEmail: { [Op.iLike]: employerEmail } },
