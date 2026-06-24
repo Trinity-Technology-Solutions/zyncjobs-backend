@@ -227,7 +227,8 @@ const applyIndexes = async () => {
         ADD COLUMN IF NOT EXISTS "languages" VARCHAR(255)[] DEFAULT '{}',
         ADD COLUMN IF NOT EXISTS "experienceRange" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "country" VARCHAR(255),
-        ADD COLUMN IF NOT EXISTS "jobHeaderImage" VARCHAR(255);
+        ADD COLUMN IF NOT EXISTS "jobHeaderImage" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "assignedTo" VARCHAR(255);
     `);
     console.log('✅ jobs columns verified');
   } catch (e) {
@@ -248,6 +249,22 @@ const applyIndexes = async () => {
     console.log('✅ profiles.jobTitle column verified');
   } catch (e) {
     console.warn('⚠️  profiles jobTitle migration warning:', e.message);
+  }
+
+  // Add position column to team_members if missing
+  try {
+    await sequelize.query(`ALTER TABLE team_members ADD COLUMN IF NOT EXISTS "position" VARCHAR(255) DEFAULT 'Recruiter';`);
+    console.log('✅ team_members.position column verified');
+  } catch (e) {
+    console.warn('⚠️  team_members position migration warning:', e.message);
+  }
+
+  // Add position column to users if missing
+  try {
+    await sequelize.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "position" VARCHAR(255);`);
+    console.log('✅ users.position column verified');
+  } catch (e) {
+    console.warn('⚠️  users position migration warning:', e.message);
   }
 
   // Add verificationStatus column to users if missing

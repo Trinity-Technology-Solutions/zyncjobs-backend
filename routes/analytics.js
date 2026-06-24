@@ -16,20 +16,32 @@ router.get('/profile/:email', async (req, res) => {
     console.log('📊 Analytics request for:', email, 'userType:', userType);
 
     if (userType === 'employer') {
-      // For employers: Jobs Posted and Applications Received
+      // Resolve team member → owner email and collect all company emails
+      const TeamMember = (await import('../models/TeamMember.js')).default;
+      let ownerEmail = email;
+      const teamRecord = await TeamMember.findOne({ where: { memberEmail: email.toLowerCase() } }).catch(() => null);
+      if (teamRecord?.employerId) {
+        ownerEmail = teamRecord.employerId.includes('@') ? teamRecord.employerId : email;
+      }
+      const teamMembers = await TeamMember.findAll({
+        where: { employerId: ownerEmail, status: 'active' },
+        attributes: ['memberEmail'],
+        raw: true
+      });
+      const allEmails = [ownerEmail.toLowerCase(), ...teamMembers.map(m => m.memberEmail.toLowerCase())];
+      const uniqueEmails = [...new Set(allEmails.filter(Boolean))];
+
+      // For employers: Jobs Posted and Applications Received (company-wide)
       const jobsPosted = await Job.count({
         where: {
-          [Op.or]: [
-            { employerEmail: { [Op.iLike]: `%${email}%` } },
-            { postedBy: { [Op.iLike]: `%${email}%` } }
-          ],
+          employerEmail: { [Op.in]: uniqueEmails },
           isActive: { [Op.ne]: false }
         }
       });
 
       const applicationsReceived = await Application.count({
         where: {
-          employerEmail: { [Op.iLike]: `%${email}%` }
+          employerEmail: { [Op.in]: uniqueEmails }
         }
       });
 
@@ -286,11 +298,22 @@ router.get('/jobs/:email', async (req, res) => {
     const TeamMember = (await import('../models/TeamMember.js')).default;
     let ownerEmail = email;
     const teamRecord = await TeamMember.findOne({ where: { memberEmail: email.toLowerCase() } }).catch(() => null);
-    if (teamRecord?.employerId) ownerEmail = teamRecord.employerId;
+    if (teamRecord?.employerId) {
+      ownerEmail = teamRecord.employerId.includes('@') ? teamRecord.employerId : email;
+    }
+
+    // Collect all company-wide emails (owner + team members)
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail, status: 'active' },
+      attributes: ['memberEmail'],
+      raw: true
+    });
+    const allEmails = [ownerEmail.toLowerCase(), ...teamMembers.map(m => m.memberEmail.toLowerCase())];
+    const uniqueEmails = [...new Set(allEmails.filter(Boolean))];
 
     const jobs = await Job.findAll({
       where: {
-        employerEmail: { [Op.iLike]: ownerEmail },
+        employerEmail: { [Op.in]: uniqueEmails },
         isActive: true,
         createdAt: { [Op.gte]: since }
       },
