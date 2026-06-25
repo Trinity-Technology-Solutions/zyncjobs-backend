@@ -1,5 +1,6 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
+import { enhanceValidationErrors } from '../utils/errorSuggestions.js';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import User from '../models/User.js';
@@ -102,7 +103,7 @@ router.post('/register', registrationGuard, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ errors: enhanceValidationErrors(errors) });
     }
 
     const { 
@@ -625,9 +626,13 @@ router.post('/login', async (req, res) => {
     }
 
     const resolvedCompany = teamMemberData?.companyName || user.companyName || user.company || '';
+    // For dual-role accounts logging in via employer portal, use profile name
+    const resolvedName = (effectiveRole === 'employer')
+      ? (profileData.name || user.name)
+      : (['admin', 'super_admin', 'manager'].includes(user.role) ? user.name : (profileData.name || user.name));
     const userResponse = {
       id: user.id,
-      name: (['admin', 'super_admin', 'manager'].includes(user.role) ? user.name : (profileData.name || user.name)),
+      name: resolvedName,
       email: user.email,
       userType: effectiveRole,
       phone: profileData.phone || user.phone,
