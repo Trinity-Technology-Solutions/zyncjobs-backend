@@ -374,7 +374,10 @@ router.get('/employer/email/:email', async (req, res) => {
       jobEmailsToQuery = [...new Set(companyEmails.filter(Boolean))];
     }
 
-    const whereClause = {};
+    const whereClause = {
+      isActive: true,
+      status: { [Op.ne]: 'deleted' }  // Exclude deleted jobs
+    };
 
     if (isOwner) {
       whereClause.employerEmail = { [Op.in]: jobEmailsToQuery };
@@ -989,16 +992,21 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/jobs/:id - Delete job
+// DELETE /api/jobs/:id - Delete job (soft delete by default, use /permanent for hard delete)
 router.delete('/:id', async (req, res) => {
   try {
     const job = await Job.findByPk(req.params.id);
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    await job.update({ isActive: false });
-    res.json({ message: 'Job deleted successfully' });
+    
+    // Soft delete - mark as inactive
+    await job.update({ isActive: false, status: 'deleted' });
+    
+    console.log(`✅ Job ${req.params.id} soft deleted (isActive: false, status: deleted)`);
+    res.json({ message: 'Job deleted successfully', jobId: job.id });
   } catch (error) {
+    console.error('❌ Job delete error:', error);
     res.status(500).json({ error: error.message });
   }
 });
