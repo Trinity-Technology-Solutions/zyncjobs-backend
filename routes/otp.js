@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { sendOTPEmail, verifyOTP, resendOTP } from '../services/otpService.js';
 import User from '../models/User.js';
 import { Op } from 'sequelize';
+import { enhanceValidationErrors } from '../utils/errorSuggestions.js';
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.post('/send', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ errors: enhanceValidationErrors(errors) });
     }
 
     const { email, name, userType } = req.body;
