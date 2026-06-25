@@ -612,12 +612,24 @@ router.post('/login', async (req, res) => {
       console.warn('Team member check failed:', e.message);
     }
 
+    // If portal field is sent (employer portal vs admin portal), respect it
+    // This prevents a super_admin who also registered as employer from being
+    // forced into admin dashboard when logging in via employer portal
+    const requestedPortal = req.body.portal; // 'employer' | 'admin' | undefined
+    let effectiveRole = user.role;
+    if (requestedPortal === 'employer' && ['employer', 'super_admin', 'admin', 'manager'].includes(user.role)) {
+      // Check user actually has employer data (company etc.)
+      if (user.companyName || user.company || user.employerId) {
+        effectiveRole = 'employer';
+      }
+    }
+
     const resolvedCompany = teamMemberData?.companyName || user.companyName || user.company || '';
     const userResponse = {
       id: user.id,
       name: (['admin', 'super_admin', 'manager'].includes(user.role) ? user.name : (profileData.name || user.name)),
       email: user.email,
-      userType: user.role,
+      userType: effectiveRole,
       phone: profileData.phone || user.phone,
       company: resolvedCompany,
       companyName: resolvedCompany,
