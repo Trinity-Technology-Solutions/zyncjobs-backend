@@ -375,8 +375,8 @@ router.get('/employer/email/:email', async (req, res) => {
     }
 
     const whereClause = {
-      isActive: true,
-      status: { [Op.ne]: 'deleted' }  // Exclude deleted jobs
+      isActive: true
+      // Deleted jobs are already filtered by isActive: false
     };
 
     if (isOwner) {
@@ -1000,10 +1000,10 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' });
     }
     
-    // Soft delete - mark as inactive
-    await job.update({ isActive: false, status: 'deleted' });
+    // Soft delete - mark as inactive only (no status change to avoid ENUM error)
+    await job.update({ isActive: false });
     
-    console.log(`✅ Job ${req.params.id} soft deleted (isActive: false, status: deleted)`);
+    console.log(`✅ Job ${req.params.id} soft deleted (isActive: false)`);
     res.json({ message: 'Job deleted successfully', jobId: job.id });
   } catch (error) {
     console.error('❌ Job delete error:', error);
