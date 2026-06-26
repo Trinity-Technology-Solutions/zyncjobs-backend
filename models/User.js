@@ -158,6 +158,41 @@ const User = sequelize.define('User', {
     type: DataTypes.STRING,
     allowNull: true,
     comment: 'Company domain extracted from email'
+  },
+  lastPasswordChange: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: DataTypes.NOW
+  },
+  passwordExpiryDays: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    comment: '0 = no expiry; 90 for admins'
+  },
+  mustChangePassword: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  passwordHistory: {
+    type: DataTypes.JSONB,
+    defaultValue: [],
+    comment: 'Array of {hash, changedAt} — last 5 passwords'
+  },
+  failedLoginAttempts: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+  accountLockedUntil: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  lastFailedLogin: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  lastSuccessfulLogin: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 }, {
   tableName: 'users',

@@ -61,6 +61,16 @@ const Job = sequelize.define('Job', {
     type: DataTypes.STRING,
     defaultValue: 'USD'
   },
+  payRate: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'e.g. per year, per month, per hour'
+  },
+  payType: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'e.g. Range, Starting amount, Maximum amount, Exact amount'
+  },
   experienceLevel: {
     type: DataTypes.ENUM('Entry', 'Mid', 'Senior', 'Lead'),
     defaultValue: 'Mid'

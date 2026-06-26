@@ -34,7 +34,7 @@ const migrateEnhancedCompanyFields = async () => {
       {
         name: 'companyType',
         definition: {
-          type: "ENUM('Private', 'Public', 'Startup', 'MNC', 'Government', 'Non-Profit')",
+          type: 'VARCHAR(50)',
           allowNull: false,
           defaultValue: 'Private',
           comment: 'Type of company'

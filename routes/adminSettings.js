@@ -25,6 +25,39 @@ const DEFAULT_SETTINGS = {
   smtpPort: 587,
 };
 
+const DEFAULT_PASSWORD_POLICY = {
+  minLength: 8,
+  requireUppercase: true,
+  requireLowercase: true,
+  requireDigit: true,
+  requireSpecial: true,
+  expiryDays: 90,
+  historyCount: 5,
+  maxLoginAttempts: 5,
+  lockoutDurationMinutes: 15,
+};
+
+const PASSWORD_POLICY_FILE = path.join(__dirname, '../data/passwordPolicy.json');
+
+function loadPasswordPolicy() {
+  try {
+    if (fs.existsSync(PASSWORD_POLICY_FILE)) {
+      return { ...DEFAULT_PASSWORD_POLICY, ...JSON.parse(fs.readFileSync(PASSWORD_POLICY_FILE, 'utf8')) };
+    }
+  } catch {}
+  return { ...DEFAULT_PASSWORD_POLICY };
+}
+
+function savePasswordPolicy(policy) {
+  try {
+    const dir = path.dirname(PASSWORD_POLICY_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(PASSWORD_POLICY_FILE, JSON.stringify(policy, null, 2));
+  } catch (e) {
+    console.error('Failed to persist password policy:', e.message);
+  }
+}
+
 function loadSettings() {
   try {
     if (fs.existsSync(SETTINGS_FILE)) {
@@ -55,6 +88,19 @@ router.put('/', ...adminGuard, (req, res) => {
   const updated = { ...current, ...req.body };
   saveSettings(updated);
   res.json({ message: 'Settings saved', settings: updated });
+});
+
+// GET /api/admin/settings/password-policy
+router.get('/password-policy', ...adminGuard, (req, res) => {
+  res.json(loadPasswordPolicy());
+});
+
+// PUT /api/admin/settings/password-policy
+router.put('/password-policy', ...adminGuard, (req, res) => {
+  const current = loadPasswordPolicy();
+  const updated = { ...current, ...req.body };
+  savePasswordPolicy(updated);
+  res.json({ message: 'Password policy saved', policy: updated });
 });
 
 export default router;
