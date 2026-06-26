@@ -11,7 +11,8 @@ const router = express.Router();
 router.post('/send', [
   body('email').isEmail().withMessage('Valid email is required'),
   body('name').optional(),
-  body('userType').isIn(['candidate', 'employer']).withMessage('Valid user type is required')
+  body('userType').optional(),
+  body('type').optional().isIn(['registration', 'email_verification', 'password_reset']).withMessage('Valid type is required'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -19,18 +20,20 @@ router.post('/send', [
       return res.status(400).json({ errors: enhanceValidationErrors(errors) });
     }
 
-    const { email, name, userType } = req.body;
+    const { email, name, userType, type } = req.body;
 
-    // Check if email already exists
-    const existingUser = await User.findOne({ 
-      where: { email: { [Op.iLike]: email } }
-    });
-    
-    if (existingUser && existingUser.isActive) {
-      return res.status(400).json({ error: 'Email already registered' });
+    // For registration OTP, check if email already exists
+    if (type !== 'email_verification') {
+      const existingUser = await User.findOne({ 
+        where: { email: { [Op.iLike]: email } }
+      });
+      
+      if (existingUser && existingUser.isActive) {
+        return res.status(400).json({ error: 'Email already registered' });
+      }
     }
 
-    const result = await sendOTPEmail(email, name, userType);
+    const result = await sendOTPEmail(email, name, userType || 'candidate');
     
     if (result.success) {
       res.json({ 
@@ -52,7 +55,8 @@ router.post('/send', [
 // POST /api/otp/verify - Verify OTP
 router.post('/verify', [
   body('email').isEmail().withMessage('Valid email is required'),
-  body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits')
+  body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits'),
+  body('type').optional().isIn(['registration', 'email_verification', 'password_reset']).withMessage('Valid type is required'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -60,11 +64,18 @@ router.post('/verify', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, otp } = req.body;
+    const { email, otp, type } = req.body;
 
     const result = verifyOTP(email, otp);
     
     if (result.success) {
+      // If email_verification type, update user's emailVerified field
+      if (type === 'email_verification') {
+        const user = await User.findOne({ where: { email: { [Op.iLike]: email } } });
+        if (user) {
+          await user.update({ emailVerified: true, verificationStatus: 'verified' });
+        }
+      }
       res.json({ 
         success: true, 
         message: 'Email verified successfully',
@@ -87,7 +98,8 @@ router.post('/verify', [
 router.post('/resend', [
   body('email').isEmail().withMessage('Valid email is required'),
   body('name').optional(),
-  body('userType').isIn(['candidate', 'employer']).withMessage('Valid user type is required')
+  body('userType').optional(),
+  body('type').optional().isIn(['registration', 'email_verification', 'password_reset']).withMessage('Valid type is required'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -95,9 +107,9 @@ router.post('/resend', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, name, userType } = req.body;
+    const { email, name, userType, type } = req.body;
 
-    const result = await resendOTP(email, name, userType);
+    const result = await resendOTP(email, name, userType || 'candidate');
     
     if (result.success) {
       res.json({ 

@@ -41,7 +41,7 @@ router.get('/slug/:slug', async (req, res) => {
     const job = await Job.findOne({ where: { slug: req.params.slug, isActive: true } });
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' } });
+    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'USD' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -309,7 +309,7 @@ router.get('/', async (req, res) => {
         salary: {
           min: jobJson.salaryMin,
           max: jobJson.salaryMax,
-          currency: jobJson.currency || 'INR'
+          currency: jobJson.currency
         }
       };
     });
@@ -338,7 +338,7 @@ router.get('/employer/:employerId', async (req, res) => {
         ...jobJson,
         jobCode: formatJobCode(job.positionId, job.company),
         companyLogo: getCompanyLogo(job.company, job.companyLogo),
-        salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' }
+        salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency }
       };
     });
     res.json(jobsWithLogos);
@@ -527,7 +527,7 @@ router.get('/employer/email/:email', async (req, res) => {
         ...jobJson,
         jobCode: formatJobCode(job.positionId, job.company),
         companyLogo: getCompanyLogo(job.company, job.companyLogo),
-        salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' },
+        salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency },
         applicationCount: s.apps,
         interviewScheduled: s.sched,
         interviewCompleted: s.comp,
@@ -566,7 +566,7 @@ router.get('/position/:positionId', async (req, res) => {
       jobCode: formatJobCode(job.positionId, job.company),
       companyLogo: getCompanyLogo(job.company, job.companyLogo),
       jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []),
-      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' }
+      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency }
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -609,7 +609,7 @@ router.get('/search/query', async (req, res) => {
         salary: {
           min: jobJson.salaryMin,
           max: jobJson.salaryMax,
-          currency: jobJson.currency || 'INR'
+          currency: jobJson.currency
         }
       };
     });
@@ -654,7 +654,7 @@ router.get('/search', async (req, res) => {
         salary: {
           min: jobJson.salaryMin,
           max: jobJson.salaryMax,
-          currency: jobJson.currency || 'INR'
+          currency: jobJson.currency
         }
       };
     });
@@ -711,7 +711,7 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
         if (jobData.salary) {
           jobData.salaryMin = jobData.salary.min;
           jobData.salaryMax = jobData.salary.max;
-          jobData.currency = jobData.salary.currency || 'INR';
+          jobData.currency = jobData.salary.currency || jobData.currency;
           delete jobData.salary;
         }
         jobData.skills = normalizeArray(jobData.skills);
@@ -741,7 +741,9 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
           skills: jobData.skills,
           salaryMin: jobData.salaryMin,
           salaryMax: jobData.salaryMax,
-          currency: jobData.currency || 'INR',
+          currency: jobData.currency || 'USD',
+          payRate: jobData.payRate || null,
+          payType: jobData.payType || null,
           experienceLevel: jobData.experienceLevel || 'Mid',
           experienceRange: jobData.experienceRange || null,
           jobCategory: jobData.jobCategory || getCategoryFromTitle(jobData.jobTitle),
@@ -754,7 +756,7 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
           status: getJobStatus(),
           employerEmail,
           postedBy: employerEmail,
-          postedByName: jobData.postedByName || user?.name || employerEmail,
+          postedByName: user?.name || user?.fullName || employerEmail.split('@')[0],
           companyId,
           refreshCount: 0,
           originalPostedAt: new Date(),
@@ -861,7 +863,7 @@ router.post('/', maxJobsGuard, [
     if (jobData.salary) {
       jobData.salaryMin = jobData.salary.min;
       jobData.salaryMax = jobData.salary.max;
-      jobData.currency = jobData.salary.currency || 'INR';
+      jobData.currency = jobData.salary.currency || jobData.currency;
       delete jobData.salary;
     }
 
@@ -930,6 +932,8 @@ router.post('/', maxJobsGuard, [
       salaryMin: jobData.salaryMin,
       salaryMax: jobData.salaryMax,
       currency: jobData.currency,
+      payRate: jobData.payRate || null,
+      payType: jobData.payType || null,
       experienceLevel: jobData.experienceLevel,
       jobCategory: autoCategory,
       experienceRange: jobData.experienceRange || null,
@@ -940,7 +944,7 @@ router.post('/', maxJobsGuard, [
       status: getJobStatus(),
       employerEmail: resolvedEmployerEmail,
       postedBy: resolvedEmployerEmail,
-      postedByName: jobData.postedByName || null,
+      postedByName: user?.name || user?.fullName || jobData.postedByName || resolvedEmployerEmail.split('@')[0],
       assignedTo: jobData.assignedTo || null,
       companyId,
       refreshCount: 0,
@@ -985,7 +989,7 @@ router.get('/:id', async (req, res) => {
       jobCode: formatJobCode(job.positionId, job.company),
       companyLogo: getCompanyLogo(job.company, job.companyLogo),
       jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []),
-      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' }
+      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency }
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1032,7 +1036,7 @@ router.put('/:id', async (req, res) => {
 
     const allowed = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
       'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
-      'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
+      'payRate', 'payType', 'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
       'applicationDeadline', 'isActive', 'status', 'jobHeaderImage', 'assignedTo', 'postedByName'];
 
     const updates = {};
@@ -1079,7 +1083,7 @@ router.put('/:id', async (req, res) => {
       ...jobJson,
       jobCode: formatJobCode(job.positionId, job.company),
       companyLogo: getCompanyLogo(job.company, job.companyLogo),
-      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'INR' }
+      salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency }
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

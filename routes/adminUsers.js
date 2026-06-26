@@ -86,7 +86,12 @@ router.post('/create-admin', ...superAdminGuard, async (req, res) => {
       email: email.toLowerCase().trim(),
       password: hashedPassword,
       role,
-      isActive: true
+      isActive: true,
+      lastPasswordChange: new Date(),
+      passwordExpiryDays: 90,
+      mustChangePassword: false,
+      passwordHistory: [],
+      failedLoginAttempts: 0
     });
 
     const adminResponse = newAdmin.toJSON();
@@ -169,7 +174,17 @@ router.post('/accept-invite', async (req, res) => {
     if (!user) return res.status(400).json({ error: 'Invalid or expired invitation link.' });
 
     const hashed = await bcryptjs.hash(password, 10);
-    await user.update({ password: hashed, isActive: true, inviteToken: null, inviteTokenExpiry: null });
+    await user.update({
+      password: hashed,
+      isActive: true,
+      inviteToken: null,
+      inviteTokenExpiry: null,
+      lastPasswordChange: new Date(),
+      passwordExpiryDays: 90,
+      mustChangePassword: false,
+      passwordHistory: [],
+      failedLoginAttempts: 0
+    });
 
     const { generateAccessToken, generateRefreshToken } = await import('../utils/jwt.js');
     const accessToken = generateAccessToken(user.id);
@@ -285,6 +300,20 @@ router.get('/:id', ...adminGuard, async (req, res) => {
     ]);
 
     res.json({ ...user.toJSON(), jobCount, appCount });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/admin/users/:id/unlock — Admin: unlock a locked account
+router.put('/:id/unlock', ...adminGuard, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await user.update({ failedLoginAttempts: 0, accountLockedUntil: null });
+    await logAdminAction(req, 'account_unlocked', user.email, 'Manual unlock by admin', req.params.id);
+    res.json({ message: 'Account unlocked successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

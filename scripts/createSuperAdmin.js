@@ -19,7 +19,11 @@ const createSuperAdmin = async () => {
         password: hashedPassword,
         isActive: true,
         status: 'active',
-        emailVerified: true
+        emailVerified: true,
+        lastPasswordChange: new Date(),
+        passwordExpiryDays: 90,
+        mustChangePassword: false,
+        passwordHistory: []
       });
       console.log('Upgraded to super_admin successfully!');
       console.log('Email:', email);
@@ -37,7 +41,11 @@ const createSuperAdmin = async () => {
       role,
       isActive: true,
       status: 'active',
-      emailVerified: true
+      emailVerified: true,
+      lastPasswordChange: new Date(),
+      passwordExpiryDays: 90,
+      mustChangePassword: false,
+      passwordHistory: []
     });
 
     console.log('Super admin created successfully!');

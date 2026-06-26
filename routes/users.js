@@ -2,6 +2,7 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { enhanceValidationErrors } from '../utils/errorSuggestions.js';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import User from '../models/User.js';
 import { Op } from 'sequelize';
@@ -94,6 +95,16 @@ const checkDomainVerification = (email) => {
 };
 
 const router = express.Router();
+
+const loginLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => res.status(429).json({
+    error: 'Too many login attempts from this IP. Please try again in 15 minutes.'
+  })
+});
 
 // POST /api/users/register - Register new user
 router.post('/register', registrationGuard, [
@@ -272,7 +283,11 @@ router.post('/register', registrationGuard, [
       ...(domainVerificationMethod && { domainVerificationMethod }),
       ...(gstNumber && { gstNumber }),
       ...(gstVerification && { gstVerification }),
-      verificationRequestedAt: new Date()
+      verificationRequestedAt: new Date(),
+      lastPasswordChange: new Date(),
+      passwordExpiryDays: ['admin', 'super_admin'].includes(finalRole) ? 90 : 0,
+      mustChangePassword: false,
+      passwordHistory: []
     });
 
     // Activate the team invite
@@ -406,7 +421,7 @@ router.post('/register', registrationGuard, [
 });
 
 // POST /api/users/login - Login user
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     
@@ -490,20 +505,88 @@ router.post('/login', async (req, res) => {
       console.log('❌ No password stored for user');
       return res.status(400).json({ error: 'Account has no password. Please reset your password.' });
     }
+
+    // ── Lockout check ───────────────────────────────────────────────────
+    if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
+      const minutesRemaining = Math.ceil((new Date(user.accountLockedUntil) - Date.now()) / 60000);
+      const LOCKOUT_MINS = parseInt(process.env.LOCKOUT_DURATION_MINUTES) || 15;
+      console.warn(`🔒 Locked account login attempt: ${email}`);
+      return res.status(423).json({
+        error: `Account is temporarily locked due to too many failed login attempts. Please try again in ${minutesRemaining} minute(s) or reset your password.`,
+        locked: true,
+        lockedUntil: user.accountLockedUntil,
+        lockoutMinutes: LOCKOUT_MINS,
+        remainingAttempts: 0
+      });
+    }
+    // ────────────────────────────────────────────────────────────
     
     const isPasswordValid = await bcrypt.compare(password.trim(), user.password);
     console.log('🔐 Password comparison result:', isPasswordValid);
     
     if (!isPasswordValid) {
       console.log('❌ Invalid password for:', email);
+      const attempts = (user.failedLoginAttempts || 0) + 1;
+      const LIMIT = parseInt(process.env.LOGIN_ATTEMPT_LIMIT) || 5;
+      const LOCKOUT_MINS = parseInt(process.env.LOCKOUT_DURATION_MINUTES) || 15;
+      const updateData = { failedLoginAttempts: attempts, lastFailedLogin: new Date() };
+      if (attempts >= LIMIT) {
+        updateData.accountLockedUntil = new Date(Date.now() + LOCKOUT_MINS * 60000);
+        await user.update(updateData);
+        console.warn(`🚨 Account locked after ${LIMIT} failed attempts: ${email}`);
+        logAdminAction(req, 'account_locked', email, `Locked after ${LIMIT} failed attempts`).catch(() => {});
+        return res.status(423).json({
+          error: `Account locked after ${LIMIT} failed login attempts. Please try again in ${LOCKOUT_MINS} minutes or reset your password.`,
+          locked: true,
+          lockedUntil: updateData.accountLockedUntil,
+          lockoutMinutes: LOCKOUT_MINS,
+          remainingAttempts: 0
+        });
+      }
+      await user.update(updateData);
+      const attemptsRemaining = LIMIT - attempts;
       return res.status(401).json({
-        error: 'Invalid password. Please try again.',
-        suggestReset: true,
-        hint: 'Forgot your password? Use the reset link below.'
+        error: `Invalid password. ${attemptsRemaining} attempt(s) remaining before account lockout.`,
+        suggestReset: attempts >= 3,
+        attemptsRemaining
       });
     }
 
     console.log('✅ Password valid for:', email);
+
+    // Reset lockout state on successful login
+    await user.update({
+      failedLoginAttempts: 0,
+      accountLockedUntil: null,
+      lastSuccessfulLogin: new Date()
+    });
+
+    // ── Password expiry check ─────────────────────────────────────────────────
+    const isAdmin = ['admin', 'super_admin'].includes(user.role);
+    const expiryDays = user.passwordExpiryDays || 0;
+    const daysSinceChange = user.lastPasswordChange
+      ? Math.floor((Date.now() - new Date(user.lastPasswordChange)) / 86400000)
+      : 0;
+    const passwordExpired = (expiryDays > 0 && daysSinceChange >= expiryDays) || user.mustChangePassword;
+
+    if (passwordExpired) {
+      const tempToken = jwt.sign(
+        { userId: user.id, tempAccess: true },
+        process.env.JWT_SECRET,
+        { expiresIn: '10m' }
+      );
+      return res.json({
+        passwordExpired: true,
+        daysSinceChange,
+        tempToken,
+        user: { id: user.id, email: user.email, name: user.name, userType: user.role }
+      });
+    }
+
+    // Warning: expires within 7 days
+    const passwordExpiresIn = (expiryDays > 0 && daysSinceChange >= expiryDays - 7)
+      ? expiryDays - daysSinceChange : null;
+    // ─────────────────────────────────────────────────────────────────────────
 
     // Load full profile data from Profile collection
     let profileData = {};
@@ -651,6 +734,7 @@ router.post('/login', async (req, res) => {
       isFirstLogin: user.isFirstLogin || false,
       permissions: teamMemberData?.permissions || null,
       plan: user.plan || 'free',
+      ...(passwordExpiresIn !== null && { passwordExpiresIn, shouldChangePassword: true }),
       ...profileData
     };
 
@@ -672,6 +756,7 @@ router.post('/login', async (req, res) => {
     }
     res.json({ 
       message: 'Login successful',
+      passwordExpired: false,
       user: userResponse,
       accessToken,
       refreshToken
@@ -1028,7 +1113,7 @@ router.put('/:id/verify', authenticateToken, async (req, res) => {
   }
 });
 
-// PUT /api/users/:id/password - Update user password
+// PUT /api/users/:id/password - Update user password (with expiry tracking)
 router.put('/:id/password', async (req, res) => {
   try {
     const identifier = decodeURIComponent(req.params.id || '').trim();
@@ -1063,13 +1148,89 @@ router.put('/:id/password', async (req, res) => {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 8);
-    await user.update({ password: hashedPassword });
+    // Check password history (last 3)
+    const history = Array.isArray(user.passwordHistory) ? user.passwordHistory : [];
+    for (const old of history.slice(-3)) {
+      if (await bcrypt.compare(newPassword, old.hash)) {
+        return res.status(400).json({ error: 'Cannot reuse any of your last 3 passwords' });
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const newHistory = [...history, { hash: user.password, changedAt: new Date() }].slice(-5);
+
+    await user.update({
+      password: hashedPassword,
+      lastPasswordChange: new Date(),
+      mustChangePassword: false,
+      passwordHistory: newHistory
+    });
 
     console.log('✅ Password updated for:', user.email);
-    res.json({ message: 'Password updated successfully' });
+    res.json({ message: 'Password updated successfully', lastPasswordChange: new Date() });
   } catch (error) {
     console.error('❌ Update password error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/users/:id/change-password - Password change for expired password (uses tempToken)
+router.post('/:id/change-password', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Token required' });
+
+    const token = authHeader.replace('Bearer ', '');
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    if (!decoded.tempAccess) return res.status(403).json({ error: 'Invalid token type' });
+    if (decoded.userId !== req.params.id) return res.status(403).json({ error: 'Unauthorized' });
+
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+    }
+
+    const pwRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!pwRegex.test(newPassword)) {
+      return res.status(400).json({ error: 'Password must be 8+ chars with uppercase, lowercase, number, and special character' });
+    }
+
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    // Check last 3 password history
+    const history = Array.isArray(user.passwordHistory) ? user.passwordHistory : [];
+    for (const old of history.slice(-3)) {
+      if (await bcrypt.compare(newPassword, old.hash)) {
+        return res.status(400).json({ error: 'Cannot reuse any of your last 3 passwords' });
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const newHistory = [...history, { hash: user.password, changedAt: new Date() }].slice(-5);
+
+    await user.update({
+      password: hashedPassword,
+      lastPasswordChange: new Date(),
+      mustChangePassword: false,
+      passwordHistory: newHistory
+    });
+
+    // Log the security event
+    req.user = user;
+    logAdminAction(req, 'password_changed', user.email, 'Password changed after expiry').catch(() => {});
+
+    res.json({ message: 'Password changed successfully', lastPasswordChange: new Date() });
+  } catch (error) {
+    console.error('❌ Change password error:', error);
     res.status(500).json({ error: error.message });
   }
 });
