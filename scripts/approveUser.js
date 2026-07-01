@@ -1,0 +1,10 @@
+import pkg from 'pg';
+const { Client } = pkg;
+const client = new Client({ host:'localhost', port:5432, database:'zyncjobs', user:'postgres', password:'agilpostgres' });
+await client.connect();
+const res = await client.query("SELECT id, email, role, \"verificationStatus\" FROM users WHERE email ILIKE 'agil.george@trinitetech.com'");
+console.log('Before:', JSON.stringify(res.rows[0], null, 2));
+await client.query("UPDATE users SET \"verificationStatus\" = 'verified', \"emailVerified\" = true, \"isActive\" = true WHERE email ILIKE 'agil.george@trinitetech.com'");
+const res2 = await client.query("SELECT id, email, role, \"verificationStatus\" FROM users WHERE email ILIKE 'agil.george@trinitetech.com'");
+console.log('After:', JSON.stringify(res2.rows[0], null, 2));
+await client.end();
