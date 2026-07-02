@@ -1,7 +1,7 @@
 {
   "development": {
     "username": "postgres",
-    "password": "Muthees@1412",
+    "password": "agilpostgres",
     "database": "zyncjobs",
     "host": "localhost",
     "port": 5432,

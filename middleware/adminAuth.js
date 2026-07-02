@@ -25,7 +25,7 @@ export const adminAuth = async (req, res, next) => {
 
     req.user = user;
     
-    // Log admin action
+    // Log admin action feature
     logAdminAction('ADMIN_ACCESS', {
       adminId: user.id,
       action: `${req.method} ${req.path}`,
