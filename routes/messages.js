@@ -106,7 +106,26 @@ router.get('/:conversationId', async (req, res) => {
       where: { conversationId: req.params.conversationId },
       order: [['createdAt', 'ASC']]
     });
-    res.json(messages);
+
+    const enriched = await Promise.all(
+      messages.map(async (msg) => {
+        const sender = await User.findByPk(msg.senderId, {
+          attributes: ['name', 'email', 'companyName', 'company', 'companyLogo', 'profilePicture']
+        });
+        const receiver = await User.findByPk(msg.receiverId, {
+          attributes: ['name', 'email']
+        });
+        return {
+          ...msg.toJSON(),
+          senderName: sender?.name || msg.senderId,
+          senderEmail: sender?.email,
+          receiverName: receiver?.name || msg.receiverId,
+          receiverEmail: receiver?.email,
+        };
+      })
+    );
+
+    res.json(enriched);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
