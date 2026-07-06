@@ -235,20 +235,44 @@ const applyIndexes = async () => {
     console.warn('⚠️  jobs migration warning:', e.message);
   }
 
-  // Add coverPhoto column to profiles if missing
+  // Add missing columns to profiles
   try {
-    await sequelize.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "coverPhoto" VARCHAR(255);`);
-    console.log('✅ profiles.coverPhoto column verified');
+    await sequelize.query(`
+      ALTER TABLE profiles
+        ADD COLUMN IF NOT EXISTS "coverPhoto" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "jobTitle" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "bannerPhoto" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "profileFrame" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "careerPreferences" TEXT,
+        ADD COLUMN IF NOT EXISTS "educationCollege" TEXT,
+        ADD COLUMN IF NOT EXISTS "educationClass12" TEXT,
+        ADD COLUMN IF NOT EXISTS "educationClass10" TEXT,
+        ADD COLUMN IF NOT EXISTS "openToWork" BOOLEAN DEFAULT false;
+    `);
+    // ENUM columns need separate handling
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_profiles_visibilityStatus') THEN
+          CREATE TYPE "enum_profiles_visibilityStatus" AS ENUM ('actively-looking', 'passively-looking', 'not-looking');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='visibilityStatus') THEN
+          ALTER TABLE profiles ADD COLUMN "visibilityStatus" "enum_profiles_visibilityStatus" DEFAULT 'passively-looking';
+        END IF;
+      END $$;
+    `);
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_profiles_profileVisibility') THEN
+          CREATE TYPE "enum_profiles_profileVisibility" AS ENUM ('public', 'recruiters-only', 'private');
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='profileVisibility') THEN
+          ALTER TABLE profiles ADD COLUMN "profileVisibility" "enum_profiles_profileVisibility" DEFAULT 'public';
+        END IF;
+      END $$;
+    `);
+    console.log('✅ profiles columns verified');
   } catch (e) {
-    console.warn('⚠️  profiles coverPhoto migration warning:', e.message);
-  }
-
-  // Add jobTitle column to profiles if missing
-  try {
-    await sequelize.query(`ALTER TABLE profiles ADD COLUMN IF NOT EXISTS "jobTitle" VARCHAR(255);`);
-    console.log('✅ profiles.jobTitle column verified');
-  } catch (e) {
-    console.warn('⚠️  profiles jobTitle migration warning:', e.message);
+    console.warn('⚠️  profiles migration warning:', e.message);
   }
 
   // Add position column to team_members if missing
