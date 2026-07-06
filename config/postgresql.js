@@ -241,6 +241,7 @@ const applyIndexes = async () => {
       ALTER TABLE profiles
         ADD COLUMN IF NOT EXISTS "coverPhoto" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "jobTitle" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "resumeUrl" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "bannerPhoto" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "profileFrame" VARCHAR(255),
         ADD COLUMN IF NOT EXISTS "careerPreferences" TEXT,

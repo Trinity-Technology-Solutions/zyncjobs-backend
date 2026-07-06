@@ -211,4 +211,56 @@ router.post('/talent-resume', upload.single('resume'), async (req, res) => {
   }
 });
 
+// DELETE /api/upload/resume — clear resume from User, Profile, and Resume table
+router.delete('/resume', async (req, res) => {
+  try {
+    let resolvedUserId = null;
+    let resolvedEmail = null;
+
+    if (req.headers.authorization) {
+      try {
+        const { verifyToken } = await import('../utils/jwt.js');
+        const decoded = verifyToken(req.headers.authorization.replace('Bearer ', ''));
+        resolvedUserId = decoded?.userId || decoded?.id || null;
+        if (resolvedUserId) {
+          const user = await User.findByPk(resolvedUserId, { attributes: ['email'] });
+          resolvedEmail = user?.email || null;
+        }
+      } catch (_) {}
+    }
+
+    if (!resolvedUserId && !resolvedEmail) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Deactivate all resume records
+    if (resolvedUserId) {
+      await Resume.update({ isActive: false }, { where: { userId: resolvedUserId } });
+      await User.update({ resumeUrl: null }, { where: { id: resolvedUserId } });
+    }
+    if (resolvedEmail) {
+      await Resume.update({ isActive: false }, { where: { email: resolvedEmail } });
+      if (!resolvedUserId) await User.update({ resumeUrl: null }, { where: { email: resolvedEmail } });
+    }
+
+    // Clear from Profile table
+    if (resolvedEmail) {
+      try {
+        const Profile = (await import('../models/Profile.js')).default;
+        await Profile.update({ resumeUrl: null, resume: null }, {
+          where: { email: resolvedEmail }
+        });
+      } catch (profileErr) {
+        console.warn('⚠️ Profile resume clear skipped:', profileErr.message);
+      }
+    }
+
+    console.log(`✅ Resume deleted for ${resolvedUserId || resolvedEmail}`);
+    res.json({ success: true, message: 'Resume deleted successfully' });
+  } catch (error) {
+    console.error('Resume delete error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
