@@ -94,10 +94,6 @@ import gdprRoutes from './routes/gdpr.js';
 import contactRoutes from './routes/contact.js';
 import aiRoutes from './routes/ai.js';
 import gstVerifyRoutes from './routes/gstVerify.js';
-import atsRoutes from './routes/ats.js';
-import RecruiterActivityLog from './models/RecruiterActivityLog.js';
-import CandidateAssignment from './models/CandidateAssignment.js';
-import CandidateNote from './models/CandidateNote.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
@@ -178,16 +174,6 @@ connectDB().then(async () => {
   } catch (migrationError) {
     console.warn('⚠️ Migration warning:', migrationError.message);
     // Don't fail server startup if migration fails
-  }
-  
-  // Sync ATS models
-  try {
-    await RecruiterActivityLog.sync({ alter: false });
-    await CandidateAssignment.sync({ alter: false });
-    await CandidateNote.sync({ alter: false });
-    console.log('✅ ATS models synced');
-  } catch (e) {
-    console.warn('⚠️ ATS model sync warning:', e.message);
   }
 
   // Run team invitation columns migration
@@ -476,7 +462,6 @@ app.use('/api/gdpr', gdprRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/verify', gstVerifyRoutes);
-app.use('/api/ats', atsRoutes);
 app.use('/', ogTagsRoutes);
 
 // Logo proxy — backend fetches external logo, returns to frontend
