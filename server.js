@@ -468,6 +468,26 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/verify', gstVerifyRoutes);
 app.use('/', ogTagsRoutes);
 
+// Proxy /recruitment-ai/* → AI service
+import axios from 'axios';
+app.use('/recruitment-ai', async (req, res) => {
+  try {
+    const aiUrl = `${process.env.AI_GATEWAY_URL || 'http://localhost:8001'}${req.path}`;
+    const response = await axios({
+      method: req.method,
+      url: aiUrl,
+      data: req.body,
+      headers: { 'Content-Type': 'application/json', ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}) },
+      params: req.query,
+      timeout: 120000,
+    });
+    res.status(response.status).json(response.data);
+  } catch (err) {
+    const status = err.response?.status || 502;
+    res.status(status).json(err.response?.data || { error: 'AI service unavailable' });
+  }
+});
+
 // Logo proxy — backend fetches external logo, returns to frontend
 // Avoids ERR_TUNNEL / network block on client side
 app.get('/api/logo-proxy', async (req, res) => {
