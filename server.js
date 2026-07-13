@@ -91,7 +91,7 @@ import salaryInsightsRoutes from './routes/salaryInsights.js';
 import resumeBuilderRoutes from './routes/resumeBuilder.js';
 import resumeAIRoutes from './routes/resumeAI.js';
 import rankingRoutes from './routes/ranking.js';
-import { callGroq } from './services/groqService.js';
+import aiClient from './services/aiClient.js';
 import gdprRoutes from './routes/gdpr.js';
 import contactRoutes from './routes/contact.js';
 import aiRoutes from './routes/ai.js';
@@ -670,44 +670,13 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, session_id, language } = req.body;
-
-    if (!message) {
-      return res.status(400).json({ error: 'Message is required' });
-    }
-
-    console.log('💬 Chat request:', { message, session_id });
-
-    if (!process.env.GROQ_API_KEY) {
-      return res.json({
-        response: "I'm ZyncJobs AI Assistant! I can help you with job searching, resume building, interview preparation, and career advice. What would you like to know?",
-        sources: []
-      });
-    }
-
-    const systemMsg = 'You are ZyncJobs AI Assistant, a helpful career and job search advisor. Give concise, practical advice. Max 3 paragraphs.';
-    const aiResponse = await callGroq({
-      feature: 'career-coach',
-      systemPrompt: systemMsg,
-      messages: [{ role: 'user', content: message }],
-      maxTokens: 600,
-      temperature: 0.7,
-    });
-
-    console.log('✅ Chat response generated successfully');
-
-    res.json({
-      response: aiResponse.trim(),
-      sources: []
-    });
+    const { message, session_id } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+    const result = await aiClient.chat(message, session_id || 'anonymous');
+    res.json({ response: result.reply, sources: [] });
   } catch (error) {
     console.error('❌ Chat error:', error.message);
-
-    const fallbackResponse = getFallbackResponse(req.body.message || '');
-    res.json({
-      response: fallbackResponse,
-      sources: []
-    });
+    res.json({ response: getFallbackResponse(req.body.message || ''), sources: [] });
   }
 });
 
@@ -747,10 +716,6 @@ app.post('/api/generate-content', async (req, res) => {
     const { type, jobTitle, company, degree, school } = req.body;
     if (!type) return res.status(400).json({ error: 'type is required' });
 
-    if (!process.env.GROQ_API_KEY) {
-      return res.json({ content: '' });
-    }
-
     let prompt;
     if (type === 'experience') {
       prompt = `Write 3 professional resume bullet points for a ${jobTitle || 'professional'}${company ? ` at ${company}` : ''}. Each bullet should start with a strong action verb and include quantified achievements. Return only the bullets, one per line, no numbering.`;
@@ -762,14 +727,8 @@ app.post('/api/generate-content', async (req, res) => {
       return res.status(400).json({ error: 'Invalid type' });
     }
 
-    const content = await callGroq({
-      feature: 'jd-generate',
-      messages: [{ role: 'user', content: prompt }],
-      maxTokens: 300,
-      temperature: 0.7,
-    });
-
-    res.json({ content: content || '' });
+    const result = await aiClient.suggest(prompt);
+    res.json({ content: result.reply || '' });
   } catch (error) {
     console.error('generate-content error:', error.message);
     res.status(500).json({ error: error.message });
@@ -853,29 +812,13 @@ JSON:
   "benefits": []
 }`;
 
-    // Use Groq first (fastest), fallback to Gemini
     let content = '';
     try {
-      content = await callGroq({
-        systemPrompt: '',
-        messages: [{ role: 'user', content: prompt }],
-        maxTokens: 2500,
-        temperature: 0.1,
-      });
-    } catch (groqErr) {
-      console.warn('Groq parse failed, trying Gemini:', groqErr.message);
-      try {
-        const { callGeminiChat } = await import('./services/geminiService.js');
-        content = await callGeminiChat({
-          systemPrompt: '',
-          messages: [{ role: 'user', content: prompt }],
-          maxTokens: 2500,
-          temperature: 0.1,
-        });
-      } catch (geminiErr) {
-        console.warn('Gemini parse failed:', geminiErr.message);
-        return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
-      }
+      const result = await aiClient.suggest(prompt);
+      content = result.reply || '';
+    } catch (aiErr) {
+      console.warn('AI parse failed:', aiErr.message);
+      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
     }
 
     // Process AI response
@@ -1145,14 +1088,6 @@ app.post('/api/generate-job-description', async (req, res) => {
     const { jobTitle, company, jobType, location } = req.body;
     if (!jobTitle) return res.status(400).json({ error: 'Job title is required' });
 
-    if (!process.env.GROQ_API_KEY) {
-      const companyName = company || 'our company';
-      return res.json({
-        description: `We are looking for a ${jobTitle} to join ${companyName}. The ideal candidate will have relevant experience and skills for this role.`,
-        requirements: `• 2+ years of relevant experience\n• Strong technical skills\n• Excellent communication and teamwork abilities`
-      });
-    }
-
     const prompt = `You are an expert HR professional. Generate a professional job description and requirements for the role below.
 
 Job Title: ${jobTitle}${company ? `\nCompany: ${company}` : ''}${location ? `\nLocation: ${location}` : ''}${jobType ? `\nType: ${jobType}` : ''}
@@ -1165,23 +1100,12 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact structure:
 
 Use plain section headings and • for bullet points. Do not use **, *, or any markdown.`;
 
-    const raw = await callGroq({
-      feature: 'jd-generate',
-      messages: [{ role: 'user', content: prompt }],
-      maxTokens: 800,
-      temperature: 0.4,
-    });
-
-    const cleaned = raw.replace(/```json|```/g, '').trim();
+    const raw = await aiClient.suggest(prompt);
+    const cleaned = (raw.reply || '').replace(/```json|```/g, '').trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Could not parse AI response as JSON');
-    }
-    const result = JSON.parse(jsonMatch[0]);
-    res.json({
-      description: result.description || '',
-      requirements: result.requirements || ''
-    });
+    if (!jsonMatch) throw new Error('Could not parse AI response as JSON');
+    const parsed = JSON.parse(jsonMatch[0]);
+    res.json({ description: parsed.description || '', requirements: parsed.requirements || '' });
   } catch (error) {
     console.error('generate-job-description error:', error.message);
     const companyName = company || 'our company';
