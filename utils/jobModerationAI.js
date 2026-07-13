@@ -1,58 +1,4 @@
-import { callGroq } from '../services/groqService.js';
-
-// Mistral AI job detection with enhanced prompting
-
-// Mistral AI-powered job moderation
-export const analyzeJobPost = async (jobData) => {
-  try {
-    const prompt = `You are a job posting moderator. Analyze this job posting and respond ONLY with valid JSON.
-
-Job Details:
-- Title: ${jobData.jobTitle}
-- Company: ${jobData.company}
-- Location: ${jobData.location}
-- Salary: ${jobData.salary?.min || 0}-${jobData.salary?.max || 0} ${jobData.salary?.currency || 'USD'}
-- Description: ${jobData.description}
-- Requirements: ${jobData.requirements?.join(', ') || 'None'}
-
-Detect:
-1. SPAM: Excessive caps, repeated text, suspicious links, "easy money" promises
-2. FAKE: Unrealistic salary (>$500k), vague descriptions, missing company info, scam indicators
-3. COMPLIANCE: Discriminatory language (age, gender, race), illegal requirements
-4. RISK SCORE: 0-100 (0=clean, 100=definitely problematic)
-
-Respond with this exact JSON format:
-{"isSpam": false, "isFake": false, "hasComplianceIssues": false, "riskScore": 25, "issues": ["list specific issues found"]}`;
-
-    const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-      model: 'openai/gpt-oss-20b:free',
-      temperature: 0.1,
-      max_tokens: 500
-    }, {
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.FRONTEND_URL,
-        'X-Title': 'ZyncJobs-Moderation'
-      }
-    });
-
-    const aiResponse = responseText.trim();
-    
-    // Extract JSON from response
-    const jsonMatch = aiResponse.match(/\{[^}]+\}/s);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    
-    // Fallback parsing
-    return JSON.parse(aiResponse);
-  } catch (error) {
-    console.error('Mistral AI moderation error:', error.message);
-    // Fallback to basic moderation if AI fails
-    return basicModerationCheck(jobData);
-  }
-};
+// Job moderation — rule-based only (AI agent not needed for moderation)
 
 // Enhanced rule-based moderation as fallback
 export const basicModerationCheck = (jobData) => {
@@ -101,3 +47,6 @@ export const basicModerationCheck = (jobData) => {
     issues
   };
 };
+
+// Alias used by moderation.js
+export const analyzeJobPost = basicModerationCheck;

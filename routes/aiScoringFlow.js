@@ -1,10 +1,11 @@
 import express from 'express';
-import { callGroq } from '../services/groqService.js';
+import aiClient from '../services/aiClient.js';
 
 const router = express.Router();
 
 async function aiCall(prompt, temperature = 0.3) {
-  const raw = await callGroq({ feature: 'ai-scoring', messages: [{ role: 'user', content: prompt }], maxTokens: 1200, temperature });
+  const result = await aiClient.suggest(prompt);
+  const raw = result.reply || '';
   const match = raw.match(/\{[\s\S]*\}/);
   return match ? JSON.parse(match[0]) : JSON.parse(raw);
 }

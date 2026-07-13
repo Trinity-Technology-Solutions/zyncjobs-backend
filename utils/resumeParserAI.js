@@ -1,4 +1,4 @@
-import { callGroq } from '../services/groqService.js';
+import aiClient from '../services/aiClient.js';
 import crypto from 'crypto';
 
 // In-memory cache: hash → { result, expires }
@@ -11,8 +11,6 @@ function hashText(text) {
 
 export class ResumeParserAI {
   constructor() {
-    this.geminiApiKey = process.env.GEMINI_API_KEY;
-    this.openrouterApiKey = process.env.GROQ_API_KEY;
   }
 
   // Pre-extract name/email/phone from raw text using regex (handles multi-column PDFs)
@@ -42,8 +40,8 @@ EXTRACTION RULES:
 - location: City name only
 - title: Job designation like "Full Stack Developer", "Software Engineer"
 - skills: ALL technical skills, languages, frameworks mentioned
-- workExperiences: Jobs with company, title, dates
-- educations: Degrees with college name and year range
+- workExperiences: Jobs/internships with company name, job title, dates, and bullet point descriptions
+- educations: ONLY formal academic degrees/diplomas. Each entry MUST have a real institution name (college/university/school) in "school" field and a real degree/course name in "degree" field. NEVER put job descriptions, internship details, project names, or bullet points into education fields.
 - projects: Project names with descriptions
 - summary: Professional summary paragraph
 
@@ -51,30 +49,9 @@ Return JSON:
 {"name":"","email":"","phone":"","location":"","country":"","title":"","summary":"","skills":[],"softSkills":[],"tools":[],"workExperiences":[{"jobTitle":"","company":"","date":"","descriptions":[]}],"educations":[{"degree":"","school":"","date":"","grade":""}],"projects":[{"name":"","description":""}],"certifications":[{"name":"","provider":"","date":""}],"competitions":[]}`;
   }
 
-  async callGeminiFlash(prompt) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${this.geminiApiKey}`;
-    const response = await axios.post(url, {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 2000 }
-    }, { timeout: 10000 });
-    return response.data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
-  }
-
-  async callOpenRouterFallback(prompt) {
-    const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
-      { model: 'meta-llama/llama-3.3-70b-instruct:free', messages: [{ role: 'user', content: prompt }], temperature: 0.1, max_tokens: 2000 },
-      {
-        headers: {
-          'Authorization': `Bearer ${this.openrouterApiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5173',
-          'X-Title': 'ZyncJobs-Resume-Parser'
-        },
-        timeout: 15000
-      }
-    );
-    return response.data?.choices?.[0]?.message?.content || null;
+  async callAIAgent(prompt) {
+    const result = await aiClient.suggest(prompt);
+    return result.reply || null;
   }
 
   async parseResumeToProfile(resumeText) {
@@ -91,26 +68,13 @@ Return JSON:
     const prompt = this.buildPrompt(resumeText);
     let content = null;
 
-    // 1. Try Gemini 1.5 Flash first (fastest ~1-2s)
-    if (this.geminiApiKey) {
-      try {
-        console.log('[RESUME_AI] Trying Gemini 1.5 Flash...');
-        content = await this.callGeminiFlash(prompt);
-        if (content) console.log('[RESUME_AI] Gemini Flash success');
-      } catch (e) {
-        console.warn('[RESUME_AI] Gemini Flash failed:', e.message);
-      }
-    }
-
-    // 2. Fallback to OpenRouter single model (no loop)
-    if (!content && this.openrouterApiKey) {
-      try {
-        console.log('[RESUME_AI] Falling back to OpenRouter...');
-        content = await this.callOpenRouterFallback(prompt);
-        if (content) console.log('[RESUME_AI] OpenRouter fallback success');
-      } catch (e) {
-        console.warn('[RESUME_AI] OpenRouter fallback failed:', e.message);
-      }
+    // Call AI agent (port 8001)
+    try {
+      console.log('[RESUME_AI] Calling AI agent...');
+      content = await this.callAIAgent(prompt);
+      if (content) console.log('[RESUME_AI] AI agent success');
+    } catch (e) {
+      console.warn('[RESUME_AI] AI agent failed:', e.message);
     }
 
     if (!content) {
@@ -171,6 +135,11 @@ Return JSON:
 
       console.log('[RESUME_AI] Parsed successfully:', name, email);
 
+      const isSentence = (s) =>
+        !s || s.length > 100 ||
+        /\b(developed|built|created|analyzed|implemented|designed|completed|worked|gained|contributed|internship|july|august|september|october|november|december|present|currently|involving|enabling|reducing|improving)\b/i.test(s) ||
+        /^[a-z]/.test(s.trim());
+
       return {
         name,
         email,
@@ -183,7 +152,9 @@ Return JSON:
         softSkills: Array.isArray(parsed.softSkills) ? parsed.softSkills : [],
         tools: Array.isArray(parsed.tools) ? parsed.tools : [],
         workExperiences: Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [],
-        educations: Array.isArray(parsed.educations) ? parsed.educations : [],
+        educations: Array.isArray(parsed.educations)
+          ? parsed.educations.filter(e => e && !isSentence(e.school) && !isSentence(e.degree) && (e.school || e.degree))
+          : [],
         projects: Array.isArray(parsed.projects) ? parsed.projects : [],
         certifications: Array.isArray(parsed.certifications) ? parsed.certifications : [],
         competitions: Array.isArray(parsed.competitions) ? parsed.competitions : [],
@@ -249,13 +220,13 @@ Return JSON:
     });
 
     // Section extractor helper
-    const NEXT_SECTION = /^(experience|work|education|skills|projects|certifications|awards|languages|interests|references|contact|internship|training|summary|objective|profile|about)/i;
+    const NEXT_SECTION = /^(experience|work experience|employment|work history|education|academic|skills|technical skills|projects|certifications|awards|languages|interests|references|contact|internship|training|summary|objective|profile|about|extra.curricular|extracurricular|hackathons|short courses|competitions|workshops|volunteer|publications|research)s?$/i;
     const extractSection = (headingRe) => {
       const idx = lines.findIndex(l => headingRe.test(l));
       if (idx < 0) return [];
       const result = [];
       for (let i = idx + 1; i < lines.length; i++) {
-        if (i !== idx + 1 && NEXT_SECTION.test(lines[i]) && lines[i].length < 35) break;
+        if (lines[i].trim() && NEXT_SECTION.test(lines[i].trim())) break;
         if (lines[i].trim()) result.push(lines[i].trim());
       }
       return result;
@@ -279,22 +250,34 @@ Return JSON:
     const educations = [];
     if (eduLines.length > 0) {
       const yearRe = /\b(19|20)\d{2}\b/;
+      const gpaRe = /\b(gpa|cgpa|percentage|grade)[:\s]*([\d.]+)/i;
+      const looksLikeHeader = (l) =>
+        !(/^[•\-–*]/.test(l)) &&
+        l.length > 3 && l.length < 120 &&
+        !/^(developed|built|created|analyzed|implemented|designed|completed|worked|gained|proficient)/i.test(l);
       let cur = null;
       for (const line of eduLines) {
-        if (/^\s*(19|20)\d{2}\s*$/.test(line)) {
-          if (cur && !cur.date) cur.date = line.trim();
+        const hasYear = yearRe.test(line);
+        const gpaMatch = line.match(gpaRe);
+        const isBullet = /^[•\-–*]/.test(line);
+        if (gpaMatch && cur) {
+          cur.grade = gpaMatch[2];
+          if (hasYear && !cur.date) cur.date = line.match(yearRe)?.[0] || '';
           continue;
         }
+        if (isBullet) {
+          if (cur) { cur.descriptions = cur.descriptions || []; cur.descriptions.push(line.replace(/^[•\-–*]\s*/, '')); }
+          continue;
+        }
+        if (!looksLikeHeader(line)) continue;
         if (!cur) {
-          cur = { school: line, degree: '', date: yearRe.test(line) ? (line.match(yearRe)?.[0] || '') : '' };
+          cur = { school: line.replace(yearRe, '').trim(), degree: '', date: hasYear ? (line.match(yearRe)?.[0] || '') : '', grade: '' };
         } else if (!cur.degree) {
           cur.degree = line.replace(yearRe, '').trim();
-          if (yearRe.test(line) && !cur.date) cur.date = line.match(yearRe)?.[0] || '';
-        } else if (line.length > 10 && !yearRe.test(line)) {
+          if (hasYear && !cur.date) cur.date = line.match(yearRe)?.[0] || '';
+        } else {
           if (cur.school) educations.push(cur);
-          cur = { school: line, degree: '', date: '' };
-        } else if (yearRe.test(line) && !cur.date) {
-          cur.date = line.match(yearRe)?.[0] || '';
+          cur = { school: line.replace(yearRe, '').trim(), degree: '', date: hasYear ? (line.match(yearRe)?.[0] || '') : '', grade: '' };
         }
       }
       if (cur?.school) educations.push(cur);

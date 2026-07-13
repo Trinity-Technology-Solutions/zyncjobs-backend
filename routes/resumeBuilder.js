@@ -1,23 +1,23 @@
 import express from 'express';
-import { callGroq } from '../services/groqService.js';
+import aiClient from '../services/aiClient.js';
+import { withCache, cacheGet, cacheSet } from '../services/redisService.js';
 
 const router = express.Router();
 
-async function callAI(prompt, systemMsg = 'You are a professional resume writer.', maxTokens = 1200) {
-  const messages = [{ role: 'user', content: `${systemMsg}\n\n${prompt}` }];
-  return callGroq({ feature: 'jd-generate', messages, maxTokens, temperature: 0.7 });
+async function aiCall(prompt) {
+  const result = await aiClient.suggest(prompt);
+  const raw = result.reply || '';
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (match) return JSON.parse(match[0]);
+  throw new Error('No JSON in AI response');
 }
 
-// ─── (A) AI Resume Generator ─────────────────────────────────────────────────
 // POST /api/resume-builder/generate-content
-// Body: { jobTitle, experience, name? }
-// Returns: { summary, bullets, skills }
 router.post('/generate-content', async (req, res) => {
   try {
     const { jobTitle, experience, name } = req.body;
-    if (!jobTitle || !experience) {
+    if (!jobTitle || !experience)
       return res.status(400).json({ error: 'jobTitle and experience are required' });
-    }
 
     const prompt = `You are a professional ATS resume writer.
 Generate resume content for:
@@ -25,47 +25,30 @@ Job Title: ${jobTitle}
 Experience: ${experience}
 ${name ? `Candidate Name: ${name}` : ''}
 
-Return ONLY valid JSON (no markdown, no explanation):
-{
-  "summary": "2-3 sentence professional summary with strong action verbs",
-  "bullets": [
-    "Bullet 1 with action verb and quantified metric",
-    "Bullet 2 with action verb and quantified metric",
-    "Bullet 3 with action verb and quantified metric",
-    "Bullet 4 with action verb and quantified metric",
-    "Bullet 5 with action verb and quantified metric"
-  ],
-  "skills": ["skill1", "skill2", "skill3", "skill4", "skill5", "skill6", "skill7", "skill8"]
-}`;
+Return ONLY valid JSON (no markdown):
+{"summary":"2-3 sentence professional summary","bullets":["Bullet 1","Bullet 2","Bullet 3","Bullet 4","Bullet 5"],"skills":["skill1","skill2","skill3","skill4","skill5","skill6","skill7","skill8"]}`;
 
-    const raw = await callAI(prompt, 'You are a professional ATS resume writer. Return only valid JSON.', 800);
-    const cleaned = (typeof raw === 'string' ? raw : '').replace(/```json|```/g, '').trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    const fallback = {
-      summary: `Experienced ${jobTitle} with ${experience} of expertise delivering results.`,
-      bullets: ['Led cross-functional teams to deliver projects on time', 'Improved process efficiency by 30% through automation', 'Collaborated with stakeholders to define requirements', 'Analyzed data to provide actionable insights', 'Mentored junior team members'],
-      skills: ['Communication', 'Problem Solving', 'Agile', 'Data Analysis', 'Leadership', 'Excel', 'SQL', 'Project Management']
-    };
-    if (!jsonMatch) return res.json(fallback);
-    let result;
-    try { result = JSON.parse(jsonMatch[0]); } catch { return res.json(fallback); }
-    res.json(result);
+    try {
+      const result = await aiCall(prompt);
+      return res.json(result);
+    } catch {
+      return res.json({
+        summary: `Experienced ${jobTitle} with ${experience} of expertise delivering results.`,
+        bullets: ['Led cross-functional teams to deliver projects on time', 'Improved process efficiency by 30%', 'Collaborated with stakeholders to define requirements', 'Analyzed data to provide actionable insights', 'Mentored junior team members'],
+        skills: ['Communication', 'Problem Solving', 'Agile', 'Data Analysis', 'Leadership', 'Excel', 'SQL', 'Project Management']
+      });
+    }
   } catch (err) {
-    console.error('generate-content error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── (B) JD-Based ATS Optimization ───────────────────────────────────────────
 // POST /api/resume-builder/optimize-jd
-// Body: { resumeData: { summary, bullets, skills }, jobDescription }
-// Returns: { summary, bullets, skills, keywords, atsScore, improvements }
 router.post('/optimize-jd', async (req, res) => {
   try {
     const { resumeData, jobDescription } = req.body;
-    if (!resumeData || !jobDescription) {
+    if (!resumeData || !jobDescription)
       return res.status(400).json({ error: 'resumeData and jobDescription are required' });
-    }
 
     const prompt = `You are an ATS optimization expert.
 Optimize this resume to match the job description.
@@ -79,104 +62,59 @@ Job Description:
 ${jobDescription.substring(0, 2000)}
 
 Return ONLY valid JSON:
-{
-  "summary": "improved ATS-optimized summary using JD keywords",
-  "bullets": ["improved bullet 1", "improved bullet 2", "improved bullet 3", "improved bullet 4", "improved bullet 5"],
-  "skills": ["skill1", "skill2", "skill3", "skill4", "skill5", "skill6", "skill7", "skill8"],
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
-  "atsScore": 85,
-  "improvements": ["improvement tip 1", "improvement tip 2", "improvement tip 3"]
-}`;
+{"summary":"improved summary","bullets":["bullet1","bullet2","bullet3","bullet4","bullet5"],"skills":["skill1","skill2","skill3","skill4","skill5","skill6","skill7","skill8"],"keywords":["kw1","kw2","kw3","kw4","kw5"],"atsScore":85,"improvements":["tip1","tip2","tip3"]}`;
 
-    const raw = await callAI(prompt, 'You are an ATS optimization expert. Return only valid JSON.', 1000);
-    const cleaned = raw.replace(/```json|```/g, '').trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(500).json({ error: 'AI returned invalid format' });
-
-    const result = JSON.parse(jsonMatch[0]);
-    res.json(result);
+    try {
+      const result = await aiCall(prompt);
+      return res.json(result);
+    } catch {
+      // Fallback: rule-based optimization
+      const jdWords = jobDescription.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+      const jdKeywords = [...new Set(jdWords)].slice(0, 8);
+      return res.json({
+        summary: resumeData.summary || `Experienced professional targeting ${jobDescription.substring(0, 60)}.`,
+        bullets: (resumeData.bullets || resumeData.experience?.flatMap(e => e.bullets || []) || []).slice(0, 5),
+        skills: resumeData.skills || [],
+        keywords: jdKeywords,
+        atsScore: 70,
+        improvements: ['Add more keywords from the job description', 'Quantify achievements with metrics', 'Use action verbs to start bullet points'],
+      });
+    }
   } catch (err) {
-    console.error('optimize-jd error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── (C) Real-time Bullet Suggestions ────────────────────────────────────────
 // POST /api/resume-builder/suggest-bullets
-// Body: { text, jobTitle }
-// Returns: { suggestions: [{ original, improved, reason }] }
 router.post('/suggest-bullets', async (req, res) => {
   try {
     const { text, jobTitle } = req.body;
     if (!text) return res.status(400).json({ error: 'text is required' });
 
-    const role = jobTitle || 'professional';
-    const prompt = `You are a resume writing expert.
-Improve this resume bullet point for a ${role} role.
-Original bullet: ${text}
+    const prompt = `Improve this resume bullet point for a ${jobTitle || 'professional'} role.
+Original: ${text}
 
-Provide 2 improved versions. Return ONLY a valid JSON object like this:
-{
-  "suggestions": [
-    {
-      "original": "the original bullet text",
-      "improved": "stronger version with action verb and quantified metric",
-      "reason": "brief reason why this is better"
-    },
-    {
-      "original": "the original bullet text",
-      "improved": "alternative stronger version",
-      "reason": "brief alternative reason"
-    }
-  ]
-}
-Do not include markdown, code blocks, or any text outside the JSON.`;
+Return ONLY valid JSON:
+{"suggestions":[{"original":"${text}","improved":"stronger version with action verb and metric","reason":"why better"},{"original":"${text}","improved":"alternative stronger version","reason":"alternative reason"}]}`;
 
-    const raw = await callAI(prompt, 'You are a resume writing expert. Return only valid JSON with no markdown.', 500);
-    const cleaned = raw.replace(/```json|```/g, '').trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) {
-      // Fallback: return a basic suggestion so the UI doesn't break
-      return res.json({
-        suggestions: [{
-          original: text,
-          improved: text,
-          reason: 'AI could not generate a suggestion at this time. Try again.'
-        }]
-      });
-    }
-
-    let result;
     try {
-      result = JSON.parse(jsonMatch[0]);
+      const result = await aiCall(prompt);
+      return res.json(result);
     } catch {
-      return res.json({
-        suggestions: [{
-          original: text,
-          improved: text,
-          reason: 'AI returned an unparseable response. Try again.'
-        }]
-      });
+      return res.json({ suggestions: [{ original: text, improved: text, reason: 'AI could not generate a suggestion. Try again.' }] });
     }
-
-    res.json(result);
   } catch (err) {
-    console.error('suggest-bullets error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── ATS Score Calculator ─────────────────────────────────────────────────────
 // POST /api/resume-builder/ats-score
-// Body: { resumeData: { summary, bullets, skills, experience, education } }
-// Returns: { score, breakdown, suggestions }
 router.post('/ats-score', async (req, res) => {
   try {
     const { resumeData } = req.body;
     if (!resumeData) return res.status(400).json({ error: 'resumeData is required' });
 
-    // Rule-based scoring (always available)
+    // Rule-based scoring
     const hasName = !!(resumeData.personalInfo?.name);
     const hasEmail = !!(resumeData.personalInfo?.email);
     const hasPhone = !!(resumeData.personalInfo?.phone);
@@ -192,146 +130,59 @@ router.post('/ats-score', async (req, res) => {
 
     if (hasName) { score += 10; breakdown.push({ label: 'Name', score: 10, max: 10 }); }
     else { breakdown.push({ label: 'Name', score: 0, max: 10 }); suggestions.push('Add your full name'); }
-
     if (hasEmail && hasPhone) { score += 10; breakdown.push({ label: 'Contact Info', score: 10, max: 10 }); }
     else { breakdown.push({ label: 'Contact Info', score: hasEmail || hasPhone ? 5 : 0, max: 10 }); suggestions.push('Add email and phone number'); }
-
     if (hasSummary) { score += 20; breakdown.push({ label: 'Professional Summary', score: 20, max: 20 }); }
     else { breakdown.push({ label: 'Professional Summary', score: 0, max: 20 }); suggestions.push('Add a professional summary with keywords'); }
-
     const skillScore = Math.min(20, skillsCount * 2);
-    score += skillScore;
-    breakdown.push({ label: 'Skills', score: skillScore, max: 20 });
+    score += skillScore; breakdown.push({ label: 'Skills', score: skillScore, max: 20 });
     if (skillsCount < 6) suggestions.push('Add at least 6-8 relevant skills');
-
-    const expScore = hasExperience ? 20 : 0;
-    score += expScore;
-    breakdown.push({ label: 'Work Experience', score: expScore, max: 20 });
+    score += hasExperience ? 20 : 0; breakdown.push({ label: 'Work Experience', score: hasExperience ? 20 : 0, max: 20 });
     if (!hasExperience) suggestions.push('Add work experience with bullet points');
-
     const bulletScore = Math.min(10, bulletsCount * 2);
-    score += bulletScore;
-    breakdown.push({ label: 'Achievement Bullets', score: bulletScore, max: 10 });
+    score += bulletScore; breakdown.push({ label: 'Achievement Bullets', score: bulletScore, max: 10 });
     if (bulletsCount < 3) suggestions.push('Add quantified achievement bullet points');
-
-    const eduScore = hasEducation ? 10 : 0;
-    score += eduScore;
-    breakdown.push({ label: 'Education', score: eduScore, max: 10 });
+    score += hasEducation ? 10 : 0; breakdown.push({ label: 'Education', score: hasEducation ? 10 : 0, max: 10 });
     if (!hasEducation) suggestions.push('Add your education details');
 
-    // Enhance with AI analysis if available
-    if (process.env.GROQ_API_KEY) {
-      try {
-        const aiPrompt = `Analyze this resume and provide ATS optimization suggestions. Return ONLY a JSON object with "score"(number 0-100), "suggestions"(array of strings).
-
-Resume Data:
-${JSON.stringify(resumeData, null, 2)}
-
-Rules:
-- Evaluate ATS-friendliness: keyword usage, action verbs, quantifiable achievements, formatting
-- Score should reflect how well the resume would perform with ATS systems
-- Provide 2-3 specific, actionable suggestions for improvement`;
-
-        const raw = await callGroq({
-          feature: 'resume-score',
-          messages: [{ role: 'user', content: aiPrompt }],
-          maxTokens: 600,
-          temperature: 0.3,
-        });
-
-        const cleaned = raw.replace(/```json|```/g, '').trim();
-        const match = cleaned.match(/\{[\s\S]*\}/);
-        if (match) {
-          const aiResult = JSON.parse(match[0]);
-          if (typeof aiResult.score === 'number') {
-            // Blend AI score with rule-based score (weighted)
-            score = Math.round(score * 0.5 + aiResult.score * 0.5);
-          }
-          if (Array.isArray(aiResult.suggestions)) {
-            suggestions.push(...aiResult.suggestions);
-          }
-        }
-      } catch (aiErr) {
-        console.warn('AI ATS scoring unavailable, using rule-based score only:', aiErr.message);
-      }
-    }
+    // AI enhancement via agent
+    try {
+      const aiPrompt = `Analyze this resume and provide ATS optimization suggestions. Return ONLY JSON with "score"(0-100) and "suggestions"(string array).\n\nResume: ${JSON.stringify(resumeData).substring(0, 1000)}`;
+      const result = await aiCall(aiPrompt);
+      if (typeof result.score === 'number') score = Math.round(score * 0.5 + result.score * 0.5);
+      if (Array.isArray(result.suggestions)) suggestions.push(...result.suggestions);
+    } catch { /* use rule-based only */ }
 
     res.json({ score: Math.min(100, score), breakdown, suggestions });
   } catch (err) {
-    console.error('ats-score error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── Legacy: Full Resume Generator (kept for backward compat) ─────────────────
-// POST /api/resume-builder/generate
+// POST /api/resume-builder/generate (legacy)
 router.post('/generate', async (req, res) => {
   try {
     const { name, jobTitle, skills, experience, education, jobDescription } = req.body;
-    if (!name || !skills || !experience) {
+    if (!name || !skills || !experience)
       return res.status(400).json({ error: 'Name, skills, and experience are required.' });
-    }
 
-    const prompt = `Act as a senior HR recruiter and professional resume writer.
-Write a clean ATS-optimized resume with quantified achievements.
-
-Candidate Details:
-Name: ${name}
-Job Title: ${jobTitle || 'Professional'}
-Skills: ${skills}
-Experience: ${experience}
-Education: ${education || 'Not provided'}
-${jobDescription ? `Target Job Description:\n${jobDescription}` : ''}
-
-Output Format (use these EXACT section headers):
-
-SUMMARY
-Write 2-3 lines professional summary here.
-
-SKILLS
-List skills comma separated here.
-
-EXPERIENCE
-• Bullet point with action verb and metric
-• Bullet point with action verb and metric
-• Bullet point with action verb and metric
-
-EDUCATION
-Degree, Institution, Year`;
-
-    const resume = await callAI(prompt);
-    res.json({ resume });
+    const result = await aiClient.suggest(`Write an ATS-optimized resume for ${name}, ${jobTitle}, skills: ${skills}, experience: ${experience}${education ? `, education: ${education}` : ''}${jobDescription ? `, targeting: ${jobDescription.substring(0, 500)}` : ''}`);
+    res.json({ resume: result.reply });
   } catch (err) {
-    console.error('generate error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── Legacy: Improve Resume (kept for backward compat) ───────────────────────
-// POST /api/resume-builder/improve
+// POST /api/resume-builder/improve (legacy)
 router.post('/improve', async (req, res) => {
   try {
     const { existingResume, jobDescription } = req.body;
-    if (!existingResume || !jobDescription) {
+    if (!existingResume || !jobDescription)
       return res.status(400).json({ error: 'Resume and job description are required.' });
-    }
 
-    const prompt = `Improve this resume to better match the job description.
-Make it more ATS-friendly with stronger action verbs and quantified achievements.
-Keep the same section structure (SUMMARY, SKILLS, EXPERIENCE, EDUCATION).
-
-Current Resume:
-${existingResume}
-
-Job Description:
-${jobDescription}
-
-Return only the improved resume, no extra explanation.`;
-
-    const resume = await callAI(prompt);
-    res.json({ resume });
+    const result = await aiClient.improveResume(existingResume, jobDescription);
+    res.json({ resume: result.improved || existingResume });
   } catch (err) {
-    console.error('improve error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

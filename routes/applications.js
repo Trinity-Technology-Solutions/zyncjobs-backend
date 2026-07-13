@@ -78,7 +78,7 @@ router.post('/', authenticateToken, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { jobId, candidateName, candidateEmail, candidatePhone, coverLetter, candidateId, resumeUrl, resumeData, isQuickApply = false } = req.body;
+    const { jobId, candidateName, candidateEmail, candidatePhone, coverLetter, candidateId, resumeUrl, resumeData, isQuickApply = false, skills = [], resumeSkills = [] } = req.body;
 
     // Check for duplicate application
     const existingApplication = await Application.findOne({
@@ -113,6 +113,12 @@ router.post('/', authenticateToken, [
       resolvedCandidateId = candidateUser?.id || null;
     }
 
+    // Merge profile skills from DB with submitted skills
+    const Profile = (await import('../models/Profile.js')).default;
+    const candidateProfile = await Profile.findOne({ where: { email: { [Op.iLike]: candidateEmail } } });
+    const profileSkills = Array.isArray(candidateProfile?.skills) ? candidateProfile.skills : [];
+    const mergedSkills = [...new Set([...profileSkills, ...skills, ...resumeSkills])];
+
     // Create application
     const application = await Application.create({
       jobId,
@@ -126,7 +132,9 @@ router.post('/', authenticateToken, [
       resumeUrl: resumeUrl || '',
       isQuickApply,
       status: 'pending',
-      employerConfirmedRejection: false
+      employerConfirmedRejection: false,
+      skills: mergedSkills,
+      resumeSkills
     });
 
     console.log('✅ Application created:', { id: application.id, jobId, candidateEmail });
@@ -975,6 +983,16 @@ router.get('/', async (req, res) => {
         where,
         order: [['createdAt', 'DESC']]
       });
+
+      // Enrich with candidateProfile (skills, experience, etc.)
+      const Profile = (await import('../models/Profile.js')).default;
+      const emails = rows.map(a => a.candidateEmail).filter(Boolean);
+      const profiles = emails.length > 0
+        ? await Profile.findAll({ where: { email: { [Op.in]: emails } }, attributes: ['email', 'skills', 'yearsExperience', 'education', 'location', 'jobTitle', 'profilePhoto'] })
+        : [];
+      const profileMap = {};
+      profiles.forEach(p => { profileMap[p.email.toLowerCase()] = p; });
+
       const enrichedRows = await Promise.all(rows.map(async (app) => {
         const job = await Job.findOne({
           where: {
@@ -984,8 +1002,21 @@ router.get('/', async (req, res) => {
             ]
           }
         });
+        const profile = profileMap[app.candidateEmail?.toLowerCase()] || {};
+        const profileSkills = Array.isArray(profile.skills) ? profile.skills : [];
+        const appSkills = Array.isArray(app.skills) ? app.skills : [];
+        const mergedSkills = [...new Set([...profileSkills, ...appSkills])];
         return {
           ...app.toJSON(),
+          skills: mergedSkills,
+          candidateProfile: {
+            skills: profileSkills,
+            yearsExperience: profile.yearsExperience || '',
+            education: profile.education || '',
+            location: profile.location || '',
+            jobTitle: profile.jobTitle || '',
+            profilePhoto: profile.profilePhoto || ''
+          },
           jobTitle: job ? (job.jobTitle || job.title) : 'Unknown Position',
           jobCode: job ? formatJobCode(job.positionId, job.company) : ''
         };

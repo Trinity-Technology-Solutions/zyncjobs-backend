@@ -158,11 +158,11 @@ const ruleBasedScore = (resumeText, jobDescription = '') => {
 
 // ─── AI FEEDBACK (qualitative only, not scores) ──────────────────────────────
 
-import { callGroq } from '../services/groqService.js';
-
 const callAI = async (prompt) => {
   try {
-    return await callGroq({ feature: 'resume-score', messages: [{ role: 'user', content: prompt }], maxTokens: 1200, temperature: 0.4 });
+    const { default: aiClient } = await import('../services/aiClient.js');
+    const result = await aiClient.suggest(prompt);
+    return result.reply || null;
   } catch { return null; }
 };
 
