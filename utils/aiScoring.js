@@ -1,5 +1,5 @@
 // AI Scoring Engine for Trinity Jobs
-import { callGroq } from '../services/groqService.js';
+import aiClient from '../services/aiClient.js';
 
 export class AIScoring {
   
@@ -23,8 +23,7 @@ export class AIScoring {
     
     if (resumeData.name && resumeData.location) score += 10;
     
-    // Enhance with AI if requested
-    if (useAI && process.env.GROQ_API_KEY) {
+    if (useAI) {
       try {
         const aiScore = await this.aiScore('resume', resumeData);
         score = Math.round(score * 0.5 + aiScore * 0.5);
@@ -52,7 +51,7 @@ export class AIScoring {
     
     if (jobData.jobType) score += 10;
     
-    if (useAI && process.env.GROQ_API_KEY) {
+    if (useAI) {
       try {
         const aiScore = await this.aiScore('job', jobData);
         score = Math.round(score * 0.5 + aiScore * 0.5);
@@ -99,7 +98,7 @@ export class AIScoring {
     if (candidateData.preferredJobType === jobData.jobType) score += 10;
     else score += 5;
     
-    if (useAI && process.env.GROQ_API_KEY) {
+    if (useAI) {
       try {
         const aiScore = await this.aiMatchScore(candidateData, jobData);
         score = Math.round(score * 0.5 + aiScore * 0.5);
@@ -129,23 +128,13 @@ export class AIScoring {
       if (data.skills?.length > 20) riskScore += 10;
     }
     
-    if (useAI && process.env.GROQ_API_KEY) {
+    if (useAI) {
       try {
-        const prompt = `Analyze this ${type} data for risk factors, spam indicators, and red flags. Return a single number between 0-100 where 0 = no risk, 100 = extremely risky.
-
-Data: ${JSON.stringify(data)}
-
-Return ONLY a number, no other text.`;
-        const raw = await callGroq({
-          feature: 'ai-scoring',
-          messages: [{ role: 'user', content: prompt }],
-          maxTokens: 50,
-          temperature: 0.1,
-        });
-        const aiRisk = parseInt(raw);
-        if (!isNaN(aiRisk)) {
-          riskScore = Math.round(riskScore * 0.4 + aiRisk * 0.6);
-        }
+        const result = await aiClient.suggest(
+          `Analyze this ${type} data for risk factors, spam indicators, and red flags. Return a single number between 0-100 where 0 = no risk, 100 = extremely risky. Data: ${JSON.stringify(data)}. Return ONLY a number.`
+        );
+        const aiRisk = parseInt(result.reply);
+        if (!isNaN(aiRisk)) riskScore = Math.round(riskScore * 0.4 + aiRisk * 0.6);
       } catch { /* fallback to rule-based */ }
     }
     
@@ -179,38 +168,20 @@ Return ONLY a number, no other text.`;
     };
   }
   
-  // AI-powered single score (0-100)
   static async aiScore(type, data) {
-    const prompt = `Score this ${type} data from 0-100 where 100 is perfect. Consider quality, completeness, and relevance.
-Return ONLY a number between 0-100, no other text.
-
-Data: ${JSON.stringify(data)}`;
-    const raw = await callGroq({
-      feature: 'ai-scoring',
-      messages: [{ role: 'user', content: prompt }],
-      maxTokens: 50,
-      temperature: 0.1,
-    });
-    const score = parseInt(raw);
+    const result = await aiClient.suggest(
+      `Score this ${type} data from 0-100 where 100 is perfect. Consider quality, completeness, and relevance. Return ONLY a number between 0-100. Data: ${JSON.stringify(data)}`
+    );
+    const score = parseInt(result.reply);
     if (isNaN(score)) throw new Error('Invalid AI score');
     return Math.max(0, Math.min(100, score));
   }
   
-  // AI-powered match score (0-100)
   static async aiMatchScore(candidateData, jobData) {
-    const prompt = `Score how well this candidate matches the job from 0-100 where 100 is perfect.
-Consider: skills match, experience relevance, location, and overall fit.
-Return ONLY a number between 0-100, no other text.
-
-Candidate: ${JSON.stringify({ skills: candidateData.skills, experience: candidateData.experience, location: candidateData.location })}
-Job: ${JSON.stringify({ skills: jobData.skills, requiredExp: jobData.experienceRange, location: jobData.location })}`;
-    const raw = await callGroq({
-      feature: 'job-match',
-      messages: [{ role: 'user', content: prompt }],
-      maxTokens: 50,
-      temperature: 0.1,
-    });
-    const score = parseInt(raw);
+    const result = await aiClient.suggest(
+      `Score how well this candidate matches the job from 0-100 where 100 is perfect. Consider skills match, experience relevance, location, and overall fit. Return ONLY a number between 0-100. Candidate: ${JSON.stringify({ skills: candidateData.skills, experience: candidateData.experience, location: candidateData.location })} Job: ${JSON.stringify({ skills: jobData.skills, requiredExp: jobData.experienceRange, location: jobData.location })}`
+    );
+    const score = parseInt(result.reply);
     if (isNaN(score)) throw new Error('Invalid AI match score');
     return Math.max(0, Math.min(100, score));
   }

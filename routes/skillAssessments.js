@@ -5,16 +5,12 @@ import { sequelize } from '../config/postgresql.js';
 import { authenticateToken } from '../middleware/auth.js';
 const router = express.Router();
 
-import { callGroq } from '../services/groqService.js';
+import aiClient from '../services/aiClient.js';
 
 const callAI = async (prompt) => {
   try {
-    return await callOpenRouter({
-      feature: 'skill-assessment',
-      messages: [{ role: 'user', content: prompt }],
-      maxTokens: 3000,
-      temperature: 0.7,
-    });
+    const result = await aiClient.suggest(prompt);
+    return result.reply || null;
   } catch { return null; }
 };
 
@@ -47,32 +43,148 @@ const parseQuestions = (content) => {
 
 // Fallback question bank for common skills
 const FALLBACK_QUESTIONS = {
+  javascript: () => [
+    { question: 'What does `typeof null` return in JavaScript?', options: ['null', 'undefined', 'object', 'string'], correctAnswer: 2 },
+    { question: 'Which method removes the last element from an array?', options: ['shift()', 'pop()', 'splice()', 'slice()'], correctAnswer: 1 },
+    { question: 'What is a closure in JavaScript?', options: ['A loop construct', 'A function with access to its outer scope', 'An error handler', 'A class method'], correctAnswer: 1 },
+    { question: 'What does `===` check?', options: ['Value only', 'Type only', 'Value and type', 'Reference equality'], correctAnswer: 2 },
+    { question: 'Which keyword declares a block-scoped variable?', options: ['var', 'let', 'function', 'global'], correctAnswer: 1 },
+    { question: 'What does `Array.prototype.map()` return?', options: ['The original array', 'A new array', 'undefined', 'A boolean'], correctAnswer: 1 },
+    { question: 'What is the event loop in JavaScript?', options: ['A for loop', 'A mechanism to handle async operations', 'A DOM event', 'A CSS animation'], correctAnswer: 1 },
+    { question: 'Which of these is NOT a JavaScript primitive type?', options: ['Symbol', 'BigInt', 'Array', 'undefined'], correctAnswer: 2 },
+    { question: 'What does `Promise.all()` do?', options: ['Runs promises sequentially', 'Runs all promises in parallel and waits for all', 'Returns the first resolved', 'Cancels all promises'], correctAnswer: 1 },
+    { question: 'What is hoisting in JavaScript?', options: ['Moving code to the server', 'Variable/function declarations moved to top of scope', 'A CSS property', 'An async pattern'], correctAnswer: 1 },
+  ],
+  python: () => [
+    { question: 'What is the output of `type([])`?', options: ['list', '<class list>', "<class 'list'>", 'array'], correctAnswer: 2 },
+    { question: 'Which keyword is used to define a function in Python?', options: ['function', 'def', 'fun', 'lambda'], correctAnswer: 1 },
+    { question: 'What does `len([1,2,3])` return?', options: ['2', '3', '4', 'Error'], correctAnswer: 1 },
+    { question: 'What is a list comprehension?', options: ['A loop', 'A concise way to create lists', 'A dictionary method', 'A class'], correctAnswer: 1 },
+    { question: 'Which of these is immutable in Python?', options: ['list', 'dict', 'tuple', 'set'], correctAnswer: 2 },
+    { question: 'What does `*args` do in a function?', options: ['Passes keyword args', 'Passes variable positional args', 'Multiplies args', 'Unpacks a dict'], correctAnswer: 1 },
+    { question: 'What is a decorator in Python?', options: ['A CSS concept', 'A function that wraps another function', 'A class attribute', 'A loop modifier'], correctAnswer: 1 },
+    { question: 'What does `__init__` do?', options: ['Destroys an object', 'Initializes a class instance', 'Imports a module', 'Defines a static method'], correctAnswer: 1 },
+    { question: 'Which module is used for regular expressions in Python?', options: ['regex', 're', 'regexp', 'pattern'], correctAnswer: 1 },
+    { question: 'What is the GIL in Python?', options: ['Global Import Lock', 'Global Interpreter Lock', 'General Input Layer', 'Graph Interface Library'], correctAnswer: 1 },
+  ],
+  react: () => [
+    { question: 'What hook is used for side effects in React?', options: ['useState', 'useEffect', 'useContext', 'useRef'], correctAnswer: 1 },
+    { question: 'What does JSX stand for?', options: ['JavaScript XML', 'Java Syntax Extension', 'JSON XML', 'JavaScript Extension'], correctAnswer: 0 },
+    { question: 'What is the virtual DOM?', options: ['A real browser DOM', 'A lightweight copy of the DOM', 'A CSS framework', 'A database'], correctAnswer: 1 },
+    { question: 'Which hook manages local component state?', options: ['useEffect', 'useContext', 'useState', 'useReducer'], correctAnswer: 2 },
+    { question: 'What is a React key used for?', options: ['Styling', 'Identifying list items uniquely', 'Event handling', 'API calls'], correctAnswer: 1 },
+    { question: 'What is prop drilling?', options: ['A build tool', 'Passing props through many component levels', 'A CSS technique', 'A testing method'], correctAnswer: 1 },
+    { question: 'What does `useCallback` do?', options: ['Fetches data', 'Memoizes a function reference', 'Creates a ref', 'Manages state'], correctAnswer: 1 },
+    { question: 'What is React Context used for?', options: ['Routing', 'Global state sharing without prop drilling', 'Styling', 'Testing'], correctAnswer: 1 },
+    { question: 'What is a controlled component?', options: ['A component with no state', 'A form element whose value is controlled by React state', 'A class component', 'A pure component'], correctAnswer: 1 },
+    { question: 'What does `React.memo` do?', options: ['Stores data', 'Prevents re-render if props unchanged', 'Creates a context', 'Handles errors'], correctAnswer: 1 },
+  ],
+  'node.js': () => [
+    { question: 'What is Node.js?', options: ['A browser', 'A JavaScript runtime built on Chrome V8', 'A database', 'A CSS framework'], correctAnswer: 1 },
+    { question: 'Which module system does Node.js use natively?', options: ['AMD', 'CommonJS (require/module.exports)', 'UMD', 'SystemJS'], correctAnswer: 1 },
+    { question: 'What does `npm` stand for?', options: ['Node Package Manager', 'New Project Module', 'Node Process Manager', 'Network Package Module'], correctAnswer: 0 },
+    { question: 'What is the event loop in Node.js?', options: ['A for loop', 'A mechanism for non-blocking I/O', 'A database loop', 'A CSS animation'], correctAnswer: 1 },
+    { question: 'Which built-in module handles file system operations?', options: ['http', 'path', 'fs', 'os'], correctAnswer: 2 },
+    { question: 'What is middleware in Express.js?', options: ['A database', 'A function that processes requests before the route handler', 'A CSS file', 'A test runner'], correctAnswer: 1 },
+    { question: 'What does `process.env` provide?', options: ['CPU info', 'Environment variables', 'File paths', 'Network config'], correctAnswer: 1 },
+    { question: 'What is a stream in Node.js?', options: ['A video player', 'An object for reading/writing data in chunks', 'A database query', 'A CSS property'], correctAnswer: 1 },
+    { question: 'What does `async/await` do in Node.js?', options: ['Blocks the thread', 'Simplifies working with Promises', 'Creates threads', 'Handles CSS'], correctAnswer: 1 },
+    { question: 'What is the purpose of `package.json`?', options: ['Store CSS', 'Define project metadata and dependencies', 'Configure the database', 'Store images'], correctAnswer: 1 },
+  ],
+  java: () => [
+    { question: 'What is the entry point of a Java program?', options: ['start()', 'main()', 'run()', 'init()'], correctAnswer: 1 },
+    { question: 'Which keyword is used to inherit a class in Java?', options: ['implements', 'extends', 'inherits', 'super'], correctAnswer: 1 },
+    { question: 'What is the difference between `==` and `.equals()` in Java?', options: ['No difference', '== compares references, .equals() compares values', '== compares values, .equals() compares references', 'Both compare values'], correctAnswer: 1 },
+    { question: 'What is a Java interface?', options: ['A class with implementation', 'A contract defining method signatures', 'A database connection', 'A loop construct'], correctAnswer: 1 },
+    { question: 'What does JVM stand for?', options: ['Java Virtual Machine', 'Java Variable Method', 'Java Version Manager', 'Java Visual Module'], correctAnswer: 0 },
+    { question: 'Which collection allows duplicate elements in Java?', options: ['Set', 'Map', 'List', 'HashSet'], correctAnswer: 2 },
+    { question: 'What is autoboxing in Java?', options: ['Automatic memory management', 'Automatic conversion between primitives and wrapper classes', 'Auto-importing packages', 'Automatic exception handling'], correctAnswer: 1 },
+    { question: 'What is the purpose of the `final` keyword?', options: ['Marks a method as abstract', 'Prevents modification of variables, methods, or classes', 'Defines a constructor', 'Creates a new thread'], correctAnswer: 1 },
+    { question: 'What is a checked exception in Java?', options: ['An exception caught at compile time', 'An exception that must be declared or caught', 'A runtime error', 'A syntax error'], correctAnswer: 1 },
+    { question: 'What does `static` mean in Java?', options: ['The member belongs to an instance', 'The member belongs to the class, not instances', 'The variable cannot change', 'The method is private'], correctAnswer: 1 },
+  ],
+  typescript: () => [
+    { question: 'What is TypeScript?', options: ['A database language', 'A typed superset of JavaScript', 'A CSS preprocessor', 'A testing framework'], correctAnswer: 1 },
+    { question: 'What does the `interface` keyword do in TypeScript?', options: ['Creates a class', 'Defines a contract for object shapes', 'Imports a module', 'Declares a variable'], correctAnswer: 1 },
+    { question: 'What is a union type in TypeScript?', options: ['A type that combines two classes', 'A type that can be one of several types', 'A generic type', 'An intersection type'], correctAnswer: 1 },
+    { question: 'What does `readonly` do in TypeScript?', options: ['Makes a property optional', 'Prevents a property from being reassigned', 'Makes a property public', 'Marks a method as abstract'], correctAnswer: 1 },
+    { question: 'What is the `any` type in TypeScript?', options: ['A strict type', 'A type that disables type checking', 'A generic constraint', 'A null type'], correctAnswer: 1 },
+    { question: 'What is a generic in TypeScript?', options: ['A global variable', 'A reusable component that works with multiple types', 'A CSS class', 'A database type'], correctAnswer: 1 },
+    { question: 'What does the `?` operator mean on a property?', options: ['The property is required', 'The property is optional', 'The property is readonly', 'The property is private'], correctAnswer: 1 },
+    { question: 'What is type narrowing in TypeScript?', options: ['Reducing the number of types', 'Refining a type within a conditional block', 'Casting to any', 'Removing generics'], correctAnswer: 1 },
+    { question: 'What does `as` do in TypeScript?', options: ['Imports a module', 'Type assertion — tells the compiler to treat a value as a specific type', 'Creates an alias', 'Defines an enum'], correctAnswer: 1 },
+    { question: 'What is the difference between `type` and `interface` in TypeScript?', options: ['No difference', 'type can represent primitives and unions; interface is for object shapes and is extendable', 'interface is faster', 'type is deprecated'], correctAnswer: 1 },
+  ],
+  sql: () => [
+    { question: 'What does SQL stand for?', options: ['Structured Query Language', 'Simple Query Logic', 'Standard Query List', 'Sequential Query Language'], correctAnswer: 0 },
+    { question: 'Which SQL clause filters rows?', options: ['GROUP BY', 'ORDER BY', 'WHERE', 'HAVING'], correctAnswer: 2 },
+    { question: 'What is a PRIMARY KEY?', options: ['A foreign key', 'A unique identifier for each row', 'An index', 'A constraint that allows nulls'], correctAnswer: 1 },
+    { question: 'What does JOIN do in SQL?', options: ['Deletes rows', 'Combines rows from two or more tables', 'Creates a new table', 'Filters duplicates'], correctAnswer: 1 },
+    { question: 'What is the difference between WHERE and HAVING?', options: ['No difference', 'WHERE filters rows before grouping; HAVING filters after grouping', 'HAVING is faster', 'WHERE works only with strings'], correctAnswer: 1 },
+    { question: 'What does `SELECT DISTINCT` do?', options: ['Selects all rows', 'Returns only unique values', 'Selects the first row', 'Counts rows'], correctAnswer: 1 },
+    { question: 'What is a foreign key?', options: ['A key from another database', 'A column that references the primary key of another table', 'An encrypted key', 'A composite key'], correctAnswer: 1 },
+    { question: 'What does `GROUP BY` do?', options: ['Sorts results', 'Groups rows with the same values for aggregate functions', 'Filters rows', 'Joins tables'], correctAnswer: 1 },
+    { question: 'What is an index in SQL?', options: ['A row number', 'A data structure that speeds up queries', 'A foreign key', 'A view'], correctAnswer: 1 },
+    { question: 'What does `INNER JOIN` return?', options: ['All rows from both tables', 'Only matching rows from both tables', 'All rows from the left table', 'All rows from the right table'], correctAnswer: 1 },
+  ],
+  aws: () => [
+    { question: 'What does AWS S3 stand for?', options: ['Simple Storage Service', 'Secure Server System', 'Scalable Storage Solution', 'Static Site Service'], correctAnswer: 0 },
+    { question: 'What is AWS EC2?', options: ['A database service', 'A virtual server in the cloud', 'A DNS service', 'A CDN'], correctAnswer: 1 },
+    { question: 'What is AWS Lambda?', options: ['A virtual machine', 'A serverless compute service', 'A database', 'A load balancer'], correctAnswer: 1 },
+    { question: 'What does IAM stand for in AWS?', options: ['Internet Access Management', 'Identity and Access Management', 'Internal Application Module', 'Integrated API Manager'], correctAnswer: 1 },
+    { question: 'What is Amazon RDS?', options: ['A file storage service', 'A managed relational database service', 'A serverless function', 'A CDN'], correctAnswer: 1 },
+    { question: 'What is an AWS VPC?', options: ['A virtual private cloud — isolated network', 'A virtual processor core', 'A video processing cluster', 'A version control platform'], correctAnswer: 0 },
+    { question: 'What is AWS CloudFront?', options: ['A database', 'A CDN for delivering content globally', 'A compute service', 'A monitoring tool'], correctAnswer: 1 },
+    { question: 'What is the purpose of AWS Auto Scaling?', options: ['Backup data', 'Automatically adjust compute capacity based on demand', 'Monitor logs', 'Manage DNS'], correctAnswer: 1 },
+    { question: 'What is AWS SQS?', options: ['A database', 'A managed message queue service', 'A serverless function', 'A storage service'], correctAnswer: 1 },
+    { question: 'What is the AWS Shared Responsibility Model?', options: ['AWS handles everything', 'AWS secures the infrastructure; customers secure their data and apps', 'Customers handle everything', 'Security is optional'], correctAnswer: 1 },
+  ],
+  docker: () => [
+    { question: 'What is Docker?', options: ['A programming language', 'A platform for containerizing applications', 'A cloud provider', 'A database'], correctAnswer: 1 },
+    { question: 'What is a Docker image?', options: ['A running container', 'A read-only template used to create containers', 'A virtual machine', 'A network configuration'], correctAnswer: 1 },
+    { question: 'What is a Dockerfile?', options: ['A log file', 'A script with instructions to build a Docker image', 'A container registry', 'A network config'], correctAnswer: 1 },
+    { question: 'What does `docker run` do?', options: ['Builds an image', 'Creates and starts a container from an image', 'Stops a container', 'Pushes an image'], correctAnswer: 1 },
+    { question: 'What is Docker Compose?', options: ['A music app', 'A tool for defining and running multi-container applications', 'A container registry', 'A monitoring tool'], correctAnswer: 1 },
+    { question: 'What is a Docker volume?', options: ['A container size limit', 'Persistent storage for containers', 'A network bridge', 'An image layer'], correctAnswer: 1 },
+    { question: 'What does `docker ps` show?', options: ['All images', 'Running containers', 'Docker version', 'Network config'], correctAnswer: 1 },
+    { question: 'What is Docker Hub?', options: ['A local registry', 'A public registry for Docker images', 'A container orchestrator', 'A monitoring service'], correctAnswer: 1 },
+    { question: 'What is the difference between CMD and ENTRYPOINT in a Dockerfile?', options: ['No difference', 'ENTRYPOINT sets the main command; CMD provides default arguments', 'CMD is required; ENTRYPOINT is optional', 'ENTRYPOINT runs at build time'], correctAnswer: 1 },
+    { question: 'What does `docker build` do?', options: ['Runs a container', 'Builds a Docker image from a Dockerfile', 'Pulls an image', 'Stops all containers'], correctAnswer: 1 },
+  ],
+  git: () => [
+    { question: 'What does `git init` do?', options: ['Clones a repo', 'Initializes a new Git repository', 'Commits changes', 'Pushes to remote'], correctAnswer: 1 },
+    { question: 'What does `git clone` do?', options: ['Creates a branch', 'Copies a remote repository locally', 'Merges branches', 'Deletes a repo'], correctAnswer: 1 },
+    { question: 'What is a Git branch?', options: ['A commit', 'A parallel line of development', 'A remote server', 'A merge conflict'], correctAnswer: 1 },
+    { question: 'What does `git merge` do?', options: ['Deletes a branch', 'Combines changes from one branch into another', 'Creates a new commit', 'Reverts changes'], correctAnswer: 1 },
+    { question: 'What is a merge conflict?', options: ['A network error', 'When two branches have conflicting changes to the same file', 'A deleted branch', 'A failed push'], correctAnswer: 1 },
+    { question: 'What does `git rebase` do?', options: ['Deletes commits', 'Moves or replays commits onto another base branch', 'Creates a tag', 'Pushes to remote'], correctAnswer: 1 },
+    { question: 'What is `git stash` used for?', options: ['Deleting changes', 'Temporarily saving uncommitted changes', 'Creating a branch', 'Merging branches'], correctAnswer: 1 },
+    { question: 'What does `git pull` do?', options: ['Pushes local changes', 'Fetches and merges remote changes', 'Creates a branch', 'Reverts a commit'], correctAnswer: 1 },
+    { question: 'What is a `.gitignore` file?', options: ['A commit message file', 'A file specifying which files Git should ignore', 'A branch config', 'A merge strategy'], correctAnswer: 1 },
+    { question: 'What does `git cherry-pick` do?', options: ['Deletes a commit', 'Applies a specific commit from one branch to another', 'Creates a tag', 'Resets the HEAD'], correctAnswer: 1 },
+  ],
   default: (skill) => [
-    { question: `Which of the following best describes ${skill}?`, options: [`A programming paradigm`, `A software tool or technology`, `A database system`, `A networking protocol`], correctAnswer: 1 },
-    { question: `What is a primary use case for ${skill}?`, options: [`Data storage`, `Building applications or solving technical problems`, `Network routing`, `Hardware management`], correctAnswer: 1 },
-    { question: `Which concept is most closely associated with ${skill}?`, options: [`Abstraction`, `Encapsulation`, `Modularity`, `All of the above`], correctAnswer: 3 },
-    { question: `What is a best practice when working with ${skill}?`, options: [`Ignoring documentation`, `Writing clean, readable code`, `Avoiding version control`, `Skipping testing`], correctAnswer: 1 },
-    { question: `How does ${skill} handle errors?`, options: [`It ignores them`, `Through error handling mechanisms`, `By crashing the program`, `Errors are not possible`], correctAnswer: 1 },
-    { question: `What tool is commonly used alongside ${skill}?`, options: [`A text editor or IDE`, `A physical calculator`, `A fax machine`, `A typewriter`], correctAnswer: 0 },
-    { question: `Which of the following is a key benefit of ${skill}?`, options: [`Increased complexity`, `Improved productivity and efficiency`, `Slower performance`, `Higher hardware costs`], correctAnswer: 1 },
-    { question: `What does debugging mean in the context of ${skill}?`, options: [`Adding new features`, `Finding and fixing errors in code`, `Deploying to production`, `Writing documentation`], correctAnswer: 1 },
-    { question: `What is version control used for in ${skill} projects?`, options: [`Tracking changes and collaborating`, `Speeding up execution`, `Reducing file size`, `Encrypting data`], correctAnswer: 0 },
-    { question: `Which approach improves code quality in ${skill}?`, options: [`Writing everything in one file`, `Code reviews and testing`, `Avoiding comments`, `Using global variables everywhere`], correctAnswer: 1 }
+    { question: `What is ${skill} primarily used for?`, options: [`Building user interfaces`, `Solving specific technical problems in its domain`, `Database management`, `Network configuration`], correctAnswer: 1 },
+    { question: `Which of the following is a core concept in ${skill}?`, options: [`Abstraction and modularity`, `Physical hardware management`, `CSS styling`, `DNS routing`], correctAnswer: 0 },
+    { question: `What is a best practice when working with ${skill}?`, options: [`Ignoring documentation`, `Writing clean, maintainable code`, `Avoiding version control`, `Skipping testing`], correctAnswer: 1 },
+    { question: `How does ${skill} handle errors or exceptions?`, options: [`It ignores them`, `Through structured error handling mechanisms`, `By crashing the program`, `Errors are impossible`], correctAnswer: 1 },
+    { question: `What tool is commonly used to manage ${skill} projects?`, options: [`A text editor or IDE`, `A physical calculator`, `A fax machine`, `A typewriter`], correctAnswer: 0 },
+    { question: `Which of the following is a key benefit of ${skill}?`, options: [`Increased complexity`, `Improved developer productivity`, `Slower performance`, `Higher hardware costs`], correctAnswer: 1 },
+    { question: `What does debugging mean in ${skill} development?`, options: [`Adding new features`, `Finding and fixing errors in code`, `Deploying to production`, `Writing documentation`], correctAnswer: 1 },
+    { question: `What is version control used for in ${skill} projects?`, options: [`Tracking changes and collaborating with teams`, `Speeding up execution`, `Reducing file size`, `Encrypting data`], correctAnswer: 0 },
+    { question: `Which approach improves code quality in ${skill}?`, options: [`Writing everything in one file`, `Code reviews and automated testing`, `Avoiding comments`, `Using global variables everywhere`], correctAnswer: 1 },
+    { question: `What is the role of documentation in ${skill}?`, options: [`It slows development`, `It helps developers understand and use the codebase effectively`, `It is only for beginners`, `It replaces testing`], correctAnswer: 1 },
   ]
 };
 
 const getFallbackQuestions = (skill) => {
-  const generator = FALLBACK_QUESTIONS[skill.toLowerCase()] || FALLBACK_QUESTIONS.default;
+  const key = skill.toLowerCase();
+  const generator = FALLBACK_QUESTIONS[key] || FALLBACK_QUESTIONS.default;
   return generator(skill);
 };
 
 // Generate exactly 10 AI questions for any skill
 const generateAIQuestions = async (skill) => {
-  if (!process.env.OPENROUTER_API_KEY) {
-    console.error('OPENROUTER_API_KEY not found');
-    return null;
-  }
-
   const prompt = `Generate EXACTLY 10 multiple choice questions about ${skill} for a technical skill assessment.
 
 Return ONLY a valid JSON array with no extra text.
@@ -98,9 +210,7 @@ Rules:
 
 const generateAssessmentReview = async (skill, score, correctAnswers, totalQuestions, questions = [], answers = []) => {
   try {
-    if (!process.env.OPENROUTER_API_KEY) return getDefaultReview(skill, score, questions, answers);
-
-    // Build wrong question topics for context
+    if (!content) return getDefaultReview(skill, score, questions, answers);
     const wrongTopics = questions
       .map((q, i) => answers[i] !== q.correctAnswer ? q.question : null)
       .filter(Boolean)

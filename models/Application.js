@@ -45,7 +45,15 @@ const Application = sequelize.define('Application', {
   },
   withdrawnAt: DataTypes.DATE,
   withdrawalReason: DataTypes.STRING,
-  timeline: DataTypes.JSONB
+  timeline: DataTypes.JSONB,
+  skills: {
+    type: DataTypes.JSONB,
+    defaultValue: []
+  },
+  resumeSkills: {
+    type: DataTypes.JSONB,
+    defaultValue: []
+  }
 }, {
   tableName: 'applications',
   timestamps: true,

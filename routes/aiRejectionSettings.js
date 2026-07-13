@@ -6,7 +6,7 @@ import Job from '../models/Job.js';
 import Profile from '../models/Profile.js';
 import Resume from '../models/Resume.js';
 import { sendApplicationRejectionEmail } from '../services/emailService.js';
-import { callGroq } from '../services/groqService.js';
+import aiClient from '../services/aiClient.js';
 
 const router = express.Router();
 
@@ -106,36 +106,24 @@ function scoreExperience(candidateYearsExp = 0, jobExperienceLevel = 'Mid', jobE
 
 // ── AI scoring via Groq ─────────────────────────────────────────────────────
 async function getAiScore(candidate, job) {
-  const prompt = `You are a strict technical recruiter. Score this candidate for the job.
-
-JOB: ${job.jobTitle} at ${job.company}
-Required Skills: ${(job.skills || []).join(', ') || 'Not specified'}
-Experience Level: ${job.experienceLevel || 'Mid'}
-
-CANDIDATE:
-Skills: ${(candidate.skills || []).join(', ') || 'None listed'}
-Years Experience: ${candidate.yearsExp || 0}
-
-Return ONLY valid JSON:
-{
-  "skillsScore": 0-100,
-  "experienceScore": 0-100,
-  "overallScore": 0-100,
-  "shouldReject": true/false,
-  "reasons": ["reason1"],
-  "feedback": "one sentence feedback",
-  "matchingSkills": ["skill1"],
-  "missingSkills": ["skill1"]
-}`;
-
   try {
-    const raw = await callGroq({ feature: 'ai-rejection', messages: [{ role: 'user', content: prompt }], maxTokens: 400, temperature: 0.1 });
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
+    const result = await aiClient.rankingAIScore(candidate, job);
+    if (result && typeof result.overallScore === 'number') return result;
+    // Normalise alternate field names
+    return {
+      skillsScore: result?.skill_score ?? result?.skillsScore ?? null,
+      experienceScore: result?.experience_score ?? result?.experienceScore ?? null,
+      overallScore: result?.overall ?? result?.overallScore ?? null,
+      shouldReject: result?.should_reject ?? result?.shouldReject ?? false,
+      reasons: result?.reasons || [],
+      feedback: result?.feedback || '',
+      matchingSkills: result?.matching_skills || result?.matchingSkills || [],
+      missingSkills: result?.missing_skills || result?.missingSkills || [],
+    };
   } catch (e) {
     console.error('AI scoring error:', e.message);
+    return null;
   }
-  return null;
 }
 
 // ── Core rejection logic ─────────────────────────────────────────────────────

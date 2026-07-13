@@ -1,122 +1,78 @@
-import { callGroq } from './groqService.js';
-import fetch from 'node-fetch';
+import aiClient from './aiClient.js';
 import vectorService from './vectorService.js';
 
 class AIService {
-  constructor() {
-    this.apiKey = process.env.GROQ_API_KEY;
-    this.model = process.env.OPENROUTER_MODEL || 'google/gemma-3-4b-it:free';
-    this.baseUrl = 'https://api.groq.com/openai/v1/chat/completions';
-  }
 
-  async generateCompletion(prompt, systemMessage = '') {
+  async generateCompletion(prompt) {
     try {
-      const response = await fetch(this.baseUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.FRONTEND_URL || 'http://localhost:5000',
-          'X-Title': 'ZyncJobs AI'
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            ...(systemMessage ? [{ role: 'system', content: systemMessage }] : []),
-            { role: 'user', content: prompt }
-          ],
-          temperature: 0.7,
-          max_tokens: 1000
-        })
-      });
-      const data = await response.json();
-      return data.choices?.[0]?.message?.content || 'AI response unavailable';
+      const result = await aiClient.suggest(prompt);
+      return result.reply || 'AI response unavailable';
     } catch (error) {
-      console.error('AI Service Error:', error);
+      console.error('AI Service Error:', error.message);
       return 'AI service temporarily unavailable';
     }
   }
 
   async enhanceResume(resumeData) {
-    return this.generateCompletion(
-      `Enhance this resume data: ${JSON.stringify(resumeData)}`,
-      'You are an expert resume writer. Enhance the given resume content to be more professional and ATS-friendly.'
-    );
+    try {
+      const result = await aiClient.improveResume(JSON.stringify(resumeData));
+      return result.improved || JSON.stringify(resumeData);
+    } catch {
+      return 'AI service temporarily unavailable';
+    }
   }
 
   async generateJobDescription(jobTitle, company, requirements) {
-    return this.generateCompletion(
-      `Create a job description for ${jobTitle} at ${company} with requirements: ${requirements}`,
-      'You are an expert HR professional. Generate compelling job descriptions.'
-    );
+    try {
+      const result = await aiClient.generateJD(jobTitle, '', requirements || []);
+      return result.job_description || `We are looking for a ${jobTitle}${company ? ` at ${company}` : ''}.`;
+    } catch {
+      return `We are looking for a ${jobTitle}${company ? ` at ${company}` : ''}.`;
+    }
   }
 
-  // Real semantic job matching using vectorService
   async semanticJobMatch(resumeData) {
     try {
       const resumeText = vectorService.profileToText(resumeData);
       const matches = await vectorService.findSimilarJobs(resumeText, 10);
-
-      if (!matches.length) return { matches: [], analysis: 'No matching jobs found yet. More jobs will be matched as the index grows.' };
-
-      const topMatches = matches.slice(0, 5).map(j => ({
-        title: j.jobTitle,
-        company: j.company,
-        score: j.matchScore,
-        location: j.location
-      }));
-
+      if (!matches.length) return { matches: [], analysis: 'No matching jobs found yet.' };
+      const topMatches = matches.slice(0, 5).map(j => ({ title: j.jobTitle, company: j.company, score: j.matchScore, location: j.location }));
       const analysis = await this.generateCompletion(
-        `A candidate has these skills: ${(resumeData.skills || []).join(', ')}.\nTop matching jobs: ${JSON.stringify(topMatches)}.\nIn 2-3 sentences, explain why these jobs are a good match and what the candidate should highlight.`,
-        'You are an expert job matching AI.'
+        `A candidate has these skills: ${(resumeData.skills || []).join(', ')}. Top matching jobs: ${JSON.stringify(topMatches)}. In 2-3 sentences, explain why these jobs are a good match.`
       );
-
       return { matches, analysis };
     } catch (error) {
-      console.error('Semantic job match error:', error);
+      console.error('Semantic job match error:', error.message);
       return { matches: [], analysis: 'Matching service temporarily unavailable' };
     }
   }
 
-  // Real semantic candidate matching using vectorService
   async semanticCandidateMatch(jobData) {
     try {
       const jobText = vectorService.jobToText(jobData);
       const matches = await vectorService.findSimilarCandidates(jobText, 20);
-
       if (!matches.length) return { matches: [], analysis: 'No candidate profiles indexed yet.' };
-
       const analysis = await this.generateCompletion(
-        `Job: ${jobData.jobTitle} at ${jobData.company}. Required skills: ${(jobData.skills || []).join(', ')}.\nFound ${matches.length} matching candidates with scores: ${matches.slice(0, 3).map(c => c.matchScore + '%').join(', ')}.\nIn 2 sentences, summarize the talent pool quality.`,
-        'You are an expert recruiter AI.'
+        `Job: ${jobData.jobTitle} at ${jobData.company}. Found ${matches.length} matching candidates. In 2 sentences, summarize the talent pool quality.`
       );
-
       return { matches, analysis };
     } catch (error) {
-      console.error('Semantic candidate match error:', error);
+      console.error('Semantic candidate match error:', error.message);
       return { matches: [], analysis: 'Matching service temporarily unavailable' };
     }
   }
 
   async matchJobs(candidateProfile, jobListings) {
-    // Score each job against the profile using vectorService
-    const profileText = vectorService.profileToText(candidateProfile);
-    const profileVec = vectorService.buildVector(profileText);
-
-    const scored = jobListings.map(job => {
-      const jobText = vectorService.jobToText(job);
-      const jobVec = vectorService.buildVector(jobText);
-      const score = vectorService.getMatchScore(job, candidateProfile);
-      return { ...job, matchScore: score };
-    });
-
+    const scored = jobListings.map(job => ({
+      ...job,
+      matchScore: vectorService.getMatchScore(job, candidateProfile),
+    }));
     return scored.sort((a, b) => b.matchScore - a.matchScore);
   }
 
   async provideCareerAdvice(userQuery, userProfile) {
     return this.generateCompletion(
-      `User profile: ${JSON.stringify(userProfile)}\nQuery: ${userQuery}`,
-      'You are an expert career coach. Provide personalized career advice based on user profiles and queries.'
+      `User profile: ${JSON.stringify(userProfile)}\nQuery: ${userQuery}`
     );
   }
 
