@@ -427,6 +427,7 @@ router.post('/delete-account', authenticateToken, async (req, res) => {
     await safeDestroy('../models/TeamMember.js',      { [Op.or]: [{ employerId: userEmail }, { memberEmail: userEmail }] }, 'TeamMembers');
     await safeDestroy('../models/SkillAssessment.js', { userId }, 'SkillAssessments');
     await safeDestroy('../models/PasswordReset.js',   { [Op.or]: [{ userId }, { email: userEmail }] }, 'PasswordResets');
+    await safeDestroy('../models/UserPreferences.js', { userId }, 'UserPreferences');
     
     // Delete GDPR consent record
     await GdprConsent.destroy({ where: { userId } });

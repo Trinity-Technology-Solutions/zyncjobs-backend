@@ -1450,6 +1450,7 @@ router.delete('/:id', async (req, res) => {
     await safeDestroy('../models/TeamMember.js',    { [Op.or]: [{ employerId: userEmail }, { memberEmail: userEmail }] }, 'TeamMembers');
     await safeDestroy('../models/SkillAssessment.js', { userId }, 'SkillAssessments');
     await safeDestroy('../models/PasswordReset.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'PasswordResets');
+    await safeDestroy('../models/UserPreferences.js', { userId }, 'UserPreferences');
 
     // Finally delete the user
     await User.destroy({ where: { id: userId } });

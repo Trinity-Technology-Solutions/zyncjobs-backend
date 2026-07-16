@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
 import GdprConsent from '../models/GdprConsent.js';
+import UserPreferences from '../models/UserPreferences.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole, requireSuperAdmin } from '../middleware/roleAuth.js';
 import { sendAdminInviteEmail } from '../services/emailService.js';
@@ -416,6 +417,9 @@ router.delete('/:id', ...adminGuard, async (req, res) => {
 
     // Log the action before deletion
     await logAdminAction(req, 'delete', target.email, `Deleted ${target.role} account`, req.params.id);
+    
+    // Delete user preferences first
+    await UserPreferences.destroy({ where: { userId: req.params.id } });
     
     // Actually delete the user from database
     await User.destroy({ where: { id: req.params.id } });
