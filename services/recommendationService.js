@@ -1,4 +1,3 @@
-import { Op } from 'sequelize';
 import Job from '../models/Job.js';
 import Profile from '../models/Profile.js';
 import vectorService from './vectorService.js';
@@ -6,22 +5,15 @@ import vectorService from './vectorService.js';
 export const getSmartRecommendations = async (userId, limit = 10) => {
   try {
     const profile = await Profile.findOne({ where: { userId } });
-    if (!profile) return getFallbackJobs(limit);
+    if (!profile) return [];
 
     const queryText = vectorService.profileToText(profile.toJSON());
     const matches = await vectorService.findSimilarJobs(queryText, limit);
 
-    if (matches.length >= 3) return matches;
-
-    // Fallback: skill overlap query
-    const where = { isActive: true, status: 'approved' };
-    if (profile.skills?.length) where.skills = { [Op.overlap]: profile.skills };
-    const jobs = await Job.findAll({ where, limit, order: [['createdAt', 'DESC']] });
-    return jobs.map(j => ({ ...j.toJSON(), matchScore: vectorService.getMatchScore(j.toJSON(), profile.toJSON()) }))
-               .sort((a, b) => b.matchScore - a.matchScore);
+    return matches;
   } catch (e) {
     console.error('getSmartRecommendations error:', e.message);
-    return getFallbackJobs(limit);
+    return [];
   }
 };
 
@@ -77,7 +69,4 @@ export const getTopCandidatesForJob = async (jobId, limit = 20) => {
   }
 };
 
-const getFallbackJobs = async (limit) => {
-  const jobs = await Job.findAll({ where: { isActive: true, status: 'approved' }, limit, order: [['createdAt', 'DESC']] });
-  return jobs.map(j => ({ ...j.toJSON(), matchScore: 0 }));
-};
+
