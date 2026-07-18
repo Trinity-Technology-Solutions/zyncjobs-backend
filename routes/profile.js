@@ -2,11 +2,12 @@ import express from 'express';
 import User from '../models/User.js';
 import Profile from '../models/Profile.js';
 import vectorService from '../services/vectorService.js';
+import { validateProfile } from '../middleware/profileValidator.js';
 
 const router = express.Router();
 
 // Save/Update profile
-router.post('/save', async (req, res) => {
+router.post('/save', validateProfile, async (req, res) => {
   try {
     const { userId, email, ...profileData } = req.body;
     console.log('📝 Profile save request:', { 
@@ -66,15 +67,12 @@ router.post('/save', async (req, res) => {
         }
       }
     });
-    // Profile model stores these as TEXT (not JSONB) — must stringify before saving
-    const textJsonFields = ['employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','careerPreferences','educationCollege','educationClass12','educationClass10'];
+    // Profile model stores these as TEXT (not JSONB) — validator pre-serializes arrays;
+    // only stringify here if they somehow arrive as raw objects (non-validated path).
+    const textJsonFields = ['employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','careerPreferences','educationCollege','educationClass12','educationClass10','certifications'];
     textJsonFields.forEach(f => {
-      if (updateFields[f] !== undefined && updateFields[f] !== null) {
-        // If it's an object/array, stringify it
-        if (typeof updateFields[f] === 'object') {
-          updateFields[f] = JSON.stringify(updateFields[f]);
-        }
-        // If it's already a string, leave as-is (might be pre-stringified JSON)
+      if (updateFields[f] !== undefined && updateFields[f] !== null && typeof updateFields[f] === 'object') {
+        updateFields[f] = JSON.stringify(updateFields[f]);
       }
     });
 
