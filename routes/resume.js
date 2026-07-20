@@ -245,6 +245,32 @@ router.post('/enhance', authenticateToken, [
   }
 });
 
+// POST /api/resume/extract-text — Extract raw text from uploaded resume file (non-PDF fallback)
+router.post('/extract-text', upload.single('resume'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const text = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer, req.file.originalname);
+    if (!text?.trim()) return res.status(400).json({ error: 'Could not extract text from file' });
+    res.json({ text });
+  } catch (error) {
+    console.error('[EXTRACT_TEXT] Error:', error);
+    res.status(500).json({ error: error.message || 'Text extraction failed' });
+  }
+});
+
+// POST /api/resume/hybrid-parse — Parse resume text + layout blocks, returns ParsedResume format
+router.post('/hybrid-parse', async (req, res) => {
+  try {
+    const { resume_text } = req.body;
+    if (!resume_text?.trim()) return res.status(400).json({ error: 'resume_text is required' });
+    const profileData = await resumeParserService.parseResumeText(resume_text);
+    res.json(profileData);
+  } catch (error) {
+    console.error('[HYBRID_PARSE] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to parse resume' });
+  }
+});
+
 // POST /api/resume/parse-profile - Parse resume text to extract profile data
 router.post('/parse-profile', [
   body('resumeText').notEmpty().withMessage('Resume text is required')
