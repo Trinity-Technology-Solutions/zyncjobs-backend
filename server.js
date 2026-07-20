@@ -95,6 +95,7 @@ import aiClient from './services/aiClient.js';
 import gdprRoutes from './routes/gdpr.js';
 import contactRoutes from './routes/contact.js';
 import aiRoutes from './routes/ai.js';
+import aiProxyRoutes from './routes/aiProxy.js';
 import gstVerifyRoutes from './routes/gstVerify.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
@@ -465,6 +466,7 @@ app.use('/api/ranking', rankingRoutes);
 app.use('/api/gdpr', gdprRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/ai-proxy', aiProxyRoutes);
 app.use('/api/verify', gstVerifyRoutes);
 app.use('/', ogTagsRoutes);
 
