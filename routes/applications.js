@@ -1006,6 +1006,50 @@ router.get('/', async (req, res) => {
         const profileSkills = Array.isArray(profile.skills) ? profile.skills : [];
         const appSkills = Array.isArray(app.skills) ? app.skills : [];
         const mergedSkills = [...new Set([...profileSkills, ...appSkills])];
+
+        // Calculate aiAnalysis scores (same logic as /job/:jobId route)
+        let aiAnalysis = app.aiAnalysis;
+        if (!aiAnalysis && job) {
+          const jobSkills = job.skills || [];
+          const candidateYearsExp = parseFloat(profile.yearsExperience) || 0;
+          let skillsScore = 50;
+          if (jobSkills.length > 0 && mergedSkills.length > 0) {
+            const matched = mergedSkills.filter(cs =>
+              jobSkills.some(js =>
+                cs.toLowerCase().includes(js.toLowerCase()) ||
+                js.toLowerCase().includes(cs.toLowerCase())
+              )
+            );
+            skillsScore = Math.round((matched.length / jobSkills.length) * 100);
+          } else if (jobSkills.length === 0) {
+            skillsScore = 50;
+          } else {
+            skillsScore = 0;
+          }
+          const EXP_MAP = { Entry: 0, Mid: 2, Senior: 5, Lead: 8 };
+          let requiredYears = EXP_MAP[job.experienceLevel] ?? 2;
+          if (job.experienceRange) {
+            const m = job.experienceRange.match(/(\d+)[-+]?\s*(?:to\s*)?(\d+)?\s*years?/i);
+            if (m) requiredYears = parseInt(m[1]);
+          }
+          let experienceScore = 50;
+          if (requiredYears === 0) {
+            experienceScore = 100;
+          } else if (candidateYearsExp >= requiredYears) {
+            experienceScore = Math.min(100, 85 + Math.min(15, (candidateYearsExp - requiredYears) * 3));
+          } else {
+            const ratio = candidateYearsExp / requiredYears;
+            experienceScore = ratio >= 0.8 ? Math.round(ratio * 80) : ratio >= 0.5 ? Math.round(ratio * 60) : Math.round(ratio * 40);
+          }
+          aiAnalysis = {
+            skillsScore,
+            experienceScore,
+            overallScore: Math.round(skillsScore * 0.6 + experienceScore * 0.4),
+            reasons: [],
+            feedback: ''
+          };
+        }
+
         return {
           ...app.toJSON(),
           skills: mergedSkills,
@@ -1018,7 +1062,9 @@ router.get('/', async (req, res) => {
             profilePhoto: profile.profilePhoto || ''
           },
           jobTitle: job ? (job.jobTitle || job.title) : 'Unknown Position',
-          jobCode: job ? formatJobCode(job.positionId, job.company) : ''
+          jobCode: job ? formatJobCode(job.positionId, job.company) : '',
+          aiAnalysis: aiAnalysis || { skillsScore: 50, experienceScore: 50, overallScore: 50, reasons: [], feedback: '' },
+          aiScore: aiAnalysis?.overallScore ?? app.aiScore ?? null
         };
       }));
       return res.json({ applications: enrichedRows, total: enrichedRows.length });
