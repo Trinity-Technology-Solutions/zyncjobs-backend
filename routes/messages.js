@@ -5,6 +5,10 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
+// Socket.IO instance (set by server.js via setIo)
+let _io = null;
+export function setIo(io) { _io = io; }
+
 // Get all messages for a candidate (supports candidateId query parameter)
 router.get('/', async (req, res) => {
   try {
@@ -150,20 +154,51 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Mark messages as read
+// ── Shared: mark messages read + emit socket event ────────────────────────────
+
+async function markConversationRead(conversationId, userId) {
+  const [updated] = await Message.update(
+    { read: true },
+    {
+      where: {
+        conversationId,
+        receiverId: userId,
+        read: false
+      }
+    }
+  );
+  // Emit socket event so both parties see the update in real time
+  if (_io && updated > 0) {
+    _io.emit('conversation_read', {
+      conversationId,
+      userId,
+      readBy: userId,
+      updatedCount: updated,
+      timestamp: new Date().toISOString()
+    });
+  }
+  return updated;
+}
+
+// PUT /api/messages/read — body-based (used by frontend)
+router.put('/read', async (req, res) => {
+  try {
+    const { conversationId, userId } = req.body;
+    if (!conversationId || !userId) {
+      return res.status(400).json({ error: 'conversationId and userId are required' });
+    }
+    const updated = await markConversationRead(conversationId, userId);
+    res.json({ success: true, updated, conversationId });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/messages/:conversationId/read/:userId — path-based (legacy)
 router.put('/:conversationId/read/:userId', async (req, res) => {
   try {
-    await Message.update(
-      { read: true },
-      { 
-        where: { 
-          conversationId: req.params.conversationId, 
-          receiverId: req.params.userId, 
-          read: false 
-        }
-      }
-    );
-    res.json({ message: 'Messages marked as read' });
+    const updated = await markConversationRead(req.params.conversationId, req.params.userId);
+    res.json({ success: true, updated, conversationId: req.params.conversationId });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
