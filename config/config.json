@@ -1,23 +1,23 @@
 {
   "development": {
-    "username": "postgres",
-    "password": "agilpostgres",
+    "username": "zyncjobs",
+    "password": "postgres123",
     "database": "zyncjobs",
     "host": "localhost",
     "port": 5432,
     "dialect": "postgres"
   },
   "test": {
-    "username": "postgres",
-    "password": "Muthees@1412",
+    "username": "zyncjobs",
+    "password": "postgres123",
     "database": "zyncjobs_test",
     "host": "localhost",
     "port": 5432,
     "dialect": "postgres"
   },
   "production": {
-    "username": "postgres",
-    "password": "Muthees@1412",
+    "username": "zyncjobs",
+    "password": "postgres123",
     "database": "zyncjobs",
     "host": "localhost",
     "port": 5432,

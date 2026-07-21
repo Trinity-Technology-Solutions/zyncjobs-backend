@@ -32,7 +32,7 @@ const Company = sequelize.define('Company', {
     comment: 'Year company was founded'
   },
   companyType: {
-    type: DataTypes.ENUM('Private', 'Public', 'Startup', 'MNC', 'Government', 'Non-Profit'),
+    type: DataTypes.STRING,
     defaultValue: 'Private',
     comment: 'Type of company'
   },

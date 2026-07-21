@@ -15,15 +15,25 @@ const JobAlert = sequelize.define('JobAlert', {
     type: DataTypes.STRING,
     allowNull: false
   },
+  alertName: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  // --- Matching criteria ---
   keywords: {
     type: DataTypes.ARRAY(DataTypes.STRING),
     defaultValue: []
   },
   location: DataTypes.STRING,
+  country: DataTypes.STRING,
   jobType: DataTypes.STRING,
+  workSetting: DataTypes.STRING,       // Remote | Hybrid | On-site
   experienceLevel: DataTypes.STRING,
+  jobCategory: DataTypes.STRING,
+  salaryMin: DataTypes.INTEGER,
+  // --- Alert config ---
   frequency: {
-    type: DataTypes.ENUM('daily', 'weekly', 'instant'),
+    type: DataTypes.ENUM('instant', 'daily', 'weekly'),
     defaultValue: 'daily'
   },
   isActive: {
@@ -38,7 +48,7 @@ const JobAlert = sequelize.define('JobAlert', {
     { fields: ['userId'] },
     { fields: ['email'] },
     { fields: ['isActive'] },
-    { fields: ['email', 'isActive'] }
+    { fields: ['isActive', 'frequency'] }
   ]
 });
 

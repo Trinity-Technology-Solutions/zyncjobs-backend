@@ -7,113 +7,69 @@ class JobAlertScheduler {
     this.isRunning = false;
   }
 
-  /**
-   * Start the job alert scheduler
-   */
   start() {
     if (this.isRunning) {
-      console.log('⚠️ Job alert scheduler is already running');
+      console.log('⚠️  Job alert scheduler already running');
       return;
     }
 
-    console.log('🚀 Starting job alert scheduler...');
+    // Hourly: flush any instant notifications that failed to send at job creation time
+    this.jobs.push(
+      cron.schedule('0 * * * *', async () => {
+        console.log('⏰ [Scheduler] Sending pending instant alerts...');
+        try {
+          const { sent } = await JobAlertService.sendPendingInstantEmails();
+          if (sent > 0) console.log(`✅ [Scheduler] Instant: ${sent} candidates emailed`);
+        } catch (err) {
+          console.error('❌ [Scheduler] Instant alerts error:', err.message);
+        }
+      })
+    );
 
-    // Run every hour for instant alerts
-    this.scheduleInstantAlerts();
+    // Daily at 8 AM: send daily digest emails
+    this.jobs.push(
+      cron.schedule('0 8 * * *', async () => {
+        console.log('📅 [Scheduler] Sending daily digest...');
+        try {
+          const { sent } = await JobAlertService.sendDailyDigest();
+          if (sent > 0) console.log(`✅ [Scheduler] Daily digest: ${sent} candidates emailed`);
+        } catch (err) {
+          console.error('❌ [Scheduler] Daily digest error:', err.message);
+        }
+      })
+    );
 
-    // Run daily at 8 AM for daily alerts
-    this.scheduleDailyAlerts();
-
-    // Run weekly on Monday at 8 AM for weekly alerts
-    this.scheduleWeeklyAlerts();
+    // Weekly on Monday at 8 AM: send weekly digest emails
+    this.jobs.push(
+      cron.schedule('0 8 * * 1', async () => {
+        console.log('📆 [Scheduler] Sending weekly digest...');
+        try {
+          const { sent } = await JobAlertService.sendWeeklyDigest();
+          if (sent > 0) console.log(`✅ [Scheduler] Weekly digest: ${sent} candidates emailed`);
+        } catch (err) {
+          console.error('❌ [Scheduler] Weekly digest error:', err.message);
+        }
+      })
+    );
 
     this.isRunning = true;
-    console.log('✅ Job alert scheduler started');
+    console.log('🚀 Job alert scheduler started (instant/daily/weekly separated)');
   }
 
-  /**
-   * Schedule instant alerts (every hour)
-   */
-  scheduleInstantAlerts() {
-    const job = cron.schedule('0 * * * *', async () => {
-      console.log('⏰ Running instant job alerts...');
-      try {
-        const result = await JobAlertService.processAllAlerts();
-        if (result.sent > 0) {
-          console.log(`✅ Sent ${result.sent} instant alerts`);
-        }
-      } catch (error) {
-        console.error('❌ Error running instant alerts:', error);
-      }
-    });
-
-    this.jobs.push(job);
-  }
-
-  /**
-   * Schedule daily alerts (8 AM every day)
-   */
-  scheduleDailyAlerts() {
-    const job = cron.schedule('0 8 * * *', async () => {
-      console.log('📅 Running daily job alerts...');
-      try {
-        const result = await JobAlertService.processAllAlerts();
-        if (result.sent > 0) {
-          console.log(`✅ Sent ${result.sent} daily alerts`);
-        }
-      } catch (error) {
-        console.error('❌ Error running daily alerts:', error);
-      }
-    });
-
-    this.jobs.push(job);
-  }
-
-  /**
-   * Schedule weekly alerts (Monday 8 AM)
-   */
-  scheduleWeeklyAlerts() {
-    const job = cron.schedule('0 8 * * 1', async () => {
-      console.log('📆 Running weekly job alerts...');
-      try {
-        const result = await JobAlertService.processAllAlerts();
-        if (result.sent > 0) {
-          console.log(`✅ Sent ${result.sent} weekly alerts`);
-        }
-      } catch (error) {
-        console.error('❌ Error running weekly alerts:', error);
-      }
-    });
-
-    this.jobs.push(job);
-  }
-
-  /**
-   * Stop the scheduler
-   */
   stop() {
-    if (!this.isRunning) {
-      console.log('⚠️ Job alert scheduler is not running');
-      return;
-    }
-
-    this.jobs.forEach(job => job.stop());
+    this.jobs.forEach(j => j.stop());
     this.jobs = [];
     this.isRunning = false;
     console.log('⛔ Job alert scheduler stopped');
   }
 
-  /**
-   * Get scheduler status
-   */
   getStatus() {
     return {
       isRunning: this.isRunning,
-      jobsCount: this.jobs.length,
       schedules: [
-        'Instant alerts: Every hour',
-        'Daily alerts: 8 AM daily',
-        'Weekly alerts: Monday 8 AM'
+        'Instant flush: every hour (0 * * * *)',
+        'Daily digest:  08:00 daily (0 8 * * *)',
+        'Weekly digest: Monday 08:00 (0 8 * * 1)'
       ]
     };
   }

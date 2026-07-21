@@ -20,6 +20,7 @@ import { withCache, cacheDelPattern } from '../services/redisService.js';
 import { geocodeLocation } from '../utils/geocode.js';
 import { formatDescriptionWithBullets } from '../server.js';
 import JobRefreshService from '../services/jobRefreshService.js';
+import JobAlertService from '../services/jobAlertService.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -769,6 +770,13 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
         }).catch(() => { });
         vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => { });
 
+        // Trigger job alert notifications for bulk jobs (non-blocking)
+        try {
+          await JobAlertService.processNewJob(job);
+        } catch (alertErr) {
+          console.error('⚠️  Bulk job alert processing failed:', alertErr.message);
+        }
+
         results.push({ success: true, id: job.id, jobTitle: job.jobTitle });
       } catch (jobErr) {
         results.push({ success: false, jobTitle: jobData.jobTitle, error: jobErr.message });
@@ -966,6 +974,13 @@ router.post('/', maxJobsGuard, [
 
     // Index for semantic search (non-blocking)
     vectorService.upsertJobEmbedding(job.id, job.toJSON()).catch(() => { });
+
+    // Trigger job alert notifications (non-blocking — must not fail job creation)
+    try {
+      await JobAlertService.processNewJob(job);
+    } catch (alertErr) {
+      console.error('⚠️  Job alert processing failed (job still created):', alertErr.message);
+    }
 
     console.log('Job created - Employer ID:', employerId, 'Position ID:', job.positionId, 'Job ID:', job.id);
     res.status(201).json(job);
