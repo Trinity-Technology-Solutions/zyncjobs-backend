@@ -52,7 +52,7 @@ import adminSystemRoutes from './routes/adminSystem.js';
 import adminNotificationRoutes from './routes/adminNotifications.js';
 import adminVerificationsRoutes from './routes/adminVerifications.js';
 import { maintenanceGuard, registrationGuard, maxJobsGuard, getJobStatus } from './middleware/settingsMiddleware.js';
-import notificationRoutes from './routes/notifications.js';
+import notificationRoutes, { setIo as setNotificationIo } from './routes/notifications.js';
 import messageRoutes, { setIo as setMessagesIo } from './routes/messages.js';
 import profileRoutes from './routes/profile.js';
 import autocompleteRoutes from './routes/autocomplete.js';
@@ -219,9 +219,10 @@ connectDB().then(async () => {
   process.exit(1);
 });
 
-// Wire Socket.io to analytics tracking and messages for real-time updates
+// Wire Socket.io to analytics tracking, messages, and notifications for real-time updates
 setAnalyticsIo(io);
 setMessagesIo(io);
+setNotificationIo(io);
 
 // Socket.io connection
 const userSockets = new Map();

@@ -7,6 +7,15 @@ import Interview from '../models/Interview.js';
 
 const router = express.Router();
 
+let _io = null;
+export function setIo(io) { _io = io; }
+
+function emitNotificationUpdate(userId) {
+  if (_io) {
+    _io.emit(`notification_update:${userId}`, { timestamp: new Date() });
+  }
+}
+
 // Get candidate notifications by email
 router.get('/candidate/:email', async (req, res) => {
   try {
@@ -16,8 +25,11 @@ router.get('/candidate/:email', async (req, res) => {
     });
     if (!candidate) return res.json([]);
 
+    const where = { userId: candidate.id };
+    if (req.query.unread === 'true') where.read = false;
+
     const notifications = await Notification.findAll({
-      where: { userId: candidate.id },
+      where,
       order: [['createdAt', 'DESC']],
       limit: 50
     });
@@ -173,8 +185,11 @@ function getTimeAgo(date) {
 // Get user notifications (existing functionality)
 router.get('/:userId', async (req, res) => {
   try {
+    const where = { userId: req.params.userId };
+    if (req.query.unread === 'true') where.read = false;
+
     const notifications = await Notification.findAll({ 
-      where: { userId: req.params.userId },
+      where,
       order: [['createdAt', 'DESC']],
       limit: 50
     });
@@ -197,8 +212,25 @@ router.put('/:id/read', async (req, res) => {
 // Mark all as read
 router.put('/user/:userId/read-all', async (req, res) => {
   try {
-    await Notification.update({ read: true }, { where: { userId: req.params.userId, read: false } });
-    res.json({ message: 'All marked as read' });
+    const [updated] = await Notification.update(
+      { read: true },
+      { where: { userId: req.params.userId, read: false } }
+    );
+    emitNotificationUpdate(req.params.userId);
+    res.json({ message: 'All marked as read', updated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clear all (hard delete) notifications for a user
+router.delete('/user/:userId/clear-all', async (req, res) => {
+  try {
+    const deleted = await Notification.destroy({
+      where: { userId: req.params.userId }
+    });
+    emitNotificationUpdate(req.params.userId);
+    res.json({ message: 'All notifications cleared', deleted });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
