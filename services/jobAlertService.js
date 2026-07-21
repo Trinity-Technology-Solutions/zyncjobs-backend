@@ -24,19 +24,42 @@ export class JobAlertService {
     // Keywords / title / skills (40 pts)
     if (alert.keywords && alert.keywords.length > 0) {
       maxScore += 40;
-      const jobText = `${job.jobTitle} ${job.description} ${job.requirements || ''} ${(job.skills || []).join(' ')}`.toLowerCase();
+      const jobText = `${job.jobTitle} ${job.jobTitle} ${job.description} ${job.requirements || ''} ${(job.skills || []).join(' ')}`.toLowerCase();
       for (const kw of alert.keywords) {
-        if (jobText.includes(kw.toLowerCase())) {
+        const kwLower = kw.toLowerCase().trim();
+        // Match: keyword in jobText OR jobTitle contains keyword OR keyword contains jobTitle words
+        const jobTitleLower = (job.jobTitle || '').toLowerCase();
+        if (
+          jobText.includes(kwLower) ||
+          jobTitleLower.includes(kwLower) ||
+          kwLower.includes(jobTitleLower)
+        ) {
           matchedKeywords.push(kw);
         }
       }
       score += (matchedKeywords.length / alert.keywords.length) * 40;
+    } else {
+      // No keywords set — treat alertName as keyword if it matches jobTitle
+      if (alert.alertName) {
+        const alertNameLower = alert.alertName.toLowerCase().trim();
+        const jobTitleLower = (job.jobTitle || '').toLowerCase();
+        if (jobTitleLower.includes(alertNameLower) || alertNameLower.includes(jobTitleLower)) {
+          maxScore += 40;
+          score += 40;
+          matchedKeywords.push(alert.alertName);
+        }
+      }
     }
 
-    // Location (20 pts)
+    // Location (20 pts) — alert "India" matches any Indian city, or exact city match
     if (alert.location) {
       maxScore += 20;
-      if (job.location && job.location.toLowerCase().includes(alert.location.toLowerCase())) {
+      const alertLoc = alert.location.toLowerCase().trim();
+      const jobLoc = (job.location || '').toLowerCase();
+      const jobCountry = (job.country || '').toLowerCase();
+      if (jobLoc.includes(alertLoc) || alertLoc.includes(jobLoc)) {
+        score += 20;
+      } else if (alertLoc === 'india' && (jobCountry === 'india' || jobCountry === 'in')) {
         score += 20;
       } else if (job.workSetting === 'Remote') {
         score += 10;
@@ -46,7 +69,9 @@ export class JobAlertService {
     // Country (10 pts)
     if (alert.country) {
       maxScore += 10;
-      if (job.country && job.country.toLowerCase() === alert.country.toLowerCase()) {
+      const alertCountry = alert.country.toLowerCase().trim();
+      const jobCountry = (job.country || '').toLowerCase();
+      if (jobCountry === alertCountry || jobCountry.includes(alertCountry) || alertCountry.includes(jobCountry)) {
         score += 10;
       }
     }
@@ -57,10 +82,11 @@ export class JobAlertService {
       if (job.workSetting === alert.workSetting) score += 10;
     }
 
-    // Job type (10 pts)
+    // Job type (10 pts) — normalize both sides before comparing
     if (alert.jobType) {
       maxScore += 10;
-      if (job.jobType === alert.jobType) score += 10;
+      const normalizeType = (t) => (Array.isArray(t) ? t[0] : t || '').toLowerCase().trim();
+      if (normalizeType(job.jobType) === normalizeType(alert.jobType)) score += 10;
     }
 
     // Experience level (5 pts)
@@ -90,6 +116,9 @@ export class JobAlertService {
    * This is the single reusable method used by both processNewJob() and processAllAlerts().
    */
   static async findMatchingAlerts(job, minScore = 50) {
+    // Only notify for approved + active jobs
+    if (job.status && job.status !== 'approved') return [];
+
     const activeAlerts = await JobAlert.findAll({
       where: { isActive: true },
       raw: true

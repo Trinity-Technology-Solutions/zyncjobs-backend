@@ -210,14 +210,19 @@ Rules:
 
 const generateAssessmentReview = async (skill, score, correctAnswers, totalQuestions, questions = [], answers = []) => {
   try {
-    if (!content) return getDefaultReview(skill, score, questions, answers);
     const wrongTopics = questions
-      .map((q, i) => answers[i] !== q.correctAnswer ? q.question : null)
+      .map((q, i) => {
+        const correctVal = q.correctAnswer !== undefined ? q.correctAnswer : q.correct;
+        return answers[i] !== correctVal ? q.question : null;
+      })
       .filter(Boolean)
       .slice(0, 5);
 
     const correctTopics = questions
-      .map((q, i) => answers[i] === q.correctAnswer ? q.question : null)
+      .map((q, i) => {
+        const correctVal = q.correctAnswer !== undefined ? q.correctAnswer : q.correct;
+        return answers[i] === correctVal ? q.question : null;
+      })
       .filter(Boolean)
       .slice(0, 3);
 
@@ -258,8 +263,9 @@ Return ONLY valid JSON (no markdown, no extra text):
 
 const getDefaultReview = (skill, score, questions = [], answers = []) => {
   const level = score >= 80 ? 'Advanced' : score >= 60 ? 'Intermediate' : 'Beginner';
-  const correct = questions.filter((q, i) => answers[i] === q.correctAnswer);
-  const wrong = questions.filter((q, i) => answers[i] !== q.correctAnswer);
+  const getCorrectVal = (q) => q.correctAnswer !== undefined ? q.correctAnswer : q.correct;
+  const correct = questions.filter((q, i) => answers[i] === getCorrectVal(q));
+  const wrong = questions.filter((q, i) => answers[i] !== getCorrectVal(q));
 
   // Dynamic summary based on score
   let summary;
@@ -460,7 +466,8 @@ router.post('/submit/:id', optionalAuth, async (req, res) => {
     let correctAnswers = 0;
     const updatedQuestions = questions.map((q, i) => {
       const userAnswer = Array.isArray(answers) ? answers[i] : -1;
-      if (userAnswer === q.correctAnswer) correctAnswers++;
+      const correctVal = q.correctAnswer !== undefined ? q.correctAnswer : q.correct;
+      if (userAnswer === correctVal) correctAnswers++;
       return { ...q, userAnswer };
     });
 
@@ -503,6 +510,101 @@ router.post('/submit/:id', optionalAuth, async (req, res) => {
     res.json({ assessmentId: req.params.id, score, correctAnswers, totalQuestions: questions.length, timeSpent, status: 'completed', review });
   } catch (error) {
     console.error('Submit assessment error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Save local assessment result (for frontend-generated assessments)
+router.post('/save-local', optionalAuth, async (req, res) => {
+  try {
+    const { assessmentId, skill, score, questions, answers, timeSpent, skillBreakdown, difficulty, passed } = req.body;
+    const userId = req.user?.userId || req.user?.id || 'anonymous';
+    const email = req.user?.email || 'unknown';
+
+    // Auto-add missing columns
+    let existingCols = [];
+    try {
+      const colRows = await sequelize.query(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'skill_assessments'`,
+        { type: sequelize.QueryTypes.SELECT }
+      );
+      existingCols = colRows.map(r => r.column_name);
+    } catch (e) {
+      console.warn('Could not fetch columns:', e.message);
+    }
+    if (!existingCols.includes('review')) {
+      try { await sequelize.query(`ALTER TABLE skill_assessments ADD COLUMN IF NOT EXISTS review JSONB`); existingCols.push('review'); } catch (e) { console.warn('Could not add review column:', e.message); }
+    }
+    if (!existingCols.includes('completedAt')) {
+      try { await sequelize.query(`ALTER TABLE skill_assessments ADD COLUMN IF NOT EXISTS "completedAt" TIMESTAMP`); existingCols.push('completedAt'); } catch (e) { console.warn('Could not add completedAt column:', e.message); }
+    }
+
+    const hasCompletedAt = existingCols.includes('completedAt');
+    const hasStatus = existingCols.includes('status');
+    const hasAnswers = existingCols.includes('answers');
+
+    // Generate AI review
+    let review = null;
+    try {
+      const correctCount = (questions || []).filter(q => q.isCorrect).length;
+      const totalQuestions = (questions || []).length;
+      review = await generateAssessmentReview(skill, score, correctCount, totalQuestions, questions, answers);
+    } catch {
+      review = getDefaultReview(skill, score, questions, answers);
+    }
+
+    const id = assessmentId || randomUUID();
+    const insertCols = ['id', '"userId"', 'skill', 'score', 'questions'];
+    const insertVals = [':id', ':userId', ':skill', ':score', ':questions'];
+    const updateClauses = ['questions=:questions', 'score=:score', '"updatedAt"=NOW()'];
+
+    if (hasAnswers) {
+      insertCols.push('answers');
+      insertVals.push(':answers');
+      updateClauses.push('answers=:answers');
+    }
+    if (hasCompletedAt) {
+      insertCols.push('"completedAt"');
+      insertVals.push('NOW()');
+      updateClauses.push('"completedAt"=NOW()');
+    }
+    if (hasStatus) {
+      insertCols.push('status');
+      insertVals.push("'completed'");
+      updateClauses.push("status='completed'");
+    }
+    if (review) {
+      insertCols.push('review');
+      insertVals.push(':review');
+      updateClauses.push('review=:review');
+    }
+
+    const upsertSQL = `
+      INSERT INTO skill_assessments (${insertCols.join(', ')})
+      VALUES (${insertVals.join(', ')})
+      ON CONFLICT (id) DO UPDATE SET ${updateClauses.join(', ')}
+    `;
+
+    await sequelize.query(upsertSQL, {
+      replacements: {
+        id,
+        userId,
+        skill: skill || 'Unknown',
+        score: score || 0,
+        questions: JSON.stringify(questions || []),
+        answers: JSON.stringify(answers || []),
+        review: review ? JSON.stringify(review) : null,
+      }
+    });
+
+    res.json({
+      assessmentId: id,
+      score: score || 0,
+      status: 'completed',
+      saved: true
+    });
+  } catch (error) {
+    console.error('Save local assessment error:', error);
     res.status(500).json({ error: error.message });
   }
 });

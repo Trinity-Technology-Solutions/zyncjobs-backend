@@ -228,18 +228,34 @@ router.post('/', canAccessTeam, async (req, res) => {
     const { employerId, memberEmail, memberName, role, position, companyName, password } = req.body;
     if (!employerId || !memberEmail) return res.status(400).json({ error: 'employerId and memberEmail required' });
 
-    const existing = await TeamMember.findOne({ where: { employerId, memberEmail } });
+    // Normalize email for consistent checking
+    const normalizedMemberEmail = memberEmail.toLowerCase();
+    const normalizedEmployerId = employerId.toLowerCase();
+    
+    // Check for any existing team member with this email under this employer
+    const existing = await TeamMember.findOne({ 
+      where: { 
+        employerId: normalizedEmployerId,
+        memberEmail: normalizedMemberEmail 
+      } 
+    });
+    
     if (existing) {
-      // If member exists but is pending, we can resend credentials
-      if (existing.status === 'pending') {
-        console.log(`⚠️ Resending credentials to existing pending member: ${memberEmail}`);
-        // Continue with the invitation process to resend credentials
-      } else {
-        return res.status(409).json({ 
-          error: 'Member already in team',
-          status: existing.status,
-          role: existing.role
+      // If member exists and is currently active, prevent duplicate access
+      if (existing.status === 'active') {
+        return res.status(409).json({
+          error: 'This email already has access to the team',
+          status: 'active',
+          role: existing.role,
+          memberName: existing.memberName,
+          message: `The email ${memberEmail} already has active access with role: ${existing.role}`
         });
+      }
+      
+      // If member exists and is pending, allow update to resend invitation
+      if (existing.status === 'pending') {
+        console.log(`⚠️ Resending invitation to existing pending member: ${memberEmail}`);
+        // Continue with invitation process to resend credentials
       }
     }
 

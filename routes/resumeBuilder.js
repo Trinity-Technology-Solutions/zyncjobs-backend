@@ -1,6 +1,8 @@
 import express from 'express';
 import aiClient from '../services/aiClient.js';
 import { withCache, cacheGet, cacheSet } from '../services/redisService.js';
+import fs from 'fs';
+import path from 'path';
 
 const router = express.Router();
 
@@ -159,31 +161,208 @@ router.post('/ats-score', async (req, res) => {
   }
 });
 
-// POST /api/resume-builder/generate (legacy)
+// POST /api/resume-builder/generate
 router.post('/generate', async (req, res) => {
   try {
-    const { name, jobTitle, skills, experience, education, jobDescription } = req.body;
+    const { name, jobTitle, skills, experience, education, jobDescription, userId, email } = req.body;
     if (!name || !skills || !experience)
       return res.status(400).json({ error: 'Name, skills, and experience are required.' });
 
     const result = await aiClient.suggest(`Write an ATS-optimized resume for ${name}, ${jobTitle}, skills: ${skills}, experience: ${experience}${education ? `, education: ${education}` : ''}${jobDescription ? `, targeting: ${jobDescription.substring(0, 500)}` : ''}`);
-    res.json({ resume: result.reply });
+    
+    const resume = result.reply;
+    
+    // Save version if we have userId or email
+    const resumeId = `builder_${Date.now()}`;
+    const versionData = {
+      summary: resume.substring(0, Math.min(500, resume.length)),
+      experience: resume,
+      skills: skills || [],
+      education: education || '',
+      email: email || userId || null,
+      userId: userId || email || null,
+      fileName: `Generated Resume - ${name || 'Candidate'} - ${jobTitle || 'Professional'}.pdf`,
+      fileUrl: `generated_resume_${resumeId}_builder_mode_${Date.now()}.pdf`
+    };
+    
+    // Save version to resume_versions table for tracking
+    const { resumeVersionService } = await import('../services/resumeVersionService.js');
+    try {
+      const version = await resumeVersionService.saveVersion(
+        versionData.userId || 'unknown',
+        resumeId,
+        versionData
+      );
+      console.log('✅ Resume saved as version:', version.id, 'for resumeId:', resumeId, 'version:', version.version);
+    } catch (versionError) {
+      console.warn('⚠️  Could not save version:', versionError.message);
+      // Continue even if version saving fails
+    }
+    
+    res.json({ 
+      resume,
+      resumeId,
+      metadata: {
+        hasVersion: true,
+        versionSaved: !!versionData.userId || !!email,
+        fileName: versionData.fileName,
+        fileUrl: versionData.fileUrl
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/resume-builder/improve (legacy)
+// POST /api/resume-builder/improve
 router.post('/improve', async (req, res) => {
   try {
-    const { existingResume, jobDescription } = req.body;
+    const { existingResume, jobDescription, name, jobTitle, skills, experience, education, userId, email } = req.body;
     if (!existingResume || !jobDescription)
       return res.status(400).json({ error: 'Resume and job description are required.' });
 
     const result = await aiClient.improveResume(existingResume, jobDescription);
-    res.json({ resume: result.improved || existingResume });
+    const improvedResume = result.improved || existingResume;
+    
+    const resumeId = `improve_${Date.now()}`;
+    const versionData = {
+      summary: improvedResume.substring(0, Math.min(500, improvedResume.length)),
+      experience: improvedResume,
+      skills: skills || [],
+      education: education || '',
+      email: email || userId || null,
+      userId: userId || email || null,
+      fileName: `Improved Resume - ${name || 'Candidate'} - ${jobTitle || 'Professional'}.pdf`,
+      fileUrl: `improved_resume_${resumeId}_improve_mode_${Date.now()}.pdf`
+    };
+    
+    try {
+      const { resumeVersionService } = await import('../services/resumeVersionService.js');
+      const version = await resumeVersionService.saveVersion(
+        versionData.userId || 'unknown',
+        resumeId,
+        versionData
+      );
+      console.log('✅ Improved resume saved as version:', version.id, 'for resumeId:', resumeId, 'version:', version.version);
+    } catch (versionError) {
+      console.warn('⚠️  Could not save version:', versionError.message);
+    }
+    
+    res.json({ 
+      resume: improvedResume,
+      resumeId,
+      metadata: {
+        hasVersion: true,
+        versionSaved: !!versionData.userId || !!email,
+        fileName: versionData.fileName,
+        fileUrl: versionData.fileUrl
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/resume-builder/templates - Get all professional resume templates
+router.get('/templates', async (req, res) => {
+  try {
+    const templatesPath = path.join(__dirname, '../data/professional-resume-templates.json');
+    const templatesData = JSON.parse(fs.readFileSync(templatesPath, 'utf8'));
+    
+    // Return only essential template info for preview
+    const templates = templatesData.map(template => ({
+      id: template.id,
+      name: template.name,
+      jobTitle: template.jobTitle,
+      summary: template.summary,
+      skills: template.skills.slice(0, 8), // Show first 8 skills
+      experienceCount: template.experience.length,
+      educationCount: template.education.length,
+      certificationsCount: template.certifications.length
+    }));
+    
+    res.json({ templates, total: templates.length });
+  } catch (error) {
+    console.error('❌ Error fetching resume templates:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/resume-builder/template/:templateId - Get specific resume template
+router.get('/template/:templateId', async (req, res) => {
+  try {
+    const templatesPath = path.join(__dirname, '../data/professional-resume-templates.json');
+    const templatesData = JSON.parse(fs.readFileSync(templatesPath, 'utf8'));
+    
+    const template = templatesData.find(t => t.id === req.params.templateId);
+    
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+    
+    res.json({ template });
+  } catch (error) {
+    console.error('❌ Error fetching resume template:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/resume-builder/use-template - Create resume from template
+router.post('/use-template', async (req, res) => {
+  try {
+    const { templateId, userId, email, name } = req.body;
+    if (!templateId) {
+      return res.status(400).json({ error: 'Template ID is required' });
+    }
+    
+    const templatesPath = path.join(__dirname, '../data/professional-resume-templates.json');
+    const templatesData = JSON.parse(fs.readFileSync(templatesPath, 'utf8'));
+    
+    const template = templatesData.find(t => t.id === templateId);
+    
+    if (!template) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+    
+    const resumeId = `template_${templateId}_${Date.now()}`;
+    const versionData = {
+      ...template,
+      email: email || userId || null,
+      userId: userId || email || null,
+      fileName: template.name,
+      fileUrl: `template_resume_${resumeId}_${templateId}.pdf`,
+      templateSource: templateId,
+      createdFromTemplate: true
+    };
+    
+    // Save template version
+    try {
+      const { resumeVersionService } = await import('../services/resumeVersionService.js');
+      const version = await resumeVersionService.saveVersion(
+        versionData.userId || 'unknown',
+        resumeId,
+        versionData
+      );
+      console.log('✅ Template resume saved as version:', version.id, 'for resumeId:', resumeId, 'version:', version.version);
+    } catch (versionError) {
+      console.warn('⚠️  Could not save version:', versionError.message);
+    }
+    
+    res.json({
+      resume: versionData,
+      resumeId,
+      templateId,
+      metadata: {
+        hasVersion: true,
+        versionSaved: !!versionData.userId || !!email,
+        fileName: versionData.fileName,
+        fileUrl: versionData.fileUrl,
+        isTemplateBased: true
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error using template:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

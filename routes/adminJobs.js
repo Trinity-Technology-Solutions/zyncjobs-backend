@@ -5,6 +5,7 @@ import { mistralDetector } from '../utils/mistralJobDetector.js';
 import { logAdminAction } from './adminAudit.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
+import JobAlertService from '../services/jobAlertService.js';
 
 const router = express.Router();
 
@@ -119,6 +120,10 @@ router.post('/:jobId/approve', authenticateToken, requireRole(['admin', 'super_a
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
+    // Trigger job alerts now that job is approved
+    JobAlertService.processNewJob(job.toJSON()).catch(err =>
+      console.error('⚠️  Job alert on approve failed:', err.message)
+    );
     await logAdminAction(req, 'approve', job.jobTitle || job.title || req.params.jobId, 'Job approved', req.params.jobId);
     res.json({ message: 'Job approved successfully', job });
   } catch (error) {
