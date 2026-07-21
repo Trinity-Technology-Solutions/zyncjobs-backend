@@ -1,4 +1,5 @@
 import express from 'express';
+import { Op } from 'sequelize';
 import { body, validationResult } from 'express-validator';
 import JobAlert from '../models/JobAlert.js';
 import JobAlertNotification from '../models/JobAlertNotification.js';
@@ -165,6 +166,51 @@ router.patch('/notifications/status', [
 
     const result = await JobAlertService.updateNotificationStatus(notificationIds, status, candidateId);
     res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/job-alerts/notifications/:id/read — Mark single notification as read
+router.put('/notifications/:id/read', async (req, res) => {
+  try {
+    const [updated] = await JobAlertNotification.update(
+      { status: 'read' },
+      { where: { id: req.params.id } }
+    );
+    if (!updated) return res.status(404).json({ error: 'Notification not found' });
+    res.json({ message: 'Marked as read' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/job-alerts/notifications/:id/dismiss — Dismiss single notification
+router.put('/notifications/:id/dismiss', async (req, res) => {
+  try {
+    const [updated] = await JobAlertNotification.update(
+      { status: 'dismissed' },
+      { where: { id: req.params.id } }
+    );
+    if (!updated) return res.status(404).json({ error: 'Notification not found' });
+    res.json({ message: 'Notification dismissed' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/job-alerts/notifications/:userEmail/read-all — Mark all as read for user
+router.put('/notifications/:userEmail/read-all', async (req, res) => {
+  try {
+    const userEmail = decodeURIComponent(req.params.userEmail);
+    const user = await User.findOne({ where: { email: { [Op.iLike]: userEmail } }, attributes: ['id'] });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const [updated] = await JobAlertNotification.update(
+      { status: 'read' },
+      { where: { candidateId: user.id, status: 'unread' } }
+    );
+    res.json({ message: 'All marked as read', updated });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
