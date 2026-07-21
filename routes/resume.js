@@ -99,7 +99,7 @@ const processingJobs = new Map();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 10 * 1024 * 1024 // 10MB limit
   },
   fileFilter: (req, file, cb) => {
     const allowedMimes = [
@@ -108,14 +108,19 @@ const upload = multer({
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'application/rtf',
       'text/rtf',
-      'application/octet-stream' // .doc from some OS/browsers
+      'application/octet-stream',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/bmp',
+      'image/tiff',
     ];
-    const allowedExts = ['.pdf', '.doc', '.docx', '.rtf'];
+    const allowedExts = ['.pdf', '.doc', '.docx', '.rtf', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'];
     const ext = file.originalname ? '.' + file.originalname.split('.').pop().toLowerCase() : '';
     if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF, DOC, DOCX, RTF files are allowed'), false);
+      cb(new Error('Only PDF, DOC, DOCX, RTF, or image files are allowed'), false);
     }
   }
 });
@@ -248,13 +253,13 @@ router.post('/enhance', authenticateToken, [
 // POST /api/resume/extract-text — Extract raw text from uploaded resume file (non-PDF fallback)
 router.post('/extract-text', upload.single('resume'), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
     const text = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer, req.file.originalname);
-    if (!text?.trim()) return res.status(400).json({ error: 'Could not extract text from file' });
-    res.json({ text });
+    if (!text?.trim()) return res.status(400).json({ success: false, error: 'Could not extract text from file' });
+    res.json({ success: true, text });
   } catch (error) {
     console.error('[EXTRACT_TEXT] Error:', error);
-    res.status(500).json({ error: error.message || 'Text extraction failed' });
+    res.status(500).json({ success: false, error: error.message || 'Text extraction failed' });
   }
 });
 

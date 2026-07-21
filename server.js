@@ -132,6 +132,7 @@ const ALLOWED_ORIGINS = [
   'https://qa.zyncjobs.com',
   'https://trinitetech.com',
   'https://www.trinitetech.com',
+  'http://localhost',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',
@@ -140,8 +141,8 @@ const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    // Allow any localhost port in development
-    if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost:\d+$/.test(origin)) {
+    // Allow any localhost (with or without port) in development
+    if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin)) {
       return callback(null, true);
     }
     console.log('❌ CORS blocked:', origin);
@@ -160,8 +161,16 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ALLOWED_ORIGINS,
-    credentials: true
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      if (process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('CORS blocked: ' + origin), false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST'],
   }
 });
 const PORT = process.env.PORT || 5000;

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import { createWorker } from 'tesseract.js';
 
 let pdfjsLib = null;
 try {
@@ -21,6 +22,9 @@ class PDFTextExtractor {
       }
       if (ext === '.txt') {
         return this.cleanExtractedText(buffer.toString('utf-8'));
+      }
+      if (['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'].includes(ext)) {
+        return await this._extractFromImage(buffer, fileName);
       }
       // Default: try PDF (also handles no-extension S3 URLs)
       return await this._extractFromPdf(buffer, fileName);
@@ -88,7 +92,37 @@ class PDFTextExtractor {
       if (!data.text.trim()) throw new Error('No text content found in PDF');
       return this.cleanExtractedText(data.text);
     } catch (error) {
-      throw new Error('Failed to extract text from PDF: ' + error.message);
+      // Last resort: OCR the PDF pages as images
+      console.warn('[EXTRACTOR] pdf-parse failed, trying OCR:', error.message);
+      return await this._ocrPdf(buffer, fileName);
+    }
+  }
+
+  async _ocrPdf(buffer, fileName) {
+    // Convert PDF to image via sharp isn't possible directly — use tesseract on the raw buffer
+    // as a best-effort for scanned PDFs (tesseract can sometimes handle PDF bytes)
+    console.log('[EXTRACTOR] Attempting OCR on scanned PDF:', fileName);
+    const worker = await createWorker('eng');
+    try {
+      const { data: { text } } = await worker.recognize(buffer);
+      if (!text?.trim()) throw new Error('OCR returned no text from PDF');
+      console.log('[EXTRACTOR] PDF OCR extracted, length:', text.length);
+      return this.cleanExtractedText(text);
+    } finally {
+      await worker.terminate();
+    }
+  }
+
+  async _extractFromImage(buffer, fileName) {
+    console.log('[EXTRACTOR] Running OCR on image:', fileName);
+    const worker = await createWorker('eng');
+    try {
+      const { data: { text } } = await worker.recognize(buffer);
+      if (!text?.trim()) throw new Error('OCR returned no text');
+      console.log('[EXTRACTOR] OCR extracted, length:', text.length);
+      return this.cleanExtractedText(text);
+    } finally {
+      await worker.terminate();
     }
   }
 

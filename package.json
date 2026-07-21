@@ -77,7 +77,9 @@
     "pdfkit": "^0.18.0",
     "pg": "^8.18.0",
     "sequelize": "^6.37.7",
+    "sharp": "^0.35.3",
     "socket.io": "^4.8.3",
+    "tesseract.js": "^7.0.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
