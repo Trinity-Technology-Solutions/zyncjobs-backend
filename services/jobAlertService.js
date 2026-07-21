@@ -378,7 +378,12 @@ export class JobAlertService {
    */
   static async getCandidateNotifications(candidateId, { status, page = 1, limit = 20 } = {}) {
     const where = { candidateId };
-    if (status) where.status = status;
+    if (status) {
+      where.status = status;
+    } else {
+      // Default: never return dismissed notifications
+      where.status = { [Op.ne]: 'dismissed' };
+    }
 
     const { count, rows } = await JobAlertNotification.findAndCountAll({
       where,

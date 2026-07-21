@@ -4,6 +4,7 @@ import Notification from '../models/Notification.js';
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
 import Interview from '../models/Interview.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -219,6 +220,27 @@ router.put('/user/:userId/read-all', async (req, res) => {
     emitNotificationUpdate(req.params.userId);
     res.json({ message: 'All marked as read', updated });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clear all notifications for a user by email
+router.delete('/user/email/:email/clear-all', async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    const User = (await import('../models/User.js')).default;
+    const user = await User.findOne({
+      where: { email: { [Op.iLike]: email } }
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const deleted = await Notification.destroy({
+      where: { userId: user.id }
+    });
+    emitNotificationUpdate(user.id);
+    res.json({ message: 'All notifications cleared', deleted });
+  } catch (error) {
+    console.error('Error clearing notifications by email:', error);
     res.status(500).json({ error: error.message });
   }
 });
