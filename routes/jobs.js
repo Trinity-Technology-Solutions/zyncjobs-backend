@@ -1,5 +1,6 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
+import multer from 'multer';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import Company from '../models/Company.js';
@@ -21,10 +22,30 @@ import { geocodeLocation } from '../utils/geocode.js';
 import { formatDescriptionWithBullets } from '../server.js';
 import JobRefreshService from '../services/jobRefreshService.js';
 import JobAlertService from '../services/jobAlertService.js';
+import { uploadJobBannerToS3, uploadJobBannerToDisk } from '../services/s3Service.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+const ALLOWED_EXTENSIONS = /jpeg|jpg|png|webp/;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+const bannerUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE },
+  fileFilter: (req, file, cb) => {
+    if (!ALLOWED_MIMES.includes(file.mimetype)) {
+      return cb(new Error(`Invalid file type: ${file.mimetype}. Allowed: JPG, PNG, WEBP`));
+    }
+    const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
+    if (!ALLOWED_EXTENSIONS.test(ext)) {
+      return cb(new Error(`Invalid file extension: .${ext}. Allowed: .jpg, .jpeg, .png, .webp`));
+    }
+    cb(null, true);
+  }
+});
 
 // Load companies data for logo lookup
 let companiesData = [];
@@ -807,6 +828,46 @@ router.get('/refresh/analytics', async (req, res) => {
   } catch (error) {
     console.error('Error in refresh analytics endpoint:', error);
     res.status(500).json({ success: false, message: error.message, code: 'INTERNAL_ERROR' });
+  }
+});
+
+// POST /api/jobs/upload-banner - Upload and process job banner image
+router.post('/upload-banner', authenticateToken, (req, res, next) => {
+  bannerUpload.single('banner')(req, res, (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'File size exceeds 5MB limit' });
+        }
+        return res.status(400).json({ error: `Upload error: ${err.message}` });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const buffer = req.file.buffer;
+
+    // Try S3 upload first, fall back to local disk
+    let fileUrl;
+    try {
+      fileUrl = await uploadJobBannerToS3(buffer, req.file.originalname);
+    } catch (s3Err) {
+      console.warn('[Jobs] S3 upload failed, falling back to local disk:', s3Err.message);
+      const uploadDir = path.join(__dirname, '..', 'uploads', 'job-banners');
+      fileUrl = await uploadJobBannerToDisk(buffer, req.file.originalname, uploadDir);
+    }
+
+    console.log('[Jobs] Banner uploaded successfully:', fileUrl);
+    res.json({ fileUrl, success: true });
+  } catch (error) {
+    console.error('[Jobs] Banner upload error:', error);
+    res.status(500).json({ error: 'Failed to upload banner image: ' + error.message });
   }
 });
 
