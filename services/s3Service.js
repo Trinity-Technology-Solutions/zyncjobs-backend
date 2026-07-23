@@ -1,5 +1,8 @@
 import AWS from 'aws-sdk';
 import crypto from 'crypto';
+import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
 
 // Force path-style so SDK never generates dotted virtual-hosted URLs
 // (*.s3.amazonaws.com wildcard cert doesn't cover bucket names with dots like zyncjobs.com)
@@ -73,6 +76,70 @@ export async function uploadTalentResumeToS3(buffer, originalName, fileHash) {
     fileHash: hash,
     alreadyExists: false
   };
+}
+
+// Upload job banner image — resizes to 1200x400, compresses, strips metadata
+export async function uploadJobBannerToS3(buffer, originalName) {
+  const ext = '.jpg';
+  const timestamp = Date.now();
+  const safeName = originalName
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9._\-]/g, '')
+    .replace(/\.[^.]+$/, '')
+    .substring(0, 40);
+  const key = `job-banners/${safeName}_${timestamp}${ext}`;
+
+  let processedBuffer;
+  try {
+    processedBuffer = await sharp(buffer)
+      .resize(1200, 400, { fit: 'cover', position: 'center' })
+      .jpeg({ quality: 88, mozjpeg: true })
+      .toBuffer();
+  } catch (err) {
+    console.error('[S3] Sharp processing failed:', err.message);
+    throw new Error('Image processing failed: ' + err.message);
+  }
+
+  await s3.upload({
+    Bucket: BUCKET,
+    Key: key,
+    Body: processedBuffer,
+    ContentType: 'image/jpeg',
+    CacheControl: 'public, max-age=31536000, immutable'
+  }).promise();
+
+  const fileUrl = `https://s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${BUCKET}/${key}`;
+  console.log(`[S3] Job banner uploaded: ${key}`);
+  return fileUrl;
+}
+
+// Upload job banner to local disk as fallback
+export async function uploadJobBannerToDisk(buffer, originalName, uploadDir) {
+  const ext = '.jpg';
+  const timestamp = Date.now();
+  const safeName = originalName
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9._\-]/g, '')
+    .replace(/\.[^.]+$/, '')
+    .substring(0, 40);
+  const filename = `${safeName}_${timestamp}${ext}`;
+  const filePath = path.join(uploadDir, filename);
+
+  let processedBuffer;
+  try {
+    processedBuffer = await sharp(buffer)
+      .resize(1200, 400, { fit: 'cover', position: 'center' })
+      .jpeg({ quality: 88, mozjpeg: true })
+      .toBuffer();
+  } catch (err) {
+    console.error('[Disk] Sharp processing failed:', err.message);
+    throw new Error('Image processing failed: ' + err.message);
+  }
+
+  await fs.promises.mkdir(uploadDir, { recursive: true });
+  await fs.promises.writeFile(filePath, processedBuffer);
+  console.log(`[Disk] Job banner saved: ${filePath}`);
+  return `/uploads/job-banners/${filename}`;
 }
 
 export async function deleteResumeFromS3(fileUrl) {

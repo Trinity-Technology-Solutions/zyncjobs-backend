@@ -24,9 +24,11 @@ pnpm-debug.log*
 uploads/photos/*
 uploads/resumes/*
 uploads/talent-resumes/*
+uploads/job-banners/*
 !uploads/photos/.gitkeep
 !uploads/resumes/.gitkeep
 !uploads/talent-resumes/.gitkeep
+!uploads/job-banners/.gitkeep
 
 # OS files
 .DS_Store
