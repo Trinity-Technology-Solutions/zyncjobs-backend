@@ -43,7 +43,7 @@ router.post('/track/search-appearance', async (req, res) => {
         email,
         eventType: 'search_appearance',
         createdAt: { [Op.gte]: oneHourAgo },
-        ...(query ? { metadata: { searchQuery: query } } : {})
+        ...(query ? { metadata: { [Op.contains]: { searchQuery: query } } } : {})
       }
     }).catch(() => null);
 
@@ -57,6 +57,39 @@ router.post('/track/search-appearance', async (req, res) => {
     });
     emitAnalyticsUpdate(email, 'search_appearance');
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Batch track search appearances (called by CandidateSearchPage)
+router.post('/track/search-appearances', async (req, res) => {
+  try {
+    const { emails, searchQuery, keyword } = req.body;
+    if (!Array.isArray(emails) || emails.length === 0) return res.status(400).json({ error: 'emails array required' });
+
+    const query = (searchQuery || keyword || '').trim();
+    if (query.length < 2) return res.json({ success: true, skipped: true });
+
+    const { Op } = await import('sequelize');
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    await Promise.all(emails.map(async (email) => {
+      if (!email) return;
+      const existing = await Analytics.findOne({
+        where: {
+          email,
+          eventType: 'search_appearance',
+          createdAt: { [Op.gte]: oneHourAgo },
+          metadata: { [Op.contains]: { searchQuery: query } }
+        }
+      }).catch(() => null);
+      if (existing) return;
+      await Analytics.create({ email, eventType: 'search_appearance', metadata: { searchQuery: query, keyword: query } });
+      emitAnalyticsUpdate(email, 'search_appearance');
+    }));
+
+    res.json({ success: true, tracked: emails.length });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

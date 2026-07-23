@@ -365,6 +365,24 @@ const connectPostgreSQL = async () => {
       console.warn('⚠️  companies table sync warning:', e.message);
     }
 
+    // Auto-create job_alerts table if it doesn't exist
+    try {
+      const { default: JobAlert } = await import('../models/JobAlert.js');
+      await JobAlert.sync({ alter: true });
+      console.log('✅ job_alerts table synced');
+    } catch (e) {
+      console.warn('⚠️  job_alerts table sync warning:', e.message);
+    }
+
+    // Auto-create job_alert_notifications table if it doesn't exist
+    try {
+      const { default: JobAlertNotification } = await import('../models/JobAlertNotification.js');
+      await JobAlertNotification.sync({ alter: true });
+      console.log('✅ job_alert_notifications table synced');
+    } catch (e) {
+      console.warn('⚠️  job_alert_notifications table sync warning:', e.message);
+    }
+
     await applyIndexes();
     return sequelize;
   } catch (error) {

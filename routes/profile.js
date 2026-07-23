@@ -94,6 +94,10 @@ router.post('/save', validateProfile, async (req, res) => {
     }
 
     if (profile) {
+      // Link userId to profile if it was previously null
+      if (!profile.userId && isValidUUID) {
+        updateFields.userId = userId;
+      }
       await profile.update(updateFields);
       console.log('✅ Profile updated:', { id: profile.id, email: profile.email });
     } else {

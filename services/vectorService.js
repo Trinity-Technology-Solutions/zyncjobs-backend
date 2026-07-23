@@ -169,9 +169,29 @@ const findSimilarJobs = async (queryText, limit = 10) => {
     );
 
     if (!rows.length) {
-      // Fallback: index all active jobs on-the-fly then retry
+      // Fallback: index all active jobs on-the-fly then retry once
       await indexAllJobs();
-      return findSimilarJobs(queryText, limit);
+      const retryRows = await sequelize.query(
+        `SELECT je."jobId", je.vector FROM job_embeddings je LIMIT 2000`,
+        { type: sequelize.QueryTypes.SELECT }
+      );
+      if (!retryRows.length) return [];
+      const retryscored = retryRows.map(row => {
+        const vec = typeof row.vector === 'string' ? JSON.parse(row.vector) : row.vector;
+        return { jobId: row.jobId, score: cosineSimilarity(queryVec, vec) };
+      });
+      const retryTopIds = retryscored
+        .filter(s => s.score > 0.05)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map(s => ({ jobId: s.jobId, score: s.score }));
+      if (!retryTopIds.length) return [];
+      const retryJobs = await Job.findAll({
+        where: { id: retryTopIds.map(t => t.jobId), isActive: true, status: 'approved' }
+      });
+      const retryMap = {};
+      for (const j of retryJobs) retryMap[j.id] = j.toJSON();
+      return retryTopIds.filter(t => retryMap[t.jobId]).map(t => ({ ...retryMap[t.jobId], matchScore: Math.round(t.score * 100) }));
     }
 
     // Score each job
@@ -241,18 +261,18 @@ const findSimilarCandidates = async (queryText, limit = 10) => {
 
 // ─── BULK INDEX ALL JOBS (run once on startup) ───────────────────────────────
 
-const indexAllJobs = async () => {
+const indexAllJobs = async (force = false) => {
   try {
     const jobs = await Job.findAll({ where: { isActive: true, status: 'approved' } });
-    if (!jobs.length) return;
+    if (!jobs.length) { console.log('⚠️  No active approved jobs to index'); return; }
 
-    // Check how many are already indexed
-    const [{ count }] = await sequelize.query(
-      `SELECT COUNT(*) as count FROM job_embeddings`,
-      { type: sequelize.QueryTypes.SELECT }
-    );
-
-    if (parseInt(count) >= jobs.length) return; // already indexed
+    if (!force) {
+      const [{ count }] = await sequelize.query(
+        `SELECT COUNT(*) as count FROM job_embeddings`,
+        { type: sequelize.QueryTypes.SELECT }
+      );
+      if (parseInt(count) >= jobs.length) return; // already indexed
+    }
 
     console.log(`🔍 Indexing ${jobs.length} jobs for semantic search...`);
     for (const job of jobs) {

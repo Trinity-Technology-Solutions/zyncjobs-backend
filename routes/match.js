@@ -1,8 +1,19 @@
+import { Op } from 'sequelize';
 import express from 'express';
 import vectorService from '../services/vectorService.js';
 import Profile from '../models/Profile.js';
 import Job from '../models/Job.js';
+import User from '../models/User.js';
 import { getSmartRecommendations, getSimilarJobs, getTopCandidatesForJob, getJobMatchDetails } from '../services/recommendationService.js';
+
+async function resolveUserId(idOrEmail) {
+  if (!idOrEmail) return null;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrEmail)) {
+    return idOrEmail;
+  }
+  const user = await User.findOne({ where: { email: { [Op.iLike]: idOrEmail } }, attributes: ['id'] });
+  return user ? user.id : null;
+}
 
 const router = express.Router();
 
@@ -15,11 +26,17 @@ router.post('/jobs', async (req, res) => {
     let queryText = text;
 
     if (!queryText && userId) {
-      const profile = await Profile.findOne({ where: { userId } });
-      if (profile) {
-        queryText = vectorService.profileToText(profile.toJSON());
-        // Also index this profile while we're here
-        vectorService.upsertResumeEmbedding(userId, profile.toJSON()).catch(() => {});
+      const resolved = await resolveUserId(userId);
+      if (resolved) {
+        let profile = await Profile.findOne({ where: { userId: resolved } });
+        if (!profile) {
+          const user = await User.findByPk(resolved, { attributes: ['email'] });
+          if (user?.email) profile = await Profile.findOne({ where: { email: user.email } });
+        }
+        if (profile) {
+          queryText = vectorService.profileToText(profile.toJSON());
+          vectorService.upsertResumeEmbedding(resolved, profile.toJSON()).catch(() => {});
+        }
       }
     }
 
@@ -115,7 +132,13 @@ router.post('/index-profile', async (req, res) => {
   try {
     const { userId, ...profileData } = req.body;
     if (!userId) return res.status(400).json({ error: 'userId required' });
-    await vectorService.upsertResumeEmbedding(userId, profileData);
+    const resolved = await resolveUserId(userId);
+    if (!resolved) return res.status(400).json({ error: 'User not found' });
+    await vectorService.upsertResumeEmbedding(resolved, profileData);
+    // Also link userId to profile if missing
+    if (profileData.email) {
+      await Profile.update({ userId: resolved }, { where: { email: profileData.email, userId: null } });
+    }
     res.json({ success: true, message: 'Profile indexed for matching' });
   } catch (e) {
     console.error('match/index-profile error:', e.message);
@@ -126,8 +149,7 @@ router.post('/index-profile', async (req, res) => {
 // POST /api/match/reindex — re-index all jobs (admin trigger)
 router.post('/reindex', async (req, res) => {
   try {
-    // Run in background
-    vectorService.indexAllJobs().catch(console.error);
+    vectorService.indexAllJobs(true).catch(console.error);
     res.json({ success: true, message: 'Re-indexing started in background' });
   } catch (e) {
     res.status(500).json({ error: e.message });
