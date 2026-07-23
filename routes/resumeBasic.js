@@ -15,13 +15,18 @@ const upload = multer({
     const allowedTypes = [
       'application/pdf',
       'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/bmp',
+      'image/tiff'
     ];
     
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF and DOC files are allowed'), false);
+      cb(new Error('Only PDF, DOC, and image files are allowed'), false);
     }
   }
 });
@@ -114,11 +119,10 @@ router.post('/upload-and-parse', upload.single('resume'), async (req, res) => {
     let resumeText = '';
     
     try {
-      if (req.file.mimetype === 'application/pdf') {
-        resumeText = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer);
-      } else {
-        resumeText = req.file.buffer.toString('utf8');
-      }
+      resumeText = await pdfTextExtractor.extractTextFromBuffer(
+        req.file.buffer,
+        req.file.originalname
+      );
     } catch (extractErr) {
       return res.status(400).json({ success: false, error: 'Could not extract text from file.' });
     }

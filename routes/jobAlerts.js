@@ -171,32 +171,6 @@ router.get('/notifications/:candidateId', async (req, res) => {
   }
 });
 
-// PATCH /api/job-alerts/notifications/status — Mark as read or dismissed
-router.patch('/notifications/status', [
-  body('notificationIds').isArray({ min: 1 }).withMessage('notificationIds array required'),
-  body('status').isIn(['read', 'dismissed']).withMessage('status must be read or dismissed'),
-  body('candidateId').notEmpty().withMessage('candidateId required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
-    let { notificationIds, status, candidateId } = req.body;
-
-    // Resolve email to UUID if needed
-    const resolvedCandidateId = await resolveUserId(candidateId);
-    if (!resolvedCandidateId) {
-      return res.status(404).json({ error: 'Candidate not found' });
-    }
-    candidateId = resolvedCandidateId;
-
-    const result = await JobAlertService.updateNotificationStatus(notificationIds, status, candidateId);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // PUT /api/job-alerts/notifications/:id/read — Mark single notification as read
 router.put('/notifications/:id/read', async (req, res) => {
   try {

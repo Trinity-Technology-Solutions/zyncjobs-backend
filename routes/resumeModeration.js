@@ -32,13 +32,18 @@ const upload = multer({
     const allowedTypes = [
       'application/pdf',
       'application/msword', 
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/bmp',
+      'image/tiff'
     ];
     
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only PDF and DOC files allowed.'));
+      cb(new Error('Invalid file type. Only PDF, DOC, and image files allowed.'));
     }
   }
 });

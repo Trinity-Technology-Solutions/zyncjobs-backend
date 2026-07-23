@@ -49,9 +49,12 @@ Return JSON:
 {"name":"","email":"","phone":"","location":"","country":"","title":"","summary":"","skills":[],"softSkills":[],"tools":[],"workExperiences":[{"jobTitle":"","company":"","date":"","descriptions":[]}],"educations":[{"degree":"","school":"","date":"","grade":""}],"projects":[{"name":"","description":""}],"certifications":[{"name":"","provider":"","date":""}],"competitions":[]}`;
   }
 
-  async callAIAgent(prompt) {
-    const result = await aiClient.suggest(prompt);
-    return result.reply || null;
+  async callAIAgent(resumeText) {
+    const result = await aiClient.parseResume(resumeText);
+    if (result && typeof result === 'object') {
+      return JSON.stringify(result);
+    }
+    return null;
   }
 
   async parseResumeToProfile(resumeText) {
@@ -65,13 +68,12 @@ Return JSON:
     const preExtracted = this.preExtract(resumeText);
     console.log('[RESUME_AI] Pre-extracted:', preExtracted);
 
-    const prompt = this.buildPrompt(resumeText);
     let content = null;
 
     // Call AI agent (port 8001)
     try {
       console.log('[RESUME_AI] Calling AI agent...');
-      content = await this.callAIAgent(prompt);
+      content = await this.callAIAgent(resumeText);
       if (content) console.log('[RESUME_AI] AI agent success');
     } catch (e) {
       console.warn('[RESUME_AI] AI agent failed:', e.message);
