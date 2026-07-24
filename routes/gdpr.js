@@ -8,6 +8,7 @@ import Application from '../models/Application.js';
 import Profile from '../models/Profile.js';
 import Job from '../models/Job.js';
 import { generateGdprPdf } from '../services/gdprPdfService.js';
+import { formatJobCode } from '../utils/idGenerator.js';
 
 const router = express.Router();
 
@@ -114,45 +115,71 @@ router.post('/download-data', authenticateToken, async (req, res) => {
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    const [resumes, applications, consent, jobs, profile] = await Promise.all([
-      Resume.findAll({ where: { userId } }),
+    const userRole = user.role || 'candidate';
+    const isEmployer = userRole === 'employer';
+    const isCandidate = userRole === 'candidate';
+
+    // 1. Fetch Employer Jobs first to traverse Employer -> Jobs -> Applications
+    const jobs = isEmployer ? await Job.findAll({
+      where: {
+        [Op.or]: [
+          { employerEmail: { [Op.iLike]: user.email } },
+          { postedBy: { [Op.iLike]: user.email } },
+          { userId: user.id },
+          ...(user.employerId ? [{ employerId: user.employerId }] : [])
+        ]
+      },
+      order: [['createdAt', 'DESC']]
+    }) : [];
+
+    const jobIds = jobs.map(j => j.id).filter(Boolean);
+
+    // 2. Fetch Applications, Resumes, Consent, Profile in parallel
+    const [resumes, applications, consent, profile] = await Promise.all([
+      isCandidate ? Resume.findAll({ where: { userId } }) : Promise.resolve([]),
       Application.findAll({
         where: {
           [Op.or]: [
-            { candidateId: userId },
-            { candidateEmail: user.email }
+            ...(isCandidate ? [
+              { candidateId: userId },
+              { candidateEmail: { [Op.iLike]: user.email } }
+            ] : []),
+            ...(isEmployer ? [
+              ...(jobIds.length > 0 ? [{ jobId: { [Op.in]: jobIds } }] : []),
+              { employerEmail: { [Op.iLike]: user.email } },
+              { employerId: user.id },
+              ...(user.employerId ? [{ employerId: user.employerId }] : [])
+            ] : [])
           ]
-        }
+        },
+        order: [['createdAt', 'DESC']]
       }),
       GdprConsent.findOne({ where: { userId } }),
-      // Get jobs if user is employer
-      user.role === 'employer' ? Job.findAll({
-        where: {
-          [Op.or]: [
-            { employerEmail: user.email },
-            { postedBy: user.email },
-            { userId: userId }
-          ]
-        }
-      }) : [],
       Profile.findOne({ where: { userId } })
     ]);
 
+    // Build job title lookup map
+    const jobTitleMap = {};
+    jobs.forEach(j => {
+      if (j.id) jobTitleMap[j.id] = j.jobTitle || j.title || '';
+    });
+
     const exportData = {
       exportedAt: new Date().toISOString(),
-      userType: user.role || 'candidate',
+      userType: userRole,
       profile: {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role,
+        role: userRole,
+        companyName: user.companyName || user.company,
+        employerId: user.employerId || user.id,
         location: user.location,
         title: user.title,
         bio: user.bio,
         skills: user.skills,
         phone: user.phone,
         createdAt: user.createdAt,
-        // Add profile data if exists
         ...(profile ? {
           profileSummary: profile.profileSummary,
           education: profile.education,
@@ -171,19 +198,37 @@ router.post('/download-data', authenticateToken, async (req, res) => {
       applications: applications.map(a => ({
         id: a.id,
         jobId: a.jobId,
-        jobTitle: a.jobTitle,
+        jobTitle: a.jobTitle || jobTitleMap[a.jobId] || 'N/A',
+        candidateId: a.candidateId,
+        candidateName: a.candidateName,
+        candidateEmail: a.candidateEmail,
+        candidatePhone: a.candidatePhone,
         status: a.status,
         coverLetter: a.coverLetter,
-        appliedAt: a.createdAt
+        appliedAt: a.createdAt,
+        createdAt: a.createdAt
       })),
-      jobs: jobs.map(j => ({
-        id: j.id,
-        title: j.jobTitle,
-        company: j.company,
-        location: j.location,
-        status: j.status,
-        postedAt: j.createdAt
-      })),
+      jobs: jobs.map(j => {
+        const rawEmpId = j.employerId || user.employerId || user.id || '';
+        const formattedEmpId = rawEmpId
+          ? (/^EID/i.test(rawEmpId) ? rawEmpId : (/^\d+$/.test(rawEmpId) ? `EID${String(rawEmpId).padStart(4, '0')}` : rawEmpId))
+          : 'N/A';
+        return {
+          id: j.id,
+          title: j.jobTitle || j.title,
+          jobTitle: j.jobTitle || j.title,
+          company: j.company,
+          employerId: formattedEmpId,
+          positionId: j.positionId,
+          positionCode: formatJobCode(j.positionId, j.company) || j.positionId || 'N/A',
+          jobCategory: j.jobCategory || j.category || 'N/A',
+          location: j.location,
+          jobType: j.jobType,
+          status: j.status,
+          postedAt: j.createdAt,
+          createdAt: j.createdAt
+        };
+      }),
       privacySettings: consent ? {
         storeResume: consent.storeResume,
         allowEmployerView: consent.allowEmployerView,
@@ -298,39 +343,40 @@ router.get('/export-pdf/:userId', authenticateToken, async (req, res) => {
     console.log('Is candidate:', isCandidate);
     console.log('User email:', user.email);
 
-    const [jobs, applications, consent, resumes] = await Promise.all([
-      isEmployer
-        ? Job.findAll({
-            where: {
-              [Op.or]: [
-                { employerEmail: user.email },
-                { employerId: user.employerId || '' }
-              ]
-            },
-            order: [['createdAt', 'DESC']]
-          })
-        : [],
+    const jobs = isEmployer ? await Job.findAll({
+      where: {
+        [Op.or]: [
+          { employerEmail: { [Op.iLike]: user.email } },
+          { postedBy: { [Op.iLike]: user.email } },
+          { userId: user.id },
+          ...(user.employerId ? [{ employerId: user.employerId }] : [])
+        ]
+      },
+      order: [['createdAt', 'DESC']]
+    }) : [];
+
+    const jobIds = jobs.map(j => j.id).filter(Boolean);
+
+    const [applications, consent, resumes] = await Promise.all([
       Application.findAll({
         where: {
           [Op.or]: [
             ...(isCandidate ? [
               { candidateId: userId },
-              { candidateEmail: user.email }
+              { candidateEmail: { [Op.iLike]: user.email } }
             ] : []),
             ...(isEmployer ? [
-              { employerEmail: user.email }
+              ...(jobIds.length > 0 ? [{ jobId: { [Op.in]: jobIds } }] : []),
+              { employerEmail: { [Op.iLike]: user.email } },
+              { employerId: user.id },
+              ...(user.employerId ? [{ employerId: user.employerId }] : [])
             ] : [])
           ]
         },
         order: [['createdAt', 'DESC']]
       }),
       GdprConsent.findOne({ where: { userId } }),
-      isCandidate
-        ? Resume.findAll({
-            where: { userId },
-            order: [['createdAt', 'DESC']]
-          })
-        : []
+      isCandidate ? Resume.findAll({ where: { userId }, order: [['createdAt', 'DESC']] }) : []
     ]);
 
     console.log('Data fetched:');
