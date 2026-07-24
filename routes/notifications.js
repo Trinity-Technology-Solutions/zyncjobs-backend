@@ -224,6 +224,28 @@ router.put('/user/:userId/read-all', async (req, res) => {
   }
 });
 
+// Dismiss (delete) a single notification for a user by email + notification ID
+router.delete('/user/email/:email/dismiss/:id', async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    const User = (await import('../models/User.js')).default;
+    const user = await User.findOne({
+      where: { email: { [Op.iLike]: email } }
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const deleted = await Notification.destroy({
+      where: { id: req.params.id, userId: user.id }
+    });
+    if (!deleted) return res.status(404).json({ error: 'Notification not found' });
+    emitNotificationUpdate(user.id);
+    res.json({ message: 'Notification dismissed', deleted });
+  } catch (error) {
+    console.error('Error dismissing notification:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Clear all notifications for a user by email
 router.delete('/user/email/:email/clear-all', async (req, res) => {
   try {
