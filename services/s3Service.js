@@ -42,9 +42,24 @@ export function toSafeS3Url(fileUrl) {
   }
 }
 
+function getContentType(originalName) {
+  const ext = originalName.substring(originalName.lastIndexOf('.')).toLowerCase();
+  const map = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.txt': 'text/plain',
+    '.rtf': 'application/rtf',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
 export async function uploadResumeToS3(buffer, originalName) {
   const key = `resumes/${Date.now()}-${originalName.replace(/\s+/g, '_')}`;
-  await s3.upload({ Bucket: BUCKET, Key: key, Body: buffer }).promise();
+  await s3.upload({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: getContentType(originalName) }).promise();
   return `https://s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${BUCKET}/${key}`;
 }
 
@@ -69,7 +84,7 @@ export async function uploadTalentResumeToS3(buffer, originalName, fileHash) {
     if (err.code !== 'NotFound' && err.statusCode !== 404) throw err;
   }
 
-  await s3.upload({ Bucket: BUCKET, Key: key, Body: buffer }).promise();
+  await s3.upload({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: getContentType(originalName) }).promise();
   console.log(`[S3] Talent resume uploaded: ${key}`);
   return {
     fileUrl: `https://s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${BUCKET}/${key}`,
@@ -158,9 +173,12 @@ export async function getResumeStreamFromS3(fileUrl) {
   const key = extractS3Key(fileUrl);
   console.log(`[S3] Streaming key: ${key}`);
   const head = await s3.headObject({ Bucket: BUCKET, Key: key }).promise();
+  const rawType = head.ContentType;
+  const fallbackType = getContentType(key);
+  const contentType = (rawType && rawType !== 'application/octet-stream') ? rawType : fallbackType;
   return {
     stream: s3.getObject({ Bucket: BUCKET, Key: key }).createReadStream(),
-    contentType: head.ContentType || 'application/pdf',
+    contentType,
     contentLength: head.ContentLength
   };
 }

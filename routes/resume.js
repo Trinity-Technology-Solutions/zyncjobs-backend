@@ -267,8 +267,10 @@ router.post('/extract-text', upload.single('resume'), async (req, res) => {
 router.post('/hybrid-parse', async (req, res) => {
   try {
     const { resume_text } = req.body;
+    console.log('[HYBRID_PARSE] Received text length:', resume_text?.length);
     if (!resume_text?.trim()) return res.status(400).json({ error: 'resume_text is required' });
     const profileData = await resumeParserService.parseResumeText(resume_text);
+    console.log('[HYBRID_PARSE] Result keys:', Object.keys(profileData), 'name:', profileData.name);
     res.json(profileData);
   } catch (error) {
     console.error('[HYBRID_PARSE] Error:', error);
