@@ -638,7 +638,11 @@ router.get('/job/:jobId/export-csv', async (req, res) => {
         app.candidateEmail || '',
         app.candidatePhone || '',
         app.status || '',
-        app.createdAt ? new Date(app.createdAt).toISOString().split('T')[0] : '',
+        // Prefix with apostrophe to prevent Excel from auto-detecting the date as a Date type,
+        // which causes ######## display in narrow columns. The ' is a text prefix marker in Excel
+        // and is not displayed; other spreadsheet apps (Google Sheets, LibreOffice, Numbers) also
+        // treat ' as a text indicator, keeping the value readable.
+        app.createdAt ? `'${new Date(app.createdAt).toISOString().split('T')[0]}` : '',
         job?.jobTitle || job?.title || '',
         app.candidateExperience || '',
         app.candidateEducation || '',

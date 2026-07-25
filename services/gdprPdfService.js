@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { formatJobCode } from '../utils/idGenerator.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -167,16 +168,13 @@ export function generateGdprPdf(data) {
         // ── EMPLOYER: COMPANY PROFILE ────────────────────────────────────────────
         sectionBanner(doc, 'Company Profile');
 
+        // GDPR export — only the 4 required fields; no blanks
+        const contactName = user.name || user.fullName || user.contactPerson || null;
         const profileRows = [
           ['Company Name',  user.companyName || user.company],
-          ['Contact Name',  user.name],
+          ['Contact Name',  contactName],
           ['Email',         user.email],
-          ['Phone',         user.phone],
-          ['Location',      user.location],
-          ['Website',       user.companyWebsite],
-          ['Industry',      user.industry],
-          ['Company Size',  user.companySize],
-          ['Account Role',  user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : null],
+          ['Account Role',  user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Employer'],
         ];
         profileRows.forEach(([label, val], i) => row(doc, label, val, { stripe: i % 2 === 0 }));
 
@@ -210,23 +208,35 @@ export function generateGdprPdf(data) {
         }
 
         jobs.forEach((job, idx) => {
-          checkPage(doc, 120);
+          checkPage(doc, 140);
 
           // Job title heading
           doc.moveDown(0.3);
           doc.font(F.bold).fontSize(10.5).fillColor(C.primary)
-             .text(`${idx + 1}. ${job.jobTitle}`, M + 8, doc.y);
+             .text(`${idx + 1}. ${job.jobTitle || job.title || 'Untitled'}`, M + 8, doc.y);
           doc.moveDown(0.15);
           hline(doc, doc.y, C.border, 0.5);
           doc.moveDown(0.2);
 
+          // Format Employer ID: prefer job.employerId, fallback to user.employerId
+          const rawEmpId = job.employerId || user.employerId || user.id || '';
+          const formattedEmpId = rawEmpId
+            ? (/^EID/i.test(rawEmpId) ? rawEmpId : (/^\d+$/.test(rawEmpId) ? `EID${String(rawEmpId).padStart(4, '0')}` : rawEmpId))
+            : null;
+
+          // Format Position Code
+          const positionCode = job.positionCode || formatJobCode(job.positionId, job.company) || job.positionId || null;
+
           const jobRows = [
-            ['Status',   job.status],
-            ['Location', job.location],
-            ['Type',     job.jobType],
-            ['Posted',   job.createdAt ? new Date(job.createdAt).toLocaleDateString() : null],
+            ['Employer ID',    formattedEmpId],
+            ['Position Code',  positionCode],
+            ['Category',       job.jobCategory || job.category],
+            ['Status',         job.status],
+            ['Location',       job.location],
+            ['Type',           job.jobType],
+            ['Posted',         job.createdAt ? new Date(job.createdAt).toLocaleDateString() : null],
           ];
-          jobRows.forEach(([label, val], i) => row(doc, label, val, { stripe: i % 2 === 0, labelW: 120 }));
+          jobRows.forEach(([label, val], i) => row(doc, label, val, { stripe: i % 2 === 0, labelW: 130 }));
 
           // Hiring data for this job
           const jobApps = applications.filter(a => a.jobId === job.id);
@@ -259,57 +269,64 @@ export function generateGdprPdf(data) {
         });
 
         // ── EMPLOYER: CANDIDATE APPLICATIONS ─────────────────────────────────────
-        if (applications.length > 0) {
+        // Always render this section — show 0 if no applications exist
+        {
           // Build job title lookup
           const jobMap = {};
-          jobs.forEach(j => { jobMap[j.id] = j.jobTitle; });
+          jobs.forEach(j => { jobMap[j.id] = j.jobTitle || j.title || ''; });
 
           sectionBanner(doc, 'Candidate Applications', `${applications.length} total`);
 
-          applications.forEach((app, idx) => {
-            checkPage(doc, 100);
-            doc.moveDown(0.3);
+          if (applications.length === 0) {
+            doc.font(F.oblique).fontSize(9).fillColor(C.muted)
+               .text('No candidate applications found for your posted jobs.', M + 8, doc.y);
+            doc.moveDown(0.5);
+          } else {
+            applications.forEach((app, idx) => {
+              checkPage(doc, 100);
+              doc.moveDown(0.3);
 
-            // Candidate name heading
-            doc.font(F.bold).fontSize(10).fillColor(C.primary)
-               .text(`${idx + 1}. ${app.candidateName || 'Unknown Candidate'}`, M + 8, doc.y);
-            doc.moveDown(0.15);
-            hline(doc, doc.y, C.border, 0.5);
-            doc.moveDown(0.2);
+              // Candidate name heading
+              doc.font(F.bold).fontSize(10).fillColor(C.primary)
+                 .text(`${idx + 1}. ${app.candidateName || app.candidateEmail || 'Unknown Candidate'}`, M + 8, doc.y);
+              doc.moveDown(0.15);
+              hline(doc, doc.y, C.border, 0.5);
+              doc.moveDown(0.2);
 
-            // Applied Role row with badge
-            checkPage(doc, 22);
-            const arY = doc.y;
-            if (idx % 2 === 0) doc.rect(M, arY - 2, CW, 18).fill(C.light);
-            doc.font(F.bold).fontSize(9).fillColor(C.dark)
-               .text('Applied Role', M + 8, arY, { width: 152 });
-            const roleTitle = jobMap[app.jobId] || app.jobTitle || 'N/A';
-            doc.font(F.bold).fontSize(9).fillColor(C.primary)
-               .text(roleTitle, M + 160, arY, { width: CW - 168 });
-            doc.y = arY + 18;
+              // Applied Role row
+              checkPage(doc, 22);
+              const arY = doc.y;
+              if (idx % 2 === 0) doc.rect(M, arY - 2, CW, 18).fill(C.light);
+              doc.font(F.bold).fontSize(9).fillColor(C.dark)
+                 .text('Applied Role', M + 8, arY, { width: 152 });
+              const roleTitle = jobMap[app.jobId] || app.jobTitle || 'N/A';
+              doc.font(F.bold).fontSize(9).fillColor(C.primary)
+                 .text(roleTitle, M + 160, arY, { width: CW - 168 });
+              doc.y = arY + 18;
 
-            // Status row with badge
-            checkPage(doc, 22);
-            const stY = doc.y;
-            if (idx % 2 !== 0) doc.rect(M, stY - 2, CW, 18).fill(C.light);
-            doc.font(F.bold).fontSize(9).fillColor(C.dark)
-               .text('Status', M + 8, stY, { width: 152 });
-            statusBadge(doc, app.status, M + 160, stY);
-            doc.y = stY + 18;
+              // Status row with badge
+              checkPage(doc, 22);
+              const stY = doc.y;
+              if (idx % 2 !== 0) doc.rect(M, stY - 2, CW, 18).fill(C.light);
+              doc.font(F.bold).fontSize(9).fillColor(C.dark)
+                 .text('Status', M + 8, stY, { width: 152 });
+              statusBadge(doc, app.status, M + 160, stY);
+              doc.y = stY + 18;
 
-            const appRows = [
-              ['Email',      app.candidateEmail],
-              ['Phone',      app.candidatePhone],
-              ['Applied On', app.createdAt ? new Date(app.createdAt).toLocaleDateString() : null],
-            ];
-            appRows.forEach(([label, val], i) => {
-              const stripe = (i + 2) % 2 === (idx % 2 === 0 ? 0 : 1);
-              row(doc, label, val, { stripe, labelW: 160 });
+              const appRows = [
+                ['Email',      app.candidateEmail],
+                ['Phone',      app.candidatePhone],
+                ['Applied On', app.createdAt ? new Date(app.createdAt).toLocaleDateString() : null],
+              ];
+              appRows.forEach(([label, val], i) => {
+                const stripe = (i + 2) % 2 === (idx % 2 === 0 ? 0 : 1);
+                row(doc, label, val, { stripe, labelW: 160 });
+              });
+
+              doc.moveDown(0.3);
+              hline(doc, doc.y, C.border, 0.5);
             });
-
-            doc.moveDown(0.3);
-            hline(doc, doc.y, C.border, 0.5);
-          });
+          }
         }
       } else {
         console.log('👤 Generating CANDIDATE PDF content');

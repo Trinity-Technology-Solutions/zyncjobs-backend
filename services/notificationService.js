@@ -37,23 +37,52 @@ class NotificationService {
   static async createInterviewNotification(interview) {
     try {
       const job = await Job.findByPk(interview.jobId);
+      
+      const interviewDate = new Date(interview.scheduledDate);
+      const formattedDate = interviewDate.toLocaleDateString();
+      const formattedTime = interviewDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+      const interviewMode = interview.type || 'video';
+      const meetingLink = interview.meetingLink ? ` (${interview.meetingLink})` : '';
+      const location = interview.location ? ` at ${interview.location}` : '';
+
+      // --- Notify EMPLOYER ---
       const employer = await User.findOne({
         where: { email: interview.employerEmail }
       });
 
-      if (!employer) return null;
+      if (employer) {
+        await Notification.create({
+          userId: employer.id,
+          type: 'interview',
+          title: 'Interview Scheduled',
+          message: `Interview with ${interview.candidateName} for ${job?.jobTitle || 'position'} on ${formattedDate} at ${formattedTime} (${interviewMode})${location}${meetingLink}`,
+          link: `/interviews/${interview.id}`
+        });
+      }
 
-      const interviewDate = new Date(interview.scheduledDate).toLocaleDateString();
-      
-      const notification = await Notification.create({
-        userId: employer.id,
-        type: 'interview',
-        title: 'Interview Scheduled',
-        message: `Interview with ${interview.candidateName} for ${job?.jobTitle || 'position'} on ${interviewDate}`,
-        link: `/interviews/${interview.id}`
-      });
+      // --- Notify CANDIDATE ---
+      let candidate = null;
+      if (interview.candidateId) {
+        candidate = await User.findByPk(interview.candidateId);
+      }
+      if (!candidate && interview.candidateEmail) {
+        candidate = await User.findOne({
+          where: { email: { [Op.iLike]: interview.candidateEmail } }
+        });
+      }
 
-      return notification;
+      if (candidate) {
+        await Notification.create({
+          userId: candidate.id,
+          type: 'interview',
+          title: 'Interview Scheduled',
+          message: `Your interview for "${job?.jobTitle || job?.title || 'the position'}" at ${job?.company || 'the company'} has been scheduled for ${formattedDate} at ${formattedTime} (${interviewMode})${location}${meetingLink}`,
+          link: `/my-applications`
+        });
+        console.log(`🔔 Candidate interview notification created for ${candidate.email}`);
+      }
+
+      return true;
     } catch (error) {
       console.error('Error creating interview notification:', error);
       return null;
