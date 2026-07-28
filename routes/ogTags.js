@@ -1,44 +1,50 @@
 import express from 'express';
 import Job from '../models/Job.js';
+import { generateJobOgImage } from '../services/ogImageGenerator.js';
 
 const router = express.Router();
 
-function getOgImage(job) {
-  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
-  // Trinity company — use Trinity logo from backend static
-  if (job.company && job.company.toLowerCase().includes('trinity')) {
-    return `${backendUrl}/images/trinity-logo.webp`;
-  }
-  // Use actual company logo if available
-  if (job.companyLogo && job.companyLogo.startsWith('http')) {
-    return job.companyLogo;
-  }
-  // Use logo.dev for known companies
-  if (job.company) {
-    const domain = getCompanyDomain(job.company);
-    if (domain) return `https://img.logo.dev/${domain}?token=pk_cY8JBeWnQR6g5m_ymQhBoQ&size=200`;
-  }
+function getOgImage(job, req) {
+  const userAgent = (req.headers['user-agent'] || '').toLowerCase();
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  return `${frontendUrl}/images/og-default.png`;
+  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+
+  // WhatsApp crawler detection — WhatsApp prefers site favicon/icon over 1200x630 canvas
+  if (userAgent.includes('whatsapp')) {
+    return `${frontendUrl}/favicon_io/android-chrome-512x512.png`;
+  }
+
+  // Dynamic 1200x630 canvas for LinkedIn, Facebook, Twitter, and default social sharing
+  const jobId = job.id || job._id;
+  return `${backendUrl}/og/job-image?id=${jobId}`;
 }
 
-function getCompanyDomain(companyName) {
-  const map = {
-    'google': 'google.com', 'microsoft': 'microsoft.com', 'amazon': 'amazon.com',
-    'apple': 'apple.com', 'meta': 'meta.com', 'facebook': 'facebook.com',
-    'tcs': 'tcs.com', 'infosys': 'infosys.com', 'wipro': 'wipro.com',
-    'zoho': 'zoho.com', 'ibm': 'ibm.com', 'accenture': 'accenture.com',
-    'oracle': 'oracle.com', 'salesforce': 'salesforce.com', 'adobe': 'adobe.com',
-    'freshworks': 'freshworks.com', 'hcl': 'hcltech.com', 'cognizant': 'cognizant.com',
-    'capgemini': 'capgemini.com', 'deloitte': 'deloitte.com', 'pwc': 'pwc.com',
-    'trinity': 'trinitetech.com'
-  };
-  const lower = companyName.toLowerCase();
-  for (const [key, domain] of Object.entries(map)) {
-    if (lower.includes(key)) return domain;
+// GET /og/job-image?id=xxx - Serves 1200x630 PNG preview image for social sharing
+router.get('/og/job-image', async (req, res) => {
+  try {
+    const { id } = req.query;
+    if (!id) {
+      return res.status(400).send('Job ID is required');
+    }
+
+    let job = await Job.findByPk(id);
+    if (!job) {
+      job = await Job.findOne({ where: { positionId: id } });
+    }
+
+    if (!job) {
+      return res.status(404).send('Job not found');
+    }
+
+    const imageBuffer = await generateJobOgImage(job);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+    res.send(imageBuffer);
+  } catch (error) {
+    console.error('OG Image endpoint error:', error);
+    res.status(500).send('Error generating OG image');
   }
-  return null;
-}
+});
 
 // GET /jobs/:slug - SEO slug OG tags
 router.get('/jobs/:slug', async (req, res) => {
@@ -71,6 +77,8 @@ router.get('/job-detail', async (req, res) => {
       return res.status(404).send('Job not found');
     }
 
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const siteIconUrl = `${frontendUrl}/favicon_io/android-chrome-512x512.png`;
     const jobTitle = `${job.jobTitle} at ${job.company}`;
     const jobType = Array.isArray(job.jobType) ? job.jobType.join(', ') : (job.jobType || '');
     const skills = Array.isArray(job.skills) && job.skills.length > 0 ? job.skills.slice(0, 4).join(', ') : '';
@@ -83,7 +91,8 @@ router.get('/job-detail', async (req, res) => {
     const description = descriptionParts.length > 0
       ? descriptionParts.join(' • ')
       : (job.description || `Job opportunity at ${job.company}`).substring(0, 160);
-    const ogImage = getOgImage(job);
+
+    const ogImage = getOgImage(job, req);
     const jobUrl = job.slug
       ? `${process.env.FRONTEND_URL}/jobs/${job.slug}`
       : `${process.env.FRONTEND_URL}/job-detail?id=${job.id}`;
@@ -97,15 +106,27 @@ router.get('/job-detail', async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${jobTitle} | ZyncJobs</title>
     
-    <!-- Open Graph / Facebook -->
+    <!-- Site Favicon & Icons -->
+    <link rel="icon" type="image/x-icon" href="${frontendUrl}/favicon_io/favicon.ico">
+    <link rel="apple-touch-icon" href="${siteIconUrl}">
+    
+    <!-- Open Graph / Facebook / LinkedIn -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="${jobUrl}">
     <meta property="og:title" content="${jobTitle}">
     <meta property="og:description" content="${description}">
     <meta property="og:image" content="${ogImage}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:type" content="image/png">
     <meta property="og:site_name" content="ZyncJobs">
+
+    <!-- Secondary Favicon OG Image for crawlers requesting square site icons -->
+    <meta property="og:image" content="${siteIconUrl}">
+    <meta property="og:image:width" content="512">
+    <meta property="og:image:height" content="512">
     
-    <!-- Twitter -->
+    <!-- Twitter Card -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="${jobUrl}">
     <meta property="twitter:title" content="${jobTitle}">
@@ -144,3 +165,4 @@ router.get('/job-detail', async (req, res) => {
 });
 
 export default router;
+
