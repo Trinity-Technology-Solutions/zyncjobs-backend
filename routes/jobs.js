@@ -701,9 +701,14 @@ router.post('/bulk-refresh', async (req, res) => {
 });
 
 // POST /api/jobs/bulk - Create multiple jobs at once with queued processing
-router.post('/bulk', maxJobsGuard, async (req, res) => {
+router.post('/bulk', authenticateToken, maxJobsGuard, async (req, res) => {
   try {
-    const { jobs: jobsPayload, employerEmail: bulkEmployerEmail } = req.body;
+    const company = req.user.company || req.user.companyName;
+    if (!company) {
+      return res.status(400).json({ error: 'No company found on your account. Please complete your company profile before posting jobs.' });
+    }
+
+    const { jobs: jobsPayload } = req.body;
     if (!Array.isArray(jobsPayload) || jobsPayload.length === 0) {
       return res.status(400).json({ error: 'jobs array is required' });
     }
@@ -711,14 +716,12 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
       return res.status(400).json({ error: 'Maximum 100 jobs per bulk request' });
     }
 
-    const employerEmail = bulkEmployerEmail || req.body.employerEmail || req.user?.email;
-    if (!employerEmail) return res.status(400).json({ error: 'employerEmail is required' });
-
-    let user = await User.findOne({ where: { email: employerEmail } });
-    let employerId = user?.employerId;
+    const user = req.user;
+    const employerEmail = user.email;
+    let employerId = user.employerId;
     if (!employerId) {
       employerId = await generateEmployerId();
-      if (user) await user.update({ employerId });
+      await user.update({ employerId });
     }
 
     const results = [];
@@ -739,13 +742,17 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
         jobData.skills = normalizeArray(jobData.skills);
         jobData.languages = normalizeArray(jobData.languages || []);
 
+        // Strip any client-provided company — always use the auth-derived company
+        delete jobData.company;
+        jobData.company = company;
+
         // Auto-link company
         let companyId = null;
         try {
           const companyName = jobData.company?.trim();
           if (companyName) {
-            const company = await Company.findOne({ where: { name: { [Op.iLike]: companyName } } });
-            if (company) companyId = company.id;
+            const foundCompany = await Company.findOne({ where: { name: { [Op.iLike]: companyName } } });
+            if (foundCompany) companyId = foundCompany.id;
           }
         } catch { /* non-blocking */ }
 
@@ -753,7 +760,7 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
 
         const job = await Job.create({
           jobTitle: jobData.jobTitle,
-          company: jobData.company || jobData.companyName,
+          company: jobData.company,
           companyLogo: user?.companyLogo || null,
           location: jobData.location || jobData.jobLocation || 'Remote',
           jobType: jobData.jobType || 'Full-time',
@@ -871,10 +878,9 @@ router.post('/upload-banner', authenticateToken, (req, res, next) => {
   }
 });
 
-// POST /api/jobs - Create new job
-router.post('/', maxJobsGuard, [
+// POST /api/jobs - Create new job (company derived from authenticated employer)
+router.post('/', authenticateToken, maxJobsGuard, [
   body('jobTitle').trim().notEmpty().withMessage('Job title is required'),
-  body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {
     const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary'];
@@ -891,26 +897,29 @@ router.post('/', maxJobsGuard, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    // Get employer email from body (sent by frontend) or from auth token if available
-    const employerEmail = req.body.employerEmail || req.body.postedBy || (req.user?.email) || '';
-    if (!employerEmail) {
-      return res.status(400).json({ error: 'Employer email is required' });
+    // Company is always derived from the authenticated employer — never from the client
+    const company = req.user.company || req.user.companyName;
+    if (!company) {
+      return res.status(400).json({ error: 'No company found on your account. Please complete your company profile before posting jobs.' });
     }
 
-    let user = await User.findOne({ where: { email: employerEmail } });
-    let employerId = user?.employerId;
+    const user = req.user;
+    const employerEmail = user.email;
+    let employerId = user.employerId;
 
     if (!employerId) {
       employerId = await generateEmployerId();
-      if (user) await user.update({ employerId });
+      await user.update({ employerId });
     }
 
     const resolvedEmployerEmail = employerEmail;
 
     const jobData = { ...req.body };
-
-    console.log('Raw jobData before processing:', JSON.stringify(jobData, null, 2));
-    console.log('🔍 locationType:', jobData.locationType, '| languages:', jobData.languages, '| country:', jobData.country);
+    // Strip any client-provided company/employerEmail to prevent frontend manipulation
+    delete jobData.company;
+    delete jobData.employerEmail;
+    delete jobData.postedBy;
+    jobData.company = company;
 
     // Normalize jobType - handle array, string array literal {"Full-time"}, or plain string
     if (Array.isArray(jobData.jobType)) {
@@ -1110,7 +1119,7 @@ router.put('/:id', async (req, res) => {
     const job = await Job.findByPk(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
 
-    const allowed = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
+    const allowed = ['jobTitle', 'location', 'jobType', 'workSetting', 'description',
       'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
       'payRate', 'payType', 'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
       'applicationDeadline', 'isActive', 'status', 'jobHeaderImage', 'assignedTo', 'postedByName'];
