@@ -9,16 +9,103 @@ import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import { uploadResumeToS3, uploadTalentResumeToS3 } from '../services/s3Service.js';
 import pdfTextExtractor from '../services/pdfTextExtractor.js';
 
-// Skill keyword dictionary — mirrors frontend SKILL_GRAPH
+// Skill keyword dictionary — mirrors frontend SKILL_GRAPH with full global domain coverage
 const SKILL_KEYWORDS = [
-  'javascript','typescript','react','angular','vue','python','java','c#','sql','nosql',
-  'mongodb','postgresql','mysql','aws','azure','gcp','docker','kubernetes','git','html',
-  'css','machine learning','devops','agile','php','ruby','go','swift','kotlin','node',
-  'nodejs','express','django','flask','spring','hibernate','redis','elasticsearch',
-  'graphql','rest','api','tensorflow','pytorch','bigquery','tableau','power bi','excel',
-  'figma','sketch','linux','bash','terraform','ansible','jenkins','sass','bootstrap',
-  'tailwind','nextjs','gatsby','fastapi','pandas','numpy','sap','salesforce','pega',
-  'data analysis','data analytics','machine learning','deep learning','artificial intelligence'
+  // ── Frontend ──
+  'javascript','typescript','react','angular','vue','html','css','redux','ui/ux','figma','sketch','adobe xd',
+  // ── Backend ──
+  'node.js','python','java','c#','php','ruby','go','rust','kotlin','scala','c++',
+  // ── Database ──
+  'sql','nosql','mongodb','redis','elasticsearch',
+  // ── Cloud / DevOps ──
+  'aws','amazon web services','ec2','s3','lambda','cloudfront','rds','azure','microsoft azure',
+  'gcp','google cloud','google cloud platform','bigquery','docker','containerization','kubernetes','k8s',
+  'devops','ci/cd','jenkins','github actions','gitlab ci','terraform','ansible',
+  'git','github','gitlab','bitbucket','version control','linux','unix','bash','shell scripting',
+  // ── AI / ML / Data ──
+  'machine learning','ml','deep learning','ai','artificial intelligence','tensorflow','pytorch','keras','neural networks',
+  'data science','data engineering','big data','data scientist','data engineer',
+  'data analysis','data analytics','tableau','power bi','excel','data visualization','reporting','business analytics',
+  'spark','apache spark','pyspark','hadoop','apache hadoop','hdfs','mapreduce','hive',
+  // ── Mobile ──
+  'swift','ios','xcode','objective-c','ios development','flutter','dart','flutter development',
+  // ── QA / Testing ──
+  'manual testing','manual test','functional testing','exploratory testing','black box testing','white box testing',
+  'regression testing','smoke testing','sanity testing','uat','user acceptance testing','system testing',
+  'automation testing','selenium','cypress','playwright','test automation','automated testing','appium','testng','junit','pytest','robot framework',
+  'sdlc','software development life cycle','software development lifecycle','development lifecycle',
+  'stlc','software testing life cycle','software testing lifecycle','testing lifecycle',
+  'bug tracking','defect tracking','bug reporting','jira','bugzilla','mantis','defect management','issue tracking',
+  'api testing','rest api testing','postman','soap testing','rest assured','api automation',
+  'performance testing','load testing','stress testing','jmeter','gatling','k6','test cases','test case writing',
+  'test case design','test planning','test plan','test scripts','quality assurance','qa','qc','quality control',
+  // ── Design ──
+  'ui/ux','figma','sketch','adobe xd','user interface','user experience','design','ux design','ui design',
+  // ── Project Management / Soft Skills ──
+  'agile','scrum','kanban','jira','sprint','agile methodology','agile scrum','project management','pmp',
+  'project planning','project coordination','project delivery','communication','verbal communication',
+  'written communication','interpersonal skills','presentation skills','leadership','team lead','team leadership',
+  'people management','mentoring','coaching','problem solving','analytical thinking','critical thinking','troubleshooting',
+  'decision making','microsoft office','ms office','word','powerpoint','outlook','office 365','ms word','ms excel',
+  'time management','multitasking','prioritization','deadline management','organizational skills','teamwork','team player',
+  'collaboration','cross functional','coordination',
+  // ── Finance / Accounting ──
+  'accounting','bookkeeping','accounts payable','accounts receivable','financial accounting','tally','tally erp',
+  'general ledger','ledger','financial analysis','financial modeling','financial reporting','budgeting','forecasting',
+  'mis reporting','mis','variance analysis','taxation','gst','income tax','tax filing','indirect tax','direct tax',
+  'tds','vat','tax compliance','auditing','internal audit','external audit','statutory audit','audit report',
+  'audit compliance','banking','retail banking','corporate banking','investment banking','trade finance','treasury',
+  'loans','credit analysis','insurance','life insurance','general insurance','underwriting','claims','actuarial',
+  'finance','financial management','corporate finance','working capital','cash flow','fund management',
+  // ── Marketing / Sales ──
+  'digital marketing','seo','sem','social media marketing','content marketing','email marketing','online marketing',
+  'performance marketing','search engine optimization','on-page seo','off-page seo','technical seo','keyword research',
+  'link building','social media','social media management','instagram','facebook marketing','linkedin marketing',
+  'youtube marketing','content writing','copywriting','blog writing','technical writing','content creation','article writing',
+  'sales','business development','lead generation','crm','b2b sales','b2c sales','inside sales','field sales',
+  'direct sales','retail sales','telesales','cold calling','marketing','brand management','product marketing',
+  'market research','campaign management','btl','atl','customer service','customer support','client servicing',
+  'customer care','customer success','after sales service','helpdesk','retail','store management','merchandising',
+  'visual merchandising','inventory management','pos',
+  // ── HR / Operations ──
+  'human resources','hr','recruitment','talent acquisition','payroll','hrms','hris','hr operations','hr generalist',
+  'recruitment','talent acquisition','sourcing','hiring','staffing','headhunting','campus recruitment',
+  'payroll processing','salary processing','payroll management','pf','esi','statutory compliance','operations',
+  'operations management','process improvement','supply chain','logistics','warehouse management','inventory control',
+  'supply chain','logistics','procurement','vendor management','sourcing','import export','freight','shipping',
+  'logistics','freight forwarding','warehouse','dispatch','delivery management','fleet management','transportation',
+  // ── Gulf / Middle East ──
+  'gulf experience','gcc experience','middle east experience','uae experience','saudi experience',
+  'qatar experience','kuwait experience','oman experience','bahrain experience','driving license',
+  'uae driving license','gcc driving license','light motor vehicle','lmv','heavy vehicle license',
+  // ── Civil / Construction ──
+  'civil engineering','structural engineering','construction management','site engineering','civil works','rcc','autocad','auto cad','cad design','drafting','2d drafting','3d modeling','revit','staad pro','etabs',
+  'construction','site supervision','project execution','building construction','infrastructure','road construction',
+  'quantity surveying','qs','bill of quantities','boq','cost estimation','tendering','rate analysis','project planning','primavera','ms project',
+  'project scheduling','gantt chart','wbs','project control','mep','mechanical electrical plumbing','hvac','electrical works','plumbing','fire fighting',
+  'surveying','land surveying','total station','gps survey','leveling','topographic survey',
+  // ── Mechanical / Manufacturing ──
+  'mechanical engineering','machine design','product design','manufacturing engineering','industrial engineering','cad design','solidworks','catia','pro-e','creo','nx cad','unigraphics','ansys','production','production planning',
+  'production management','manufacturing','shop floor','assembly line','lean manufacturing','quality control','qc','quality inspection','incoming quality','in-process quality',
+  'final inspection','iqc','maintenance','preventive maintenance','predictive maintenance','breakdown maintenance','tpm','cmms','welding','tig welding','mig welding','arc welding',
+  'fabrication','structural fabrication','cnc','cnc machining','cnc programming','cnc operator','lathe','milling','turning',
+  // ── Electrical / Electronics ──
+  'electrical engineering','power systems','electrical design','panel design','switchgear','hv','lv','mv','plc','plc programming','scada','dcs','automation','industrial automation','hmi','embedded systems',
+  'embedded c','microcontroller','arduino','raspberry pi','rtos','firmware','vlsi','vhdl','verilog','fpga','asic','chip design','semiconductor',
+  // ── Healthcare / Medical ──
+  'nursing','staff nurse','registered nurse','rn','icu nursing','ot nursing','critical care nursing','patient care','doctor','mbbs','md','ms','physician','general practitioner','gp','specialist','consultant','pharmacy','pharmacist','clinical pharmacy',
+  'drug dispensing','pharmaceutical','pharma','medical laboratory','lab technician','medical lab','pathology','microbiology','hematology','biochemistry','radiology','x-ray','mri','ct scan','ultrasound','radiographer','imaging',
+  'physiotherapy','physical therapy','physiotherapist','rehabilitation','sports therapy','healthcare management','hospital administration','health informatics','clinical management','medical coding','icd coding',
+  // ── Education / Teaching ──
+  'teaching','teacher','faculty','lecturer','instructor','trainer','tutor','educator','curriculum development','lesson planning','course design','instructional design','e-learning','lms','training','corporate training','soft skills training','technical training','learning and development','l&d',
+  // ── Hospitality / Hotel ──
+  'hospitality','hotel management','front office','housekeeping','food and beverage','f&b','banquet','concierge','food service','restaurant management','kitchen management','chef','catering','barista','bartender','travel','travel management','ticketing','gds','amadeus','galileo','tour operations','travel consultant',
+  // ── Media / Creative ──
+  'video editing','premiere pro','final cut pro','davinci resolve','after effects','motion graphics','graphic design','photoshop','illustrator','indesign','canva','visual design','branding','photography','photo editing','lightroom','product photography','event photography','journalism','news writing','reporting','editing','media','broadcast','print media',
+  // ── Legal ──
+  'legal','lawyer','advocate','attorney','legal counsel','corporate law','litigation','contract drafting','compliance','regulatory compliance','legal compliance','risk management','governance','grc',
+  // ── Real Estate ──
+  'real estate','property management','real estate sales','leasing','property valuation','facility management',
 ];
 
 function extractSkillsFromText(text) {

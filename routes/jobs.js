@@ -28,6 +28,21 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Maps any input to one of the 6 valid DB enum values (fallback: 'Full-time')
+function normalizeJobTypeValue(value) {
+  let raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== 'string') return 'Full-time';
+  const v = raw.trim().toLowerCase().replace(/[-\s_]/g, '');
+  if (!v) return 'Full-time';
+  if (/^(fulltime|ft)$/.test(v) || /permanent|regular/.test(v)) return 'Full-time';
+  if (/^(parttime|pt)$/.test(v)) return 'Part-time';
+  if (/contract/.test(v)) return 'Contract';
+  if (/freelanc/.test(v)) return 'Freelance';
+  if (/intern/.test(v)) return 'Internship';
+  if (/temp/.test(v) || /seasonal/.test(v)) return 'Temporary';
+  return 'Full-time';
+}
+
 const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 const ALLOWED_EXTENSIONS = /jpeg|jpg|png|webp/;
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -728,6 +743,7 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
       try {
         // Normalize
         if (Array.isArray(jobData.jobType)) jobData.jobType = jobData.jobType[0] || 'Full-time';
+        jobData.jobType = normalizeJobTypeValue(jobData.jobType);
         const validExpLevels = ['Entry', 'Mid', 'Senior', 'Lead'];
         if (!validExpLevels.includes(jobData.experienceLevel)) jobData.experienceLevel = 'Mid';
         if (jobData.salary) {
@@ -877,10 +893,8 @@ router.post('/', maxJobsGuard, [
   body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {
-    const valid = ['Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary'];
     const types = Array.isArray(val) ? val : [val];
-    if (!types.length) throw new Error('Job type is required');
-    if (!types.every(t => valid.includes(t))) throw new Error('Invalid job type');
+    if (!types.length || (types.length === 1 && (types[0] == null || types[0] === ''))) throw new Error('Job type is required');
     return true;
   }),
   body('description').notEmpty().withMessage('Description is required').isLength({ max: 5000 }).withMessage('Description cannot exceed 5000 characters')
@@ -920,7 +934,7 @@ router.post('/', maxJobsGuard, [
       const match = jobData.jobType.match(/^\{"?([^"\}]+)"?\}$/);
       if (match) jobData.jobType = match[1];
     }
-    if (!jobData.jobType || typeof jobData.jobType !== 'string') jobData.jobType = 'Full-time';
+    jobData.jobType = normalizeJobTypeValue(jobData.jobType);
 
     // Normalize experienceLevel - default to 'Mid' if empty or invalid
     const validExpLevels = ['Entry', 'Mid', 'Senior', 'Lead'];

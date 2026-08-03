@@ -137,6 +137,11 @@ export class AIClient {
     return { job_description: result.job_description || result.description || '' };
   }
 
+  // ── Job Parser ─────────────────────────────────────
+  async parseJobPost(text) {
+    return await execute('parse job post', 'candidate', { job_text: text });
+  }
+
   // ── Interview ──────────────────────────────────────
   async interviewQuestions(jobTitle, skills = [], experienceLevel = 'mid') {
     return await execute(

@@ -88,6 +88,7 @@ import teamAuthRoutes from './routes/teamAuth.js';
 import aiRejectionSettingsRoutes from './routes/aiRejectionSettings.js';
 import credentialingRoutes from './routes/credentialing.js';
 import salaryInsightsRoutes from './routes/salaryInsights.js';
+import roadmapsRoutes from './routes/roadmaps.js';
 import resumeBuilderRoutes from './routes/resumeBuilder.js';
 import resumeAIRoutes from './routes/resumeAI.js';
 import rankingRoutes from './routes/ranking.js';
@@ -471,6 +472,7 @@ app.use('/api/ai-rejection-settings/bulk-reject', aiRejectionSettingsRoutes);
 app.use('/api/ai-rejection-settings', aiRejectionSettingsRoutes);
 app.use('/api/credentialing', credentialingRoutes);
 app.use('/api/salary-insights', salaryInsightsRoutes);
+app.use('/api/roadmaps', roadmapsRoutes);
 app.use('/api/resume-builder', resumeBuilderRoutes);
 app.use('/api/resume-ai', resumeAIRoutes);
 app.use('/api/ranking', rankingRoutes);
@@ -775,104 +777,47 @@ app.post('/api/parse-job-post', async (req, res) => {
       if (expMatch) preExtract.experienceRange = expMatch[0].replace(/^[^\d]+/, '').trim();
     }
 
-    const prompt = `You are a precise job post parser. Extract structured data from the job posting below.
-Return ONLY a valid JSON object — no markdown fences, no explanation, nothing else.
-
-RULES:
-- "company": Hiring company proper noun only (e.g. "Infosys", "Accenture"). Never a skill, tool, heading, or comma-separated list. Return "" if unsure.${preExtract.company ? ` Detected: "${preExtract.company}"` : ''}
-- "location": City/region only (e.g. "Muscat", "Dubai", "Chennai", "Remote"). Never a skill or company name. Return "" if not found.${preExtract.location ? ` Detected: "${preExtract.location}"` : ''}
-- "jobTitle": Exact position title only.
-- "jobType": Array from: ["Full-time"], ["Part-time"], ["Contract"], ["Internship"]. Default ["Full-time"].
-- "workSetting": Exactly one of: Remote, Hybrid, On-site.
-- "mustHaveSkills": Array of REQUIRED / MANDATORY / MUST-HAVE skills from the JD. Look for sections labeled "Must Have", "Required Skills", "Mandatory Skills", "Key Skills", "Technical Skills", "Primary Skills", "Core Skills", or skills listed under "Requirements" / "Qualifications". Include technical skills, domain-specific skills, certifications, tools. For non-tech roles (HSE, HR, Finance, Healthcare etc.) extract domain skills like "NEBOSH", "Risk Assessment", "HSE Inspection", "OSHA", "Fire Safety" etc.
-- "goodToHaveSkills": Array of OPTIONAL / PREFERRED / NICE-TO-HAVE skills from the JD. Look for sections labeled "Good to Have", "Nice to Have", "Preferred Skills", "Bonus Skills", "Additional Skills", "Optional Skills", "Desired Skills". If no such section exists, return empty array [].
-- "experienceRange": MUST be in format "X-Y years" or "X+ years" using digits only. Examples: "3-5 years", "5-8 years", "2+ years". Extract from text like "5-8 Years", "3 to 5 years", "minimum 5 years".${preExtract.experienceRange ? ` Detected: "${preExtract.experienceRange}"` : ""}
-- "experienceLevel": One of: Entry, Mid, Senior, Lead.
-- "salaryMin": 0 always.
-- "salaryMax": 0 always.
-- "currency": INR default, USD/AED/OMR if context indicates.
-- "jobCategory": Pick the BEST match from: Software Development, Data Science & Analytics, Sales & Marketing, Finance & Accounting, Human Resources, Operations, Customer Service, Healthcare, Engineering, Education, Information Technology, Oil & Gas, Construction, Manufacturing, Media & Communications, Logistics & Supply Chain, Other. Use "Engineering" for HSE/civil/mechanical/electrical. Use "Oil & Gas" if the JD mentions infrastructure/oil/gas/petrochemical.
-- "description": Full job description text as-is.
-- "responsibilities": Array of up to 8 responsibility bullet points extracted from the JD.
-- "requirements": Array of up to 8 requirement bullet points extracted from the JD.
-- "educationLevel": Degree required e.g. "Bachelor's Degree".
-- "priority": One of: Low, Medium, High, Urgent.
-- "benefits": Array of benefits explicitly offered by the employer. Extract from sections labeled "Benefits", "Perks", "What We Offer". Look for specific named benefits like "Health insurance", "Dental insurance", "Vision insurance", "Life insurance", "Visa sponsorship", "Green card sponsorship", "AD&D insurance", "Paid time off", "401k", "Stock options", etc. Do NOT include generic mentions in requirements/qualifications sections. Return empty array [] if no benefits section found.
-
-JOB POST:
-${text.substring(0, 5000)}
-
-JSON:
-{
-  "company": "",
-  "jobTitle": "",
-  "location": "",
-  "jobType": ["Full-time"],
-  "workSetting": "On-site",
-  "mustHaveSkills": [],
-  "goodToHaveSkills": [],
-  "experienceLevel": "Mid",
-  "experienceRange": "",
-  "salaryMin": 0,
-  "salaryMax": 0,
-  "currency": "INR",
-  "jobCategory": "Information Technology",
-  "description": "",
-  "responsibilities": [],
-  "requirements": [],
-  "educationLevel": "Bachelor's Degree",
-  "priority": "Medium",
-  "benefits": []
-}`;
-
-    let content = '';
+    let parsed = {};
     try {
-      const result = await aiClient.suggest(prompt);
-      content = result.reply || '';
+      const result = await aiClient.parseJobPost(text);
+      parsed = (result && typeof result === 'object') ? result : {};
     } catch (aiErr) {
       console.warn('AI parse failed:', aiErr.message);
       return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
     }
 
-    // Process AI response
-    if (content) {
-      try {
-        const cleaned = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-        const parsed = JSON.parse(cleaned);
+    // Strict post-parse validation — AI output never overrides ground-truth regex extraction
+    const companyName = sanitizeCompany(parsed.company || '', preExtract.company);
+    const location = sanitizeLocation(parsed.location || '', preExtract.location);
+    const jobTitle = sanitizeJobTitle(parsed.jobTitle || parsed.title || '', preExtract);
+    const workSetting = ['Remote', 'Hybrid', 'On-site'].includes(parsed.workSetting)
+      ? parsed.workSetting
+      : (/remote/i.test(text) ? 'Remote' : /hybrid/i.test(text) ? 'Hybrid' : 'On-site');
 
-        const companyName = sanitizeCompany(parsed.company || '', preExtract.company);
-        const location = sanitizeLocation(parsed.location || '', preExtract.location);
-
-        return res.json({
-          success: true,
-          data: {
-            company: companyName,
-            jobTitle: parsed.jobTitle || preExtract.jobTitle || '',
-            location,
-            jobType: Array.isArray(parsed.jobType) ? parsed.jobType : ['Full-time'],
-            workSetting: parsed.workSetting || 'On-site',
-            skills: Array.isArray(parsed.mustHaveSkills) ? parsed.mustHaveSkills : [],
-            goodToHaveSkills: Array.isArray(parsed.goodToHaveSkills) ? parsed.goodToHaveSkills : [],
-            experienceLevel: parsed.experienceLevel || 'Mid',
-            experienceRange: parsed.experienceRange || preExtract.experienceRange || '',
-            salaryMin: parsed.salaryMin || 0,
-            salaryMax: parsed.salaryMax || 0,
-            currency: parsed.currency || 'INR',
-            jobCategory: parsed.jobCategory || 'Information Technology',
-            description: parsed.description || text,
-            responsibilities: Array.isArray(parsed.responsibilities) ? parsed.responsibilities : [],
-            requirements: Array.isArray(parsed.requirements) ? parsed.requirements : [],
-            educationLevel: parsed.educationLevel || "Bachelor's Degree",
-            priority: parsed.priority || 'Medium',
-          }
-        });
-      } catch (parseErr) {
-        console.warn('Failed to parse AI response as JSON:', parseErr.message);
-        return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
+    return res.json({
+      success: true,
+      data: {
+        company: companyName,
+        jobTitle,
+        location,
+        jobType: Array.isArray(parsed.jobType) && parsed.jobType.length ? parsed.jobType : ['Full-time'],
+        workSetting,
+        skills: Array.isArray(parsed.mustHaveSkills) ? parsed.mustHaveSkills : [],
+        goodToHaveSkills: Array.isArray(parsed.goodToHaveSkills) ? parsed.goodToHaveSkills : [],
+        experienceLevel: ['Entry', 'Mid', 'Senior', 'Lead'].includes(parsed.experienceLevel) ? parsed.experienceLevel : 'Mid',
+        experienceRange: normalizeExpRange(parsed.experienceRange) || preExtract.experienceRange || '',
+        salaryMin: parsed.salaryMin || 0,
+        salaryMax: parsed.salaryMax || 0,
+        currency: parsed.currency || 'INR',
+        jobCategory: parsed.jobCategory || 'Information Technology',
+        description: parsed.description || text,
+        responsibilities: Array.isArray(parsed.responsibilities) ? parsed.responsibilities : [],
+        requirements: Array.isArray(parsed.requirements) ? parsed.requirements : [],
+        educationLevel: parsed.educationLevel || '',
+        priority: parsed.priority || 'Medium',
+        benefits: Array.isArray(parsed.benefits) ? parsed.benefits : [],
       }
-    } else {
-      return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
-    }
+    });
   } catch (err) {
     console.error('Parse-job-post error:', err.message);
     return res.status(200).json({ success: true, data: buildFallbackParsed(text, preExtract) });
@@ -1057,14 +1002,45 @@ function sanitizeLocation(aiLocation, preExtracted) {
 }
 
 // Fallback parsed result when AI is unavailable
+const TITLE_VERB_RE = /\b(design|develop|test|maintain|build|lead|manage|create|implement|write|support|monitor|ensure|analyze|collaborate|deliver|prepare|responsible|drive|own)\w*\b/i;
+const TITLE_META_RE = /^(experience|exp|salary|location|skills?|department|employment|job type|work type|notice|joining|ctc|lpa|about|apply|hiring|urgent|immediate|duties|responsibilities|qualifications)\b/i;
+
+// Sanitize AI-returned job title — reject sentence/responsibility-like output
+function sanitizeJobTitle(aiTitle, preExtract) {
+  const t = String(aiTitle || '').replace(/\*+/g, '').trim();
+  const words = t.split(/\s+/).filter(Boolean);
+  const sentenceLike = /,/.test(t) || /\b(and|to|for|with|the|that|this|which|of)\b/i.test(t);
+  const bad = !t || words.length > 6 || t.length > 60
+    || /@|^\d|\.$/.test(t)
+    || TITLE_META_RE.test(t)
+    || (words.length >= 3 && TITLE_VERB_RE.test(t) && sentenceLike);
+  if (!bad) return t;
+  return (preExtract.jobTitle || '').replace(/\*+/g, '').trim();
+}
+
+// Normalize experience range to "X-Y years" / "X+ years"
+function normalizeExpRange(raw) {
+  const s = String(raw || '');
+  let m = s.match(/(\d+)\s*(?:-|to|–|—)\s*(\d+)\s*years?/i);
+  if (m) return `${m[1]}-${m[2]} years`;
+  m = s.match(/(\d+)\+\s*years?/i);
+  if (m) return `${m[1]}+ years`;
+  return '';
+}
+
 function buildFallbackParsed(text, preExtract) {
   // Try to extract job title from first line or common patterns
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   let jobTitle = '';
   // First non-empty line that looks like a job title
   for (const line of lines.slice(0, 5)) {
-    if (line.length > 3 && line.length < 100 && !line.includes('@') && !line.match(/^\d/)) {
-      jobTitle = line.replace(/^(job title|position|role)[:\s]*/i, '').trim();
+    const clean = line.replace(/^(job title|position|role)[:\s]*/i, '').trim();
+    const w = clean.split(/\s+/).filter(Boolean);
+    const sentenceLike = /,/.test(clean) || /\b(and|to|for|with|the|that|this|which|of)\b/i.test(clean);
+    if (clean.length > 3 && clean.length < 100 && !clean.includes('@') && !clean.match(/^\d/)
+        && !TITLE_META_RE.test(clean)
+        && !(w.length >= 3 && TITLE_VERB_RE.test(clean) && sentenceLike)) {
+      jobTitle = clean;
       break;
     }
   }
@@ -1074,25 +1050,81 @@ function buildFallbackParsed(text, preExtract) {
     if (m) jobTitle = m[1].trim();
   }
 
+  const currency = /[₹]|INR|lakh|LPA/i.test(text) ? 'INR'
+    : /AED|dirham/i.test(text) ? 'AED'
+    : /OMR|Omani/i.test(text) ? 'OMR'
+    : /QAR|Qatari/i.test(text) ? 'QAR'
+    : /SAR|Saudi/i.test(text) ? 'SAR'
+    : /KWD|Kuwaiti/i.test(text) ? 'KWD'
+    : /EUR|€/i.test(text) ? 'EUR'
+    : /GBP|£/i.test(text) ? 'GBP'
+    : 'USD';
+
   return {
     company: preExtract.company || '',
     jobTitle: jobTitle || preExtract.jobTitle || '',
     location: preExtract.location || '',
     jobType: ['Full-time'],
     workSetting: /remote/i.test(text) ? 'Remote' : /hybrid/i.test(text) ? 'Hybrid' : 'On-site',
-    skills: [],
+    skills: extractFallbackSkills(text),
     experienceLevel: 'Mid',
-    experienceRange: '',
+    experienceRange: preExtract.experienceRange || '',
     salaryMin: 0,
     salaryMax: 0,
-    currency: 'INR',
+    currency,
     jobCategory: 'Information Technology',
     description: text,
     responsibilities: [],
     requirements: [],
-    educationLevel: "Bachelor's Degree",
+    educationLevel: '',
     priority: 'Medium',
+    benefits: [],
   };
+}
+
+// Global domain skill keywords for fallback parsing (not just tech)
+const FALLBACK_SKILL_KEYWORDS = [
+  // Tech
+  'python', 'java', 'javascript', 'react', 'node', 'sql', 'aws', 'docker',
+  'kubernetes', 'git', 'linux', 'typescript', 'html', 'css', 'mongodb', 'postgresql',
+  // HSE / Oil & Gas
+  'nebosh', 'osha', 'hse', 'fire safety', 'risk assessment', 'first aid',
+  'drilling', 'offshore', 'pipeline', 'petrochemical', 'safety management',
+  // Construction / Engineering
+  'autocad', 'revit', 'civil engineering', 'structural', 'hvac', 'plumbing',
+  'quantity surveying', 'quality control', 'site supervision', 'estimation',
+  // Finance / Accounting
+  'accounting', 'tally', 'quickbooks', 'taxation', 'audit', 'payroll',
+  'financial analysis', 'budgeting', 'reconciliation', 'invoicing',
+  // HR / Admin
+  'recruitment', 'talent acquisition', 'payroll processing', 'visa processing',
+  'labor law', 'administration', 'scheduling', 'office management',
+  // Sales / Marketing
+  'sales', 'marketing', 'digital marketing', 'seo', 'lead generation',
+  'negotiation', 'telemarketing', 'customer service', 'retail', 'crm',
+  // Healthcare
+  'nursing', 'patient care', 'pharmacology', 'medical records', 'physiotherapy',
+  'home care', 'infection control', 'first aid certification', 'cpr',
+  // Education
+  'teaching', 'curriculum', 'lesson planning', 'ielts', 'classroom management',
+  // Logistics
+  'logistics', 'warehouse', 'supply chain', 'inventory', 'procurement',
+  'shipping', 'freight', 'customs', 'forklift', 'driving license',
+  // Hospitality
+  'housekeeping', 'food and beverage', 'catering', 'front office', 'chef',
+  'hotel management', 'guest relations',
+  // Common office / soft skills
+  'communication', 'data entry', 'microsoft excel', 'ms office', 'report writing',
+];
+
+function extractFallbackSkills(text) {
+  const found = [];
+  for (const kw of FALLBACK_SKILL_KEYWORDS) {
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`\\b${escaped}\\b`, 'i').test(text)) found.push(kw);
+    if (found.length >= 10) break;
+  }
+  return found;
 }
 
 // AI Job Description Generation

@@ -347,7 +347,16 @@ const connectPostgreSQL = async () => {
     await sequelize.authenticate();
     console.log('✅ PostgreSQL Connected successfully');
 
-    // Auto-create AuditLog table if it doesn't exist
+    // Auto-create career_roadmaps table
+  try {
+    const { default: CareerRoadmap } = await import('../models/CareerRoadmap.js');
+    await CareerRoadmap.sync({ alter: false });
+    console.log('✅ career_roadmaps table synced');
+  } catch (e) {
+    console.warn('⚠️  career_roadmaps table sync warning:', e.message);
+  }
+
+  // Auto-create AuditLog table if it doesn't exist
     try {
       const { default: AuditLog } = await import('../models/AuditLog.js');
       await AuditLog.sync({ alter: false });
