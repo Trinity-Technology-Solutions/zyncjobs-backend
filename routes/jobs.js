@@ -78,7 +78,7 @@ router.get('/slug/:slug', async (req, res) => {
     const job = await Job.findOne({ where: { slug: req.params.slug, isActive: true } });
     if (!job) return res.status(404).json({ error: 'Job not found' });
     const jobJson = job.toJSON();
-    res.json({ ...jobJson, companyLogo: getCompanyLogo(job.company, job.companyLogo), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'USD' } });
+    res.json({ ...jobJson, companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId), jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []), salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency || 'USD' } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -213,17 +213,36 @@ function getJobHeaderImage(jobTitle, skills = []) {
   return 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&h=400&fit=crop';
 }
 
-// Helper function to get company logo
-function getCompanyLogo(companyName, dbLogo = null) {
-  // Always prefer the actual uploaded logo stored in DB
-  if (dbLogo) return dbLogo;
+// Helper function to get company logo — prefers persisted Company.logo over job field
+async function getCompanyLogo(companyName, dbLogo = null, companyId = null) {
+  // Reject blob URLs (ephemeral session-only values) — they must not be persisted
+  if (dbLogo && !dbLogo.startsWith('blob:')) return dbLogo;
+  // Look up Company table for the persisted logo
+  if (companyId) {
+    try {
+      const company = await Company.findByPk(companyId, { attributes: ['logo'], raw: true });
+      if (company?.logo && !company.logo.startsWith('blob:')) return company.logo;
+    } catch {}
+  }
+  // Fallback: look up by company name in the Company table
+  if (companyName) {
+    try {
+      const company = await Company.findOne({
+        where: { name: { [Op.iLike]: companyName.trim() } },
+        attributes: ['logo'],
+        raw: true
+      });
+      if (company?.logo && !company.logo.startsWith('blob:')) return company.logo;
+    } catch {}
+  }
+  // Last resort: static companiesData (sync, may be stale)
   if (!companyName) return null;
-  const company = companiesData.find(c =>
+  const sd = companiesData.find(c =>
     c.name.toLowerCase().trim() === companyName.toLowerCase().trim() ||
     c.name.toLowerCase().includes(companyName.toLowerCase()) ||
     companyName.toLowerCase().includes(c.name.toLowerCase())
   );
-  return company ? company.logo : null;
+  return sd ? sd.logo : null;
 }
 
 // Helper function to auto-assign category from job title
@@ -337,19 +356,19 @@ router.get('/', async (req, res) => {
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
-    const result = jobs.map(job => {
+    const result = await Promise.all(jobs.map(async job => {
       const jobJson = job.toJSON();
       return {
         ...jobJson,
         jobCode: formatJobCode(job.positionId, job.company),
-        companyLogo: getCompanyLogo(job.company, job.companyLogo),
+        companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId),
         salary: {
           min: jobJson.salaryMin,
           max: jobJson.salaryMax,
           currency: jobJson.currency
         }
       };
-    });
+    }));
 
     res.json(result);
   } catch (error) {
@@ -369,15 +388,15 @@ router.get('/employer/:employerId', async (req, res) => {
       },
       order: [[literal('GREATEST(COALESCE("lastRefreshedAt", \'1970-01-01\'::timestamp), "createdAt")'), 'DESC']]
     });
-    const jobsWithLogos = jobs.map(job => {
+    const jobsWithLogos = await Promise.all(jobs.map(async job => {
       const jobJson = job.toJSON();
       return {
         ...jobJson,
         jobCode: formatJobCode(job.positionId, job.company),
-        companyLogo: getCompanyLogo(job.company, job.companyLogo),
+        companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId),
         salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency }
       };
-    });
+    }));
     res.json(jobsWithLogos);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -557,13 +576,13 @@ router.get('/employer/email/:email', async (req, res) => {
       else if (s === 'completed') statsMap[key].comp++;
     });
 
-    const jobsWithLogos = jobs.map(job => {
+    const jobsWithLogos = await Promise.all(jobs.map(async job => {
       const jobJson = job.toJSON();
       const s = statsMap[job.id] || { apps: 0, hired: 0, rejected: 0, sched: 0, comp: 0 };
       return {
         ...jobJson,
         jobCode: formatJobCode(job.positionId, job.company),
-        companyLogo: getCompanyLogo(job.company, job.companyLogo),
+        companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId),
         salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency },
         applicationCount: s.apps,
         interviewScheduled: s.sched,
@@ -571,7 +590,7 @@ router.get('/employer/email/:email', async (req, res) => {
         hired: s.hired,
         rejected: s.rejected
       };
-    });
+    }));
 
     // Calculate total applications and interview stats across ALL fetched data
     const totalAppsCount = allApps.length;
@@ -601,7 +620,7 @@ router.get('/position/:positionId', async (req, res) => {
     res.json({
       ...jobJson,
       jobCode: formatJobCode(job.positionId, job.company),
-      companyLogo: getCompanyLogo(job.company, job.companyLogo),
+      companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId),
       jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []),
       salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency }
     });
@@ -637,19 +656,19 @@ router.get('/search/query', async (req, res) => {
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
-    const jobsWithLogos = jobs.map(job => {
+    const jobsWithLogos = await Promise.all(jobs.map(async job => {
       const jobJson = job.toJSON();
       return {
         ...jobJson,
         jobCode: formatJobCode(job.positionId, job.company),
-        companyLogo: getCompanyLogo(job.company, job.companyLogo),
+        companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId),
         salary: {
           min: jobJson.salaryMin,
           max: jobJson.salaryMax,
           currency: jobJson.currency
         }
       };
-    });
+    }));
 
     res.json(jobsWithLogos);
   } catch (error) {
@@ -682,19 +701,19 @@ router.get('/search', async (req, res) => {
       offset: (parseInt(page) - 1) * parseInt(limit)
     });
 
-    const jobsWithLogos = jobs.map(job => {
+    const jobsWithLogos = await Promise.all(jobs.map(async job => {
       const jobJson = job.toJSON();
       return {
         ...jobJson,
         jobCode: formatJobCode(job.positionId, job.company),
-        companyLogo: getCompanyLogo(job.company, job.companyLogo),
+        companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId),
         salary: {
           min: jobJson.salaryMin,
           max: jobJson.salaryMax,
           currency: jobJson.currency
         }
       };
-    });
+    }));
 
     res.json(jobsWithLogos);
   } catch (error) {
@@ -716,9 +735,14 @@ router.post('/bulk-refresh', async (req, res) => {
 });
 
 // POST /api/jobs/bulk - Create multiple jobs at once with queued processing
-router.post('/bulk', maxJobsGuard, async (req, res) => {
+router.post('/bulk', authenticateToken, maxJobsGuard, async (req, res) => {
   try {
-    const { jobs: jobsPayload, employerEmail: bulkEmployerEmail } = req.body;
+    const company = req.user.company || req.user.companyName;
+    if (!company) {
+      return res.status(400).json({ error: 'No company found on your account. Please complete your company profile before posting jobs.' });
+    }
+
+    const { jobs: jobsPayload } = req.body;
     if (!Array.isArray(jobsPayload) || jobsPayload.length === 0) {
       return res.status(400).json({ error: 'jobs array is required' });
     }
@@ -726,14 +750,12 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
       return res.status(400).json({ error: 'Maximum 100 jobs per bulk request' });
     }
 
-    const employerEmail = bulkEmployerEmail || req.body.employerEmail || req.user?.email;
-    if (!employerEmail) return res.status(400).json({ error: 'employerEmail is required' });
-
-    let user = await User.findOne({ where: { email: employerEmail } });
-    let employerId = user?.employerId;
+    const user = req.user;
+    const employerEmail = user.email;
+    let employerId = user.employerId;
     if (!employerId) {
       employerId = await generateEmployerId();
-      if (user) await user.update({ employerId });
+      await user.update({ employerId });
     }
 
     const results = [];
@@ -755,13 +777,17 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
         jobData.skills = normalizeArray(jobData.skills);
         jobData.languages = normalizeArray(jobData.languages || []);
 
+        // Strip any client-provided company — always use the auth-derived company
+        delete jobData.company;
+        jobData.company = company;
+
         // Auto-link company
         let companyId = null;
         try {
           const companyName = jobData.company?.trim();
           if (companyName) {
-            const company = await Company.findOne({ where: { name: { [Op.iLike]: companyName } } });
-            if (company) companyId = company.id;
+            const foundCompany = await Company.findOne({ where: { name: { [Op.iLike]: companyName } } });
+            if (foundCompany) companyId = foundCompany.id;
           }
         } catch { /* non-blocking */ }
 
@@ -769,7 +795,7 @@ router.post('/bulk', maxJobsGuard, async (req, res) => {
 
         const job = await Job.create({
           jobTitle: jobData.jobTitle,
-          company: jobData.company || jobData.companyName,
+          company: jobData.company,
           companyLogo: user?.companyLogo || null,
           location: jobData.location || jobData.jobLocation || 'Remote',
           jobType: jobData.jobType || 'Full-time',
@@ -887,10 +913,9 @@ router.post('/upload-banner', authenticateToken, (req, res, next) => {
   }
 });
 
-// POST /api/jobs - Create new job
-router.post('/', maxJobsGuard, [
+// POST /api/jobs - Create new job (company derived from authenticated employer)
+router.post('/', authenticateToken, maxJobsGuard, [
   body('jobTitle').trim().notEmpty().withMessage('Job title is required'),
-  body('company').notEmpty().withMessage('Company is required'),
   body('location').notEmpty().withMessage('Location is required'),
   body('jobType').custom(val => {
     const types = Array.isArray(val) ? val : [val];
@@ -905,26 +930,29 @@ router.post('/', maxJobsGuard, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    // Get employer email from body (sent by frontend) or from auth token if available
-    const employerEmail = req.body.employerEmail || req.body.postedBy || (req.user?.email) || '';
-    if (!employerEmail) {
-      return res.status(400).json({ error: 'Employer email is required' });
+    // Company is always derived from the authenticated employer — never from the client
+    const company = req.user.company || req.user.companyName;
+    if (!company) {
+      return res.status(400).json({ error: 'No company found on your account. Please complete your company profile before posting jobs.' });
     }
 
-    let user = await User.findOne({ where: { email: employerEmail } });
-    let employerId = user?.employerId;
+    const user = req.user;
+    const employerEmail = user.email;
+    let employerId = user.employerId;
 
     if (!employerId) {
       employerId = await generateEmployerId();
-      if (user) await user.update({ employerId });
+      await user.update({ employerId });
     }
 
     const resolvedEmployerEmail = employerEmail;
 
     const jobData = { ...req.body };
-
-    console.log('Raw jobData before processing:', JSON.stringify(jobData, null, 2));
-    console.log('🔍 locationType:', jobData.locationType, '| languages:', jobData.languages, '| country:', jobData.country);
+    // Strip any client-provided company/employerEmail to prevent frontend manipulation
+    delete jobData.company;
+    delete jobData.employerEmail;
+    delete jobData.postedBy;
+    jobData.company = company;
 
     // Normalize jobType - handle array, string array literal {"Full-time"}, or plain string
     if (Array.isArray(jobData.jobType)) {
@@ -1077,7 +1105,7 @@ router.get('/:id', async (req, res) => {
     res.json({
       ...jobJson,
       jobCode: formatJobCode(job.positionId, job.company),
-      companyLogo: getCompanyLogo(job.company, job.companyLogo),
+      companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId),
       jobHeaderImage: jobJson.jobHeaderImage || getJobHeaderImage(job.jobTitle, job.skills || []),
       salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency }
     });
@@ -1124,7 +1152,7 @@ router.put('/:id', async (req, res) => {
     const job = await Job.findByPk(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
 
-    const allowed = ['jobTitle', 'company', 'location', 'jobType', 'workSetting', 'description',
+    const allowed = ['jobTitle', 'location', 'jobType', 'workSetting', 'description',
       'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
       'payRate', 'payType', 'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
       'applicationDeadline', 'isActive', 'status', 'jobHeaderImage', 'assignedTo', 'postedByName'];
@@ -1172,7 +1200,7 @@ router.put('/:id', async (req, res) => {
     res.json({
       ...jobJson,
       jobCode: formatJobCode(job.positionId, job.company),
-      companyLogo: getCompanyLogo(job.company, job.companyLogo),
+      companyLogo: await getCompanyLogo(job.company, job.companyLogo, job.companyId),
       salary: { min: jobJson.salaryMin, max: jobJson.salaryMax, currency: jobJson.currency }
     });
   } catch (error) {
