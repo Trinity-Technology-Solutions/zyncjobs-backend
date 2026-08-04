@@ -775,7 +775,13 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
     const typeLabel = type === 'video' ? 'Video Call' : type === 'phone' ? 'Phone Call' : 'In Person';
 
     const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:5000').split(',')[0].trim();
-    const acceptLink = `${BACKEND_URL}/api/interviews/${encodeURIComponent(interviewDetails.id || '')}/accept`;
+    const interviewId = encodeURIComponent(interviewDetails.id || '');
+    const token = interviewDetails.responseToken || '';
+    const respondLink = (action) => token
+      ? `${BACKEND_URL}/api/interviews/respond?token=${encodeURIComponent(token)}&action=${action}`
+      : `${BACKEND_URL}/api/interviews/${interviewId}/${action}`;
+    const acceptLink = respondLink('accept');
+    const rejectLink = respondLink('reject');
 
     const content = `
       <!-- Hero -->
@@ -789,14 +795,15 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
       <div style="padding:36px 40px;">
         <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name}!</h2>
         <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
-          Your interview for <strong>${jobTitle}</strong> at <strong>${company}</strong> has been scheduled. Please confirm your availability by clicking the button below:
+          Your interview for <strong>${jobTitle}</strong> at <strong>${company}</strong> has been scheduled. Please confirm your availability by clicking one of the buttons below:
         </p>
 
         <div style="text-align:center;margin:24px 0;">
           ${ctaButton('Accept Interview', acceptLink, '#10B981')}
+          <p style="margin:16px 0 0;"><a href="${rejectLink}" style="display:inline-block;padding:13px 40px;color:#DC2626;font-size:15px;font-weight:700;text-decoration:none;border:1.5px solid #FCA5A5;border-radius:10px;background:#FFFFFF;">Decline Interview</a></p>
         </div>
 
-        <p style="color:#6B7280;font-size:13px;text-align:center;margin:0 0 24px;">If you cannot attend, please reply to this email to reschedule.</p>
+        <p style="color:#6B7280;font-size:13px;text-align:center;margin:0 0 24px;">If you cannot attend, please click "Decline Interview" so we can reschedule.</p>
 
         ${infoBox(`
           <table cellpadding="0" cellspacing="0" width="100%">
@@ -886,6 +893,113 @@ export const sendInterviewAcceptedEmail = async (employerEmail, companyName, can
     return { success: true };
   } catch (error) {
     console.error('❌ Interview acceptance email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Send interview rejection/decline notification to employer/scheduler
+export const sendInterviewRejectedEmail = async (employerEmail, companyName, candidateName, jobTitle, interviewDate) => {
+  try {
+    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const name = candidateName || 'A candidate';
+    const date = interviewDate ? new Date(interviewDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'the scheduled date';
+    const time = interviewDate ? new Date(interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'the scheduled time';
+
+    const content = `
+      <div style="background:linear-gradient(135deg,#DC2626 0%,#F97316 100%);padding:36px 40px;text-align:center;">
+        <div style="margin-bottom:10px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/><line x1="15" y1="9" x2="9" y2="15" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="9" x2="15" y2="15" stroke="white" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Candidate Declined Interview</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">The candidate could not attend this time</p>
+      </div>
+
+      <div style="padding:36px 40px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Interview Declined</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
+          <strong>${name}</strong> has declined the interview for <strong>${jobTitle}</strong> at <strong>${companyName}</strong>. You may want to reach out to them or reschedule.
+        </p>
+
+        ${infoBox(`
+          <table cellpadding="0" cellspacing="0" width="100%">
+            <tr><td style="padding:6px 0;width:120px;"><span style="color:#6B7280;font-size:13px;">Date</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${date}</strong></td></tr>
+            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Time</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${time}</strong></td></tr>
+          </table>
+        `, '#DC2626')}
+
+        ${divider()}
+
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('View Interview Details', `${FRONTEND_URL}/interviews`, '#DC2626')}
+        </div>
+      </div>`;
+
+    await transporter.sendMail({
+      from: `"ZyncJobs" <${process.env.SMTP_FROM_EMAIL}>`,
+      to: employerEmail,
+      subject: `${name} Declined Interview — ${jobTitle}`,
+      html: baseTemplate(content, `${name} declined interview for ${jobTitle}`)
+    });
+    console.log('✅ Interview rejection email sent to:', employerEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Interview rejection email error:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// Send interview cancellation email to candidate
+export const sendInterviewCancelledEmail = async (candidateEmail, candidateName, jobTitle, company, interviewDetails, employerName = null) => {
+  try {
+    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { scheduledDate, duration, type, location } = interviewDetails;
+    const name = candidateName || 'there';
+    const interviewDate = new Date(scheduledDate);
+    const typeLabel = type === 'video' ? 'Video Call' : type === 'phone' ? 'Phone Call' : 'In Person';
+
+    const content = `
+      <div style="background:linear-gradient(135deg,#DC2626 0%,#B91C1C 100%);padding:36px 40px;text-align:center;">
+        <div style="margin-bottom:10px;"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke="white" stroke-width="2"/><line x1="16" y1="2" x2="16" y2="6" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="2" x2="8" y2="6" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="10" x2="21" y2="10" stroke="white" stroke-width="2"/><line x1="9" y1="14" x2="15" y2="14" stroke="white" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <h1 style="color:#FFFFFF;font-size:22px;font-weight:800;margin:0 0 6px;">Interview Cancelled</h1>
+        <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:0;">Your scheduled interview has been cancelled</p>
+      </div>
+
+      <div style="padding:36px 40px;">
+        <h2 style="color:#1F2937;font-size:18px;margin:0 0 10px;">Hi ${name},</h2>
+        <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">
+          We're sorry to inform you that the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>${employerName ? ` scheduled by <strong>${employerName}</strong>` : ''} has been cancelled.
+        </p>
+
+        ${infoBox(`
+          <table cellpadding="0" cellspacing="0" width="100%">
+            <tr><td style="padding:6px 0;width:120px;"><span style="color:#6B7280;font-size:13px;">Date</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${interviewDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</strong></td></tr>
+            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Time</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${interviewDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></td></tr>
+            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Duration</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${duration || 60} minutes</strong></td></tr>
+            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Type</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${typeLabel}</strong></td></tr>
+            ${location ? `<tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Location</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${location}</strong></td></tr>` : ''}
+          </table>
+        `, '#DC2626')}
+
+        <div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:10px;padding:16px 20px;margin:16px 0;">
+          <p style="color:#991B1B;font-size:14px;font-weight:700;margin:0 0 6px;">What's next?</p>
+          <p style="color:#B91C1C;font-size:13px;margin:0;line-height:1.6;">The recruiter may reach out to reschedule. In the meantime, you can keep exploring matching opportunities on ZyncJobs.</p>
+        </div>
+
+        ${divider()}
+
+        <div style="text-align:center;margin:24px 0;">
+          ${ctaButton('Explore More Jobs', `${FRONTEND_URL}/job-listings`, '#DC2626')}
+        </div>
+      </div>`;
+
+    await transporter.sendMail({
+      from: `"ZyncJobs" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_EMAIL}>`,
+      to: candidateEmail,
+      subject: `Interview Cancelled — ${jobTitle} at ${company}`,
+      html: baseTemplate(content, `Your interview for ${jobTitle} at ${company} has been cancelled.`)
+    });
+    console.log('✅ Interview cancellation email sent to:', candidateEmail);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Interview cancellation email error:', error);
     return { success: false, error: error.message };
   }
 };

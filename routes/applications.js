@@ -10,6 +10,7 @@ import { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApplication
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
 import NotificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { isViewOnlyUser } from '../middleware/teamAuth.js';
 import { runAutoRejection } from './aiRejectionSettings.js';
 import { getSignedResumeUrl, getResumeStreamFromS3, toSafeS3Url } from '../services/s3Service.js';
 import TeamMember from '../models/TeamMember.js';
@@ -345,7 +346,7 @@ router.get('/candidate/:email', async (req, res) => {
 });
 
 // GET /api/applications/job/:jobId - Get applications for a job
-router.get('/job/:jobId', async (req, res) => {
+router.get('/job/:jobId', authenticateToken, async (req, res) => {
   try {
     const { jobId } = req.params;
 
@@ -356,12 +357,11 @@ router.get('/job/:jobId', async (req, res) => {
       return res.status(400).json({ error: 'Valid job ID is required' });
     }
 
-    const applications = await Application.findAll({
-      where: { jobId },
-      order: [['createdAt', 'DESC']]
-    });
+    // View Only users see no applications
+    if (await isViewOnlyUser(req.user.email.toLowerCase())) {
+      return res.json([]);
+    }
 
-    // Get job details for scoring context
     const job = await Job.findOne({
       where: {
         [Op.or]: [
@@ -369,6 +369,41 @@ router.get('/job/:jobId', async (req, res) => {
           { positionId: jobId }
         ]
       }
+    });
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Verify the authenticated employer owns this job
+    const userEmail = req.user.email.toLowerCase();
+    const teamMember = await TeamMember.findOne({
+      where: { memberEmail: { [Op.iLike]: userEmail }, status: 'active' }
+    });
+
+    let allowedEmails;
+    if (teamMember && teamMember.employerId) {
+      const ownerEmail = teamMember.employerId.includes('@')
+        ? teamMember.employerId.toLowerCase()
+        : teamMember.employerId;
+      allowedEmails = [ownerEmail];
+      const teamMembers = await TeamMember.findAll({
+        where: { employerId: ownerEmail, status: 'active' },
+        attributes: ['memberEmail']
+      });
+      allowedEmails = [...allowedEmails, ...teamMembers.map(m => m.memberEmail.toLowerCase())];
+      allowedEmails = [...new Set(allowedEmails)];
+    } else {
+      allowedEmails = [userEmail];
+    }
+
+    if (!allowedEmails.includes(job.employerEmail?.toLowerCase())) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const applications = await Application.findAll({
+      where: { jobId },
+      order: [['createdAt', 'DESC']]
     });
     const jobTitle = job ? (job.jobTitle || job.title) : 'Unknown Position';
     const jobCode = job ? formatJobCode(job.positionId, job.company) : '';
@@ -811,6 +846,8 @@ router.put('/:id/status', blockViewer, [
 
     await application.update(updatePayload);
 
+    console.log(`🔄 Application status changed | Application ID: ${application.id} | Candidate ID: ${application.candidateId || application.candidateEmail || 'unknown'} | Old Status: ${oldStatus} | New Status: ${status}`);
+
     const job = await Job.findByPk(application.jobId);
 
     // Create notification for status change
@@ -820,25 +857,37 @@ router.put('/:id/status', blockViewer, [
       console.error('⚠️ Status notification creation failed:', notificationError.message);
     }
 
-    // Send rejection email ONLY when employer explicitly confirms rejection
+    // Send rejection email whenever the application transitions INTO 'rejected'.
+    // The oldStatus !== 'rejected' guard prevents duplicate emails if an already-rejected
+    // application is re-submitted with status 'rejected'.
     try {
-      if (status === 'rejected' && employerConfirmedRejection === true && job) {
-        // Get employer details
-        const employer = application.employerId ? await User.findByPk(application.employerId) : null;
-        const employerEmail = application.employerEmail || job.employerEmail || job.postedBy;
-        const employerName = employer?.companyName || employer?.name || job.company;
+      if (status === 'rejected' && oldStatus !== 'rejected') {
+        if (!job) {
+          console.warn(`⚠️ Rejection email skipped | Application ID: ${application.id} | Reason: job not found (${application.jobId})`);
+        } else if (!application.candidateEmail) {
+          console.warn(`⚠️ Rejection email skipped | Application ID: ${application.id} | Reason: candidate email missing`);
+        } else {
+          // Get employer details
+          const employer = application.employerId ? await User.findByPk(application.employerId) : null;
+          const employerEmail = application.employerEmail || job.employerEmail || job.postedBy;
+          const employerName = employer?.companyName || employer?.name || job.company;
 
-        await sendApplicationRejectionEmail(
-          application.candidateEmail,
-          application.candidateName,
-          job.jobTitle || job.title,
-          job.company,
-          null,
-          [],
-          employerEmail,
-          employerName
-        );
-        console.log('📧 Rejection email sent to candidate (employer confirmed):', application.candidateEmail);
+          const emailResult = await sendApplicationRejectionEmail(
+            application.candidateEmail,
+            application.candidateName,
+            job.jobTitle || job.title,
+            job.company,
+            null,
+            [],
+            employerEmail,
+            employerName
+          );
+          if (emailResult?.success) {
+            console.log(`📧 Rejection email sent to candidate | Application ID: ${application.id} | Candidate: ${application.candidateEmail} | Old Status: ${oldStatus} | New Status: ${status}`);
+          } else {
+            console.error(`❌ Rejection email FAILED | Application ID: ${application.id} | Candidate: ${application.candidateEmail} | Error: ${emailResult?.error || 'unknown'}`);
+          }
+        }
       } else if (['reviewed', 'shortlisted', 'hired'].includes(status) && job) {
         // Get employer details
         const employer = application.employerId ? await User.findByPk(application.employerId) : null;
@@ -856,7 +905,7 @@ router.put('/:id/status', blockViewer, [
         );
       }
     } catch (emailError) {
-      console.error('Email sending failed:', emailError.message);
+      console.error(`❌ Email sending failed | Application ID: ${application.id} | Status transition: ${oldStatus} -> ${status} | Error: ${emailError.message}`);
     }
 
     res.json({
@@ -946,9 +995,15 @@ router.get('/:id/resume/download', async (req, res) => {
 });
 
 // GET /api/applications - Get all applications
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { status, jobId, employerId, employerEmail, page, limit } = req.query;
+
+    // View Only users see no applications
+    if (await isViewOnlyUser(req.user.email.toLowerCase())) {
+      return res.json({ applications: [], total: 0 });
+    }
+
     const where = {};
 
     if (status) where.status = status;

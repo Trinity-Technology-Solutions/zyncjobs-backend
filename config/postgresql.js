@@ -54,6 +54,7 @@ const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_interviews_status ON interviews (status)`,
   `CREATE INDEX IF NOT EXISTS idx_interviews_scheduledDate ON interviews ("scheduledDate")`,
   `CREATE INDEX IF NOT EXISTS idx_interviews_candidateEmail_status ON interviews ("candidateEmail", status)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_interviews_responseToken ON interviews ("responseToken")`,
   // messages
   `CREATE INDEX IF NOT EXISTS idx_messages_conversationId ON messages ("conversationId")`,
   `CREATE INDEX IF NOT EXISTS idx_messages_senderId ON messages ("senderId")`,
@@ -327,6 +328,49 @@ const applyIndexes = async () => {
     console.log('✅ users.status column verified');
   } catch (e) {
     console.warn('⚠️  users.status migration warning:', e.message);
+  }
+
+  // Add accepted/rejected to interviews status enum if missing
+  try {
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_enum
+          JOIN pg_type ON pg_enum.enumtypid = pg_type.oid
+          WHERE pg_type.typname = 'enum_interviews_status'
+          AND pg_enum.enumlabel = 'accepted'
+        ) THEN
+          ALTER TYPE "enum_interviews_status" ADD VALUE 'accepted';
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_enum
+          JOIN pg_type ON pg_enum.enumtypid = pg_type.oid
+          WHERE pg_type.typname = 'enum_interviews_status'
+          AND pg_enum.enumlabel = 'rejected'
+        ) THEN
+          ALTER TYPE "enum_interviews_status" ADD VALUE 'rejected';
+        END IF;
+      END $$;
+    `);
+    console.log('✅ interviews status enum updated with accepted/rejected');
+  } catch (e) {
+    console.warn('⚠️  interviews status enum warning:', e.message);
+  }
+
+  // Add interview invitation response columns if missing
+  try {
+    await sequelize.query(`
+      ALTER TABLE interviews
+        ADD COLUMN IF NOT EXISTS "responseToken" VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS "tokenExpiry" TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS "responseAt" TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS "acceptedAt" TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS "rejectedAt" TIMESTAMP WITH TIME ZONE,
+        ADD COLUMN IF NOT EXISTS "candidateResponded" BOOLEAN DEFAULT false;
+    `);
+    console.log('✅ interviews response columns verified');
+  } catch (e) {
+    console.warn('⚠️  interviews response migration warning:', e.message);
   }
 
   for (const sql of INDEXES) {
