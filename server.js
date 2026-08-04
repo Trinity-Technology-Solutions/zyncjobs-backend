@@ -98,6 +98,7 @@ import contactRoutes from './routes/contact.js';
 import aiRoutes from './routes/ai.js';
 import aiProxyRoutes from './routes/aiProxy.js';
 import gstVerifyRoutes from './routes/gstVerify.js';
+import candidateEmailRoutes from './routes/candidateEmail.js';
 // import reminderScheduler from './services/reminderScheduler.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
@@ -491,6 +492,7 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/ai-proxy', aiProxyRoutes);
 app.use('/api/verify', gstVerifyRoutes);
+app.use('/api/candidate', candidateEmailRoutes);
 app.use('/', ogTagsRoutes);
 
 // Logo proxy — backend fetches external logo, returns to frontend
