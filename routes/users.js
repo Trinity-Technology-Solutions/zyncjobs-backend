@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import User from '../models/User.js';
+import Profile from '../models/Profile.js';
 import { Op } from 'sequelize';
 import { generateAccessToken, generateRefreshToken, verifyToken, verifyRefreshToken } from '../utils/jwt.js';
 import { authenticateToken } from '../middleware/auth.js';
@@ -1090,6 +1091,29 @@ router.get('/', async (req, res) => {
       limit: parseInt(limit),
       attributes: { exclude: ['password'] }
     });
+
+    // Candidate search list: enrich with the uploaded photo from the Profile table.
+    // This is the same source View Profile uses (Profile.profilePhoto) — the User's
+    // profilePicture column may hold an OAuth avatar instead of the uploaded image.
+    if (role === 'candidate' && users.length > 0) {
+      try {
+        const emails = users.map(u => u.email).filter(Boolean);
+        const profiles = await Profile.findAll({
+          where: { email: { [Op.in]: emails } },
+          attributes: ['email', 'profilePhoto']
+        });
+        const photoMap = {};
+        profiles.forEach(p => { if (p.profilePhoto) photoMap[p.email] = p.profilePhoto; });
+        const enriched = users.map(u => {
+          const uj = u.toJSON ? u.toJSON() : u;
+          return { ...uj, profilePhoto: photoMap[uj.email] || uj.profilePhoto || uj.profilePicture || null };
+        });
+        return res.json({ total, users: enriched });
+      } catch (err) {
+        console.warn('Profile photo enrichment skipped:', err.message);
+      }
+    }
+
     res.json({ total, users });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1272,6 +1296,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (req.user.id !== user.id) return res.status(403).json({ error: 'Unauthorized to update this account' });
+
+    // Email cannot be changed directly through this endpoint:
+    // candidates must use the OTP verification flow; employers' email is admin-managed
+    if (email && email !== user.email && (user.role === 'candidate' || user.role === 'employer')) {
+      const message = user.role === 'employer'
+        ? 'Your email address cannot be changed from your account settings.'
+        : 'Email changes require verification. Please use the verification code flow in your account settings.';
+      return res.status(403).json({ error: message });
+    }
 
     const updateData = {};
 
