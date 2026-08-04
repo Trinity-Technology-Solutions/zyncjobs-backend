@@ -128,11 +128,11 @@ export class AIClient {
   }
 
   // ── Recruiter / JD ─────────────────────────────────
-  async generateJD(title, experienceLevel = '', skills = []) {
+  async generateJD(title, experienceLevel = '', skills = [], company = '', location = '') {
     const result = await execute(
       `generate job description for ${title}`,
       'employer',
-      { title, experience_level: experienceLevel, skills }
+      { title, experience_level: experienceLevel, skills, company, location }
     );
     return { job_description: result.job_description || result.description || '' };
   }

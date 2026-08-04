@@ -87,10 +87,12 @@ router.post('/job-description', async (req, res) => {
     if (!jobTitle) return res.status(400).json({ error: 'Job title is required' });
 
     try {
-      const result = await aiClient.generateJD(jobTitle, '', []);
+      const result = await aiClient.generateJD(jobTitle, '', [], company || '', location || '');
       let desc = result.job_description || '';
       if (desc) {
         desc = desc.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
+        desc = desc.replace(/^#{1,6}\s*(.*)$/gm, '$1').replace(/\n{3,}/g, '\n\n').trim();
+        if (company) desc = desc.replace(/our\s+company/gi, company);
         return res.json({ description: desc });
       }
     } catch (e) {

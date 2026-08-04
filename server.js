@@ -198,6 +198,16 @@ connectDB().then(async () => {
     console.warn('⚠️ Team invitation migration warning:', migrationError.message);
     // Don't fail server startup if migration fails
   }
+
+  // Run jobType enum migration (adds enum values missing from existing DBs)
+  try {
+    const { migrateJobTypeEnum } = await import('./scripts/migrateJobTypeEnum.js');
+    await migrateJobTypeEnum();
+    console.log('✅ Job type enum migration completed');
+  } catch (migrationError) {
+    console.warn('⚠️ Job type enum migration warning:', migrationError.message);
+    // Don't fail server startup if migration fails
+  }
   
   // Comment out loadInitialData for faster startup
   // loadInitialData();
@@ -762,9 +772,10 @@ app.post('/api/parse-job-post', async (req, res) => {
     const preExtract = preExtractJobFields(text);
 
     // Pre-extract job title from first non-empty line (skip metadata lines)
-    const metaLinePattern = /^(experience|exp|salary|location|skills?|department|employment|job type|work type|notice|joining|ctc|lpa|years?|\*\*)/i;
-    const firstLine = text.split('\n').map(l => l.trim()).find(l =>
-      l.length > 3 && l.length < 120 && !metaLinePattern.test(l) && !/^\d/.test(l)
+    const stripMd = (s) => s.replace(/^#+\s*/, '').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/^\*\s+/, '').trim();
+    const metaLinePattern = /^(experience|exp|salary|location|skills?|department|employment|job type|work type|notice|joining|ctc|lpa|years?)/i;
+    const firstLine = text.split('\n').map(l => l.trim()).map(stripMd).find(l =>
+      l.length > 3 && l.length < 120 && !metaLinePattern.test(l) && !/^\d/.test(l) && !/[|—–]/.test(l)
     );
     if (firstLine && !preExtract.jobTitle) preExtract.jobTitle = firstLine.replace(/^(job title|position|role)[:\s]*/i, '').trim();
 
@@ -827,6 +838,10 @@ app.post('/api/parse-job-post', async (req, res) => {
 // Pre-extract company and location using regex patterns before AI call
 function preExtractJobFields(text) {
   const result = { company: '', location: '' };
+  const stripped = text
+    .replace(/<[^>]*>/g, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/^#+\s*/gm, '');
 
   // Company extraction patterns
   const companyPatterns = [
@@ -840,7 +855,7 @@ function preExtractJobFields(text) {
   ];
 
   for (const pattern of companyPatterns) {
-    const match = text.match(pattern);
+    const match = stripped.match(pattern);
     if (match && match[1]) {
       const candidate = match[1].trim().replace(/[.,]+$/, '');
       if (candidate.length >= 2 && candidate.length <= 60) {
@@ -869,7 +884,7 @@ function preExtractJobFields(text) {
   const allCities = [...indianCities, ...globalCities];
 
   // Try explicit location label first
-  const locationLabelMatch = text.match(/location\s*[:\-]\s*([^\n,|]{2,50})/i);
+  const locationLabelMatch = stripped.match(/location\s*[:\-]\s*([^\n,|]{2,50})/i);
   if (locationLabelMatch) {
     const locText = locationLabelMatch[1].trim();
     // Check if it contains a known city
@@ -887,7 +902,7 @@ function preExtractJobFields(text) {
   if (!result.location) {
     for (const city of allCities) {
       const cityRegex = new RegExp(`\\b${city}\\b`, 'i');
-      if (cityRegex.test(text)) {
+      if (cityRegex.test(stripped)) {
         result.location = city === 'Bengaluru' ? 'Bangalore' : city;
         break;
       }
@@ -1003,7 +1018,7 @@ function sanitizeLocation(aiLocation, preExtracted) {
 
 // Fallback parsed result when AI is unavailable
 const TITLE_VERB_RE = /\b(design|develop|test|maintain|build|lead|manage|create|implement|write|support|monitor|ensure|analyze|collaborate|deliver|prepare|responsible|drive|own)\w*\b/i;
-const TITLE_META_RE = /^(experience|exp|salary|location|skills?|department|employment|job type|work type|notice|joining|ctc|lpa|about|apply|hiring|urgent|immediate|duties|responsibilities|qualifications)\b/i;
+const TITLE_META_RE = /^(experience|exp|salary|location|skills?|department|employment|job type|work type|notice|joining|ctc|lpa|about|apply|hiring|urgent|immediate|duties|responsibilities|qualifications|overview|requirements|benefits|summary|eligibility|process|description|zyncjobs|connecting)\b/i;
 
 // Sanitize AI-returned job title — reject sentence/responsibility-like output
 function sanitizeJobTitle(aiTitle, preExtract) {
@@ -1034,7 +1049,8 @@ function buildFallbackParsed(text, preExtract) {
   let jobTitle = '';
   // First non-empty line that looks like a job title
   for (const line of lines.slice(0, 5)) {
-    const clean = line.replace(/^(job title|position|role)[:\s]*/i, '').trim();
+    const clean = line.replace(/^#+\s*/, '').replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/^(job title|position|role)[:\s]*/i, '').replace(/[|—–].*$/, '').trim();
     const w = clean.split(/\s+/).filter(Boolean);
     const sentenceLike = /,/.test(clean) || /\b(and|to|for|with|the|that|this|which|of)\b/i.test(clean);
     if (clean.length > 3 && clean.length < 100 && !clean.includes('@') && !clean.match(/^\d/)

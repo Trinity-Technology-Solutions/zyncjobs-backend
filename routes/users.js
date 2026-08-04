@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import User from '../models/User.js';
-import { Op } from 'sequelize';
+import { Op, literal } from 'sequelize';
 import { generateAccessToken, generateRefreshToken, verifyToken, verifyRefreshToken } from '../utils/jwt.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
@@ -1069,12 +1069,16 @@ router.get('/', async (req, res) => {
     if (status) where.status = status;
     if (role) where.role = role;
     // skills filter: return candidates who have ANY of the requested skills
+    // Case-insensitive PARTIAL match — "React" matches "React JS", "React.js", etc.
     if (skills) {
       const skillList = skills.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
       if (skillList.length > 0) {
-        where.skills = { [Op.overlap]: skillList.map(s =>
-          s.charAt(0).toUpperCase() + s.slice(1)
-        ).concat(skillList) };
+        const escapeLike = (s) => s.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/'/g, "''");
+        const conds = skillList.map(s => {
+          const safe = escapeLike(s);
+          return `EXISTS (SELECT 1 FROM unnest("skills") sk WHERE sk ILIKE '%' || '${safe}' || '%')`;
+        });
+        where[Op.and] = [...(where[Op.and] || []), literal(`(${conds.join(' OR ')})`)];
       }
     }
 
