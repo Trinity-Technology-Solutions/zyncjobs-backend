@@ -30,7 +30,7 @@ const Interview = sequelize.define('Interview', {
     defaultValue: 'video'
   },
   status: {
-    type: DataTypes.ENUM('scheduled', 'confirmed', 'rescheduled', 'cancelled', 'completed'),
+    type: DataTypes.ENUM('scheduled', 'confirmed', 'accepted', 'rejected', 'rescheduled', 'cancelled', 'completed'),
     defaultValue: 'scheduled'
   },
   meetingLink: DataTypes.STRING,
@@ -53,7 +53,37 @@ const Interview = sequelize.define('Interview', {
     type: DataTypes.ENUM('Pass', 'Fail', 'Pending'),
     defaultValue: 'Pending'
   },
-  interviewer: DataTypes.STRING
+  interviewer: DataTypes.STRING,
+  responseToken: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Secure one-time token emailed to the candidate for accept/decline response'
+  },
+  tokenExpiry: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp after which the invitation token can no longer be used'
+  },
+  responseAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp when the candidate responded to the invitation (accept or decline)'
+  },
+  acceptedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp when the candidate accepted the interview invitation'
+  },
+  rejectedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Timestamp when the candidate declined the interview invitation'
+  },
+  candidateResponded: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    comment: 'Whether the candidate has already responded to this invitation'
+  }
 }, {
   tableName: 'interviews',
   timestamps: true,

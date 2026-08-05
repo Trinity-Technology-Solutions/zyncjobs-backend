@@ -10,6 +10,7 @@ import Interview from '../models/Interview.js';
 import { Op, literal, fn, col } from 'sequelize';
 import { requireRole, requirePermission, PERMISSIONS, requireTeamRole } from '../middleware/roleAuth.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { isViewOnlyUser } from '../middleware/teamAuth.js';
 import { mistralDetector } from '../utils/mistralJobDetector.js';
 import { generateEmployerId, generatePositionId, generatePositionIdWithYear, formatJobCode } from '../utils/idGenerator.js';
 import { maxJobsGuard, getJobStatus } from '../middleware/settingsMiddleware.js';
@@ -412,6 +413,11 @@ router.get('/employer/email/:email', async (req, res) => {
     const teamRecord = await TeamMember.findOne({
       where: { memberEmail: employerEmail.toLowerCase() }
     });
+
+    // View Only users see no jobs
+    if (await isViewOnlyUser(employerEmail.toLowerCase())) {
+      return res.json([]);
+    }
 
     const isOwner = !teamRecord || teamRecord.role === 'Owner' || teamRecord.memberEmail.toLowerCase() === teamRecord.employerId.toLowerCase();
 

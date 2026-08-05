@@ -160,6 +160,22 @@ export const getTeamPermissions = (role) => {
   return TEAM_PERMISSIONS[role] || TEAM_PERMISSIONS['Viewer'];
 };
 
+// Check if a user is a View Only (Viewer) team member
+export const isViewOnlyUser = async (userEmail) => {
+  try {
+    const teamMember = await TeamMember.findOne({
+      where: { memberEmail: { [Op.iLike]: userEmail }, status: 'active' }
+    });
+    if (teamMember) {
+      const permissions = TEAM_PERMISSIONS[teamMember.role] || TEAM_PERMISSIONS['Viewer'];
+      return !permissions.canPostJobs;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 // Middleware for specific permissions
 export const canPostJobs = checkTeamPermission('canPostJobs');
 export const canManageApplications = checkTeamPermission('canManageApplications');

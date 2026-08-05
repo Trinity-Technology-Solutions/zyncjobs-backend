@@ -1,14 +1,29 @@
 import express from 'express';
+import crypto from 'crypto';
 import { Op } from 'sequelize';
 import Interview from '../models/Interview.js';
 import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Job from '../models/Job.js';
 import { meetingService } from '../services/meetingService.js';
-import { sendInterviewScheduledEmail } from '../services/emailService.js';
+import { sendInterviewScheduledEmail, sendInterviewAcceptedEmail, sendInterviewRejectedEmail, sendInterviewCancelledEmail } from '../services/emailService.js';
 import NotificationService from '../services/notificationService.js';
 import TeamMember from '../models/TeamMember.js';
 import { formatJobCode } from '../utils/idGenerator.js';
+
+const RESPONSE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const generateResponseToken = () => crypto.randomBytes(32).toString('hex');
+const newTokenExpiry = () => new Date(Date.now() + RESPONSE_TOKEN_TTL_MS);
+
+const responsePage = (emoji, title, subtitle, message = '') => `
+<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
+  <div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+    <div style="font-size:48px;margin-bottom:16px;">${emoji}</div>
+    <h1 style="color:#1F2937;margin:0 0 8px;">${title}</h1>
+    <p style="color:#4B5563;margin:0 0 4px;line-height:1.6;">${subtitle}</p>
+    ${message ? `<p style="color:#6B7280;font-size:14px;margin:16px 0 0;">${message}</p>` : ''}
+  </div>
+</body></html>`;
 
 // Block Viewer role from write operations
 const blockViewer = async (req, res, next) => {
@@ -267,6 +282,8 @@ router.post('/schedule', blockViewer, async (req, res) => {
       notes,
       round: round || null,
       interviewer: interviewer || null,
+      responseToken: generateResponseToken(),
+      tokenExpiry: newTokenExpiry(),
       employerConfirmed: true
     });
 
@@ -291,7 +308,7 @@ router.post('/schedule', blockViewer, async (req, res) => {
           candidateName || candidateEmail,
           job?.jobTitle || job?.title || 'Position',
           job?.company || 'Company',
-          { id: interview.id, scheduledDate, duration, type, meetingLink, location, notes },
+          { id: interview.id, responseToken: interview.responseToken, tokenExpiry: interview.tokenExpiry, scheduledDate, duration, type, meetingLink, location, notes },
           employerEmail,
           employerName
         );
@@ -345,17 +362,26 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
     const candidate = await User.findByPk(candidateId || application.candidateId);
     const job = await Job.findByPk(application.jobId);
 
-    // Step 3: Save interview with the generated meetingLink
+    // Step 3: Resolve employer details, then save interview with the generated meetingLink
+    const employer = application.employerId ? await User.findByPk(application.employerId) : null;
+    const employerEmail = employer?.email || application.employerEmail || job?.employerEmail;
+    const employerName = employer?.companyName || employer?.name || job?.company;
+
     const interview = await Interview.create({
       jobId: application.jobId,
       candidateId: candidateId || application.candidateId,
       employerId: application.employerId,
       applicationId,
+      candidateEmail: candidate?.email || application.candidateEmail || null,
+      candidateName: candidate?.name || null,
+      employerEmail,
       scheduledDate,
       duration: duration || 60,
       type: type || 'video',
       meetingLink,   // real link saved here
       notes,
+      responseToken: generateResponseToken(),
+      tokenExpiry: newTokenExpiry(),
       employerConfirmed: true
     });
 
@@ -368,17 +394,12 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
     }
 
     if (candidate && candidate.email) {
-      // Get employer details
-      const employer = application.employerId ? await User.findByPk(application.employerId) : null;
-      const employerEmail = employer?.email || application.employerEmail || job?.employerEmail;
-      const employerName = employer?.companyName || employer?.name || job?.company;
-
       await sendInterviewScheduledEmail(
         candidate.email,
         candidate.name || candidateEmail,
         job?.jobTitle || job?.title || 'Position',
         job?.company || 'Company',
-        { id: interview.id, scheduledDate, duration, type, meetingLink, notes },
+        { id: interview.id, responseToken: interview.responseToken, tokenExpiry: interview.tokenExpiry, scheduledDate, duration, type, meetingLink, notes },
         employerEmail,
         employerName
       );
@@ -407,60 +428,125 @@ router.patch('/:id/confirm', async (req, res) => {
   }
 });
 
-// GET /api/interviews/:id/accept - Candidate accepts interview via email link
+// Shared processor for candidate accept/decline responses (email link based)
+async function handleInterviewResponse({ interview, action, res }) {
+  if (interview.candidateResponded || ['accepted', 'rejected', 'confirmed'].includes(interview.status)) {
+    return res.send(responsePage('&#9989;', 'Already Responded', 'You have already responded to this interview invitation.'));
+  }
+
+  const updates = {
+    status: action === 'reject' ? 'rejected' : 'accepted',
+    candidateResponded: true,
+    candidateConfirmed: true,
+    responseAt: new Date(),
+    acceptedAt: action === 'reject' ? null : new Date(),
+    rejectedAt: action === 'reject' ? new Date() : null,
+    responseToken: null,
+    tokenExpiry: null
+  };
+
+  // Optimistic concurrency guard — only one response wins even on rapid double-clicks
+  const [affected] = await Interview.update(updates, {
+    where: { id: interview.id, candidateResponded: false }
+  });
+
+  if (affected === 0) {
+    return res.send(responsePage('&#9989;', 'Already Responded', 'You have already responded to this interview invitation.'));
+  }
+
+  const updated = await Interview.findByPk(interview.id);
+  const job = updated.jobId ? await Job.findByPk(updated.jobId) : null;
+  const jobTitle = job?.jobTitle || job?.title || 'Position';
+  const company = job?.company || 'Company';
+
+  // Notify employer — non-blocking so an email failure never reverts the response
+  try {
+    if (action === 'reject') {
+      await sendInterviewRejectedEmail(updated.employerEmail, company, updated.candidateName || updated.candidateEmail, jobTitle, updated.scheduledDate);
+      console.log('📧 Interview rejection email sent to employer:', updated.employerEmail);
+    } else {
+      await sendInterviewAcceptedEmail(updated.employerEmail, company, updated.candidateName || updated.candidateEmail, jobTitle, updated.scheduledDate);
+      console.log('📧 Interview acceptance email sent to employer:', updated.employerEmail);
+    }
+  } catch (emailError) {
+    console.error('❌ Employer notification email failed:', emailError.message);
+  }
+
+  try {
+    await NotificationService.createInterviewNotification(updated);
+  } catch (notifError) {
+    console.error('⚠️ Notification error:', notifError.message);
+  }
+
+  console.log(`🔄 Interview ${action === 'reject' ? 'declined' : 'accepted'}:`, updated.id, '| Candidate:', updated.candidateEmail, '| Employer:', updated.employerEmail);
+
+  if (action === 'reject') {
+    return res.send(responsePage('&#10060;', 'Interview Declined', `You have declined the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.`, 'The recruiter has been notified.'));
+  }
+  return res.send(responsePage('&#10004;&#65039;', 'Interview Accepted!', `You have accepted the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.`, 'The recruiter has been notified. Check your email for details.'));
+}
+
+// GET /api/interviews/respond?token=...&action=accept|reject - Secure token-based response endpoint
+router.get('/respond', async (req, res) => {
+  try {
+    const { token, action } = req.query;
+
+    if (!token) {
+      return res.status(400).send(responsePage('&#10060;', 'Invalid Link', 'This invitation link is invalid or missing a token.'));
+    }
+    if (!action || !['accept', 'reject'].includes(action)) {
+      return res.status(400).send(responsePage('&#10060;', 'Invalid Request', 'This action is not supported.'));
+    }
+
+    const interview = await Interview.findOne({ where: { responseToken: token } });
+    if (!interview) {
+      return res.send(responsePage('&#10060;', 'Invalid Link', 'This invitation link is no longer valid.'));
+    }
+
+    if (interview.tokenExpiry && new Date(interview.tokenExpiry) < new Date()) {
+      return res.send(responsePage('&#9203;', 'Link Expired', 'This interview invitation link has expired.'));
+    }
+
+    return await handleInterviewResponse({ interview, action, res });
+  } catch (error) {
+    console.error('Interview response error:', error);
+    res.status(500).send(responsePage('&#10060;', 'Something went wrong', error.message));
+  }
+});
+
+// GET /api/interviews/:id/accept - Legacy candidate accepts interview via email link (kept for backward compatibility)
 router.get('/:id/accept', async (req, res) => {
   try {
     const { id } = req.params;
-    const interview = await Interview.findByPk(id, {
-      include: [
-        { model: Job, attributes: ['jobTitle', 'title', 'company'] },
-        { model: User, as: 'employer', attributes: ['name', 'email', 'companyName'] }
-      ]
-    });
-
+    if (!isValidUUID(id)) {
+      return res.status(400).send(responsePage('&#10060;', 'Invalid Link', 'This invitation link is invalid.'));
+    }
+    const interview = await Interview.findByPk(id);
     if (!interview) {
-      return res.status(404).json({ success: false, message: 'Interview not found' });
+      return res.send(responsePage('&#10060;', 'Interview Not Found', 'This interview no longer exists.'));
     }
-
-    if (interview.status === 'confirmed' || interview.candidateConfirmed) {
-      return res.send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;"><div style="font-size:48px;margin-bottom:16px;">&#9989;</div><h1 style="color:#1F2937;margin:0 0 8px;">Already Confirmed</h1><p style="color:#6B7280;margin:0;">You have already accepted this interview invitation.</p></div></body></html>`);
-    }
-
-    await Interview.update(
-      { candidateConfirmed: true, status: 'confirmed' },
-      { where: { id } }
-    );
-
-    // Send confirmation email to employer
-    try {
-      const { sendInterviewAcceptedEmail } = await import('../services/emailService.js');
-      const job = interview.Job || null;
-      const employer = interview.employer || null;
-      await sendInterviewAcceptedEmail(
-        employer?.email || interview.employerEmail,
-        employer?.companyName || job?.company || 'Company',
-        interview.candidateName || interview.candidateEmail,
-        job?.jobTitle || job?.title || 'Position',
-        interview.scheduledDate
-      );
-    } catch (emailError) {
-      console.error('Acceptance email error:', emailError.message);
-    }
-
-    // Create in-app notification
-    try {
-      await NotificationService.createInterviewNotification(interview);
-    } catch (notifError) {
-      console.error('Notification error:', notifError.message);
-    }
-
-    const jobTitle = interview.Job?.jobTitle || interview.Job?.title || 'Position';
-    const company = interview.Job?.company || 'Company';
-
-    res.send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;box-shadow:0 4px 12px rgba(0,0,0,0.1);"><div style="font-size:48px;margin-bottom:16px;">&#10004;&#65039;</div><h1 style="color:#1F2937;margin:0 0 8px;">Interview Accepted!</h1><p style="color:#4B5563;margin:0 0 4px;line-height:1.6;">You have accepted the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.</p><p style="color:#6B7280;font-size:14px;margin:16px 0 0;">The recruiter has been notified. Check your email for details.</p></div></body></html>`);
+    return await handleInterviewResponse({ interview, action: 'accept', res });
   } catch (error) {
     console.error('Accept interview error:', error);
-    res.status(500).send(`<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;"><div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;"><div style="font-size:48px;margin-bottom:16px;">&#10060;</div><h1 style="color:#DC2626;margin:0 0 8px;">Something went wrong</h1><p style="color:#6B7280;margin:0;">${error.message}</p></div></body></html>`);
+    res.status(500).send(responsePage('&#10060;', 'Something went wrong', error.message));
+  }
+});
+
+// GET /api/interviews/:id/reject - Legacy candidate declines interview via email link (kept for backward compatibility)
+router.get('/:id/reject', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidUUID(id)) {
+      return res.status(400).send(responsePage('&#10060;', 'Invalid Link', 'This invitation link is invalid.'));
+    }
+    const interview = await Interview.findByPk(id);
+    if (!interview) {
+      return res.send(responsePage('&#10060;', 'Interview Not Found', 'This interview no longer exists.'));
+    }
+    return await handleInterviewResponse({ interview, action: 'reject', res });
+  } catch (error) {
+    console.error('Reject interview error:', error);
+    res.status(500).send(responsePage('&#10060;', 'Something went wrong', error.message));
   }
 });
 
@@ -481,16 +567,86 @@ router.patch('/:id/reschedule', blockViewer, async (req, res) => {
   }
 });
 
+// Notify the candidate when an interview is cancelled (non-blocking, never reverts the cancellation)
+async function notifyCandidateOfCancellation(interview) {
+  if (!interview.candidateEmail) {
+    console.warn('⚠️ Cancellation email skipped — missing candidate email for interview:', interview.id);
+    return false;
+  }
+
+  const job = interview.jobId ? await Job.findByPk(interview.jobId) : null;
+  let employerName = null;
+  if (isValidUUID(interview.employerId)) {
+    try {
+      const employer = await User.findByPk(interview.employerId, { attributes: ['id', 'name', 'companyName'] });
+      employerName = employer?.companyName || employer?.name || null;
+    } catch { /* employer lookup is best-effort */ }
+  }
+
+  try {
+    const result = await sendInterviewCancelledEmail(
+      interview.candidateEmail,
+      interview.candidateName || interview.candidateEmail,
+      job?.jobTitle || job?.title || 'Position',
+      job?.company || 'Company',
+      {
+        scheduledDate: interview.scheduledDate,
+        duration: interview.duration,
+        type: interview.type,
+        location: interview.location
+      },
+      employerName
+    );
+    return !!result.success;
+  } catch (emailError) {
+    console.error('❌ Interview cancellation email error:', emailError.message);
+    return false;
+  }
+}
+
 // PUT /api/interviews/:id/status - Update interview status
 router.put('/:id/status', blockViewer, async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    await Interview.update({ status }, { where: { id } });
-    const interview = await Interview.findByPk(id);
+    if (!status) {
+      return res.status(400).json({ success: false, error: 'Status is required' });
+    }
 
-    res.json({ success: true, interview });
+    const interview = await Interview.findByPk(id);
+    if (!interview) {
+      return res.status(404).json({ success: false, error: 'Interview not found' });
+    }
+
+    const previousStatus = interview.status;
+    const transitionToCancelled = status === 'cancelled' && previousStatus !== 'cancelled';
+
+    // Atomic transition guard — only one concurrent cancellation wins and triggers the email
+    const [affected] = transitionToCancelled
+      ? await Interview.update(
+          { status: 'cancelled' },
+          { where: { id, status: { [Op.ne]: 'cancelled' } } }
+        )
+      : await Interview.update({ status }, { where: { id } });
+
+    const updated = await Interview.findByPk(id);
+
+    // Email only on a real transition into Cancelled (Scheduled/Accepted → Cancelled)
+    if (transitionToCancelled && affected > 0) {
+      const emailSent = await notifyCandidateOfCancellation(updated);
+      console.log('🔄 Interview cancelled:', {
+        interviewId: updated.id,
+        candidateId: updated.candidateId || null,
+        employerId: updated.employerId || null,
+        previousStatus,
+        newStatus: 'cancelled',
+        cancelledAt: new Date().toISOString(),
+        emailSent
+      });
+    }
+
+    res.json({ success: true, interview: updated });
   } catch (error) {
     console.error('Update interview status error:', error);
     res.status(500).json({ success: false, error: error.message });
