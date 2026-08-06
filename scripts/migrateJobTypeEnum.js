@@ -6,31 +6,39 @@ import { sequelize } from '../config/postgresql.js';
 // is missing from the DB enum fails with
 //   invalid input value for enum "enum_Jobs_jobType": "..."
 export async function migrateJobTypeEnum() {
-  const values = ['Freelance', 'Internship', 'Temporary'];
+  const enumTypeName = 'enum_Jobs_jobType';
+  const additionalValues = ['Freelance', 'Internship', 'Temporary'];
 
-  // Resolve the real enum type name (Sequelize default: enum_Jobs_jobType)
-  const [rows] = await sequelize.query(
-    `SELECT t.typname FROM pg_type t
-     JOIN pg_enum e ON e.enumtypid = t.oid
-     JOIN pg_attribute a ON a.atttypid = t.oid
-     JOIN pg_class c ON c.oid = a.attrelid
-     WHERE c.relname = 'Jobs' AND a.attname = 'jobType' AND t.typtype = 'e'
-     LIMIT 1`
+  // Check if enum type already exists
+  const [existingTypes] = await sequelize.query(
+    `SELECT typname FROM pg_type WHERE typname = '${enumTypeName}'`
   );
-  const typeName = rows[0]?.typname || 'enum_Jobs_jobType';
 
-  for (const value of values) {
+  if (!existingTypes || existingTypes.length === 0) {
+    // Create the enum type with all base values
+    await sequelize.query(
+      `CREATE TYPE ${enumTypeName} AS ENUM ('Full-time', 'Part-time', 'Contract', 'Freelance', 'Internship', 'Temporary')`
+    );
+    console.log(`✅ Created enum type: ${enumTypeName}`);
+  } else {
+    console.log(`ℹ️ Enum type already exists: ${enumTypeName}`);
+  }
+
+  // Add additional values if they don't already exist
+  for (const value of additionalValues) {
     try {
-      await sequelize.query(`ALTER TYPE "${typeName}" ADD VALUE IF NOT EXISTS '${value}'`);
+      await sequelize.query(
+        `ALTER TYPE "${enumTypeName}" ADD VALUE IF NOT EXISTS '${value}'`
+      );
     } catch (err) {
-      // PostgreSQL < 12 lacks IF NOT EXISTS — retry plainly, ignore
-      // "already exists" errors either way
-      if (/already exists|duplicate_object/i.test(err.message || '')) continue;
-      try {
-        await sequelize.query(`ALTER TYPE "${typeName}" ADD VALUE '${value}'`);
-      } catch (err2) {
-        if (!/already exists|duplicate_object/i.test(err2.message || '')) throw err2;
+      if (/already exists|duplicate_object/i.test(err.message || '')) {
+        console.log(`ℹ️ Value '${value}' already exists in enum ${enumTypeName}`);
+        continue;
       }
+      console.error(`❌ Error adding value '${value}':`, err.message);
+      throw err;
     }
   }
+
+  console.log(`✅ Successfully migrated ${enumTypeName} enum`);
 }
