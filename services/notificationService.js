@@ -5,6 +5,22 @@ import Interview from '../models/Interview.js';
 import User from '../models/User.js';
 import { Op } from 'sequelize';
 
+let _io = null;
+
+// Wire the Socket.io instance so notification creation can push realtime updates.
+export function setNotificationSocket(io) {
+  _io = io;
+}
+
+// Emit the existing notification event used by the notification panel.
+// Broadcast (not room-scoped) so any connected employer client subscribed to
+// `notification_update:<userId>` refreshes immediately.
+function emitNotificationUpdate(userId) {
+  if (_io && userId) {
+    _io.emit(`notification_update:${userId}`, { timestamp: new Date() });
+  }
+}
+
 class NotificationService {
   // Create notification for new job application
   static async createApplicationNotification(application) {
@@ -85,6 +101,53 @@ class NotificationService {
       return true;
     } catch (error) {
       console.error('Error creating interview notification:', error);
+      return null;
+    }
+  }
+
+  // Create employer notification when a candidate accepts or declines an interview invitation
+  static async createInterviewResponseNotification(interview, action) {
+    try {
+      const isAccepted = action === 'accept';
+      const job = interview.jobId ? await Job.findByPk(interview.jobId) : null;
+      const jobTitle = job?.jobTitle || job?.title || 'position';
+      const candidateName = interview.candidateName || interview.candidateEmail || 'A candidate';
+
+      // Resolve the employer (recipient) — prefer UUID, fall back to email
+      let employer = null;
+      if (interview.employerId) {
+        employer = await User.findByPk(interview.employerId);
+      }
+      if (!employer && interview.employerEmail) {
+        employer = await User.findOne({
+          where: { email: { [Op.iLike]: interview.employerEmail } }
+        });
+      }
+      if (!employer) return null;
+
+      const type = isAccepted ? 'interview_accepted' : 'interview_declined';
+      const title = isAccepted ? 'Interview Accepted' : 'Interview Declined';
+      const message = isAccepted
+        ? `${candidateName} accepted the interview invitation for ${jobTitle}.`
+        : `${candidateName} declined the interview invitation for ${jobTitle}.`;
+
+      const notification = await Notification.create({
+        userId: employer.id,
+        type,
+        title,
+        message,
+        link: `/interviews/${interview.id}`
+      });
+
+      console.log(`🔔 Employer notification created: ${title} (${notification.id})`);
+
+      // Realtime — reuse the existing notification event so the employer panel updates instantly
+      emitNotificationUpdate(employer.id);
+      console.log(`📡 Notification emitted: notification_update:${employer.id}`);
+
+      return notification;
+    } catch (error) {
+      console.error('Error creating interview response notification:', error);
       return null;
     }
   }

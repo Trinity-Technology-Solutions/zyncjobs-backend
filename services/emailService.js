@@ -773,6 +773,8 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
     const name = candidateName || 'there';
     const interviewDate = new Date(scheduledDate);
     const typeLabel = type === 'video' ? 'Video Call' : type === 'phone' ? 'Phone Call' : 'In Person';
+    const displayDate = interviewDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const displayTime = interviewDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
     const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:5000').split(',')[0].trim();
     const interviewId = encodeURIComponent(interviewDetails.id || '');
@@ -807,8 +809,8 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
 
         ${infoBox(`
           <table cellpadding="0" cellspacing="0" width="100%">
-            <tr><td style="padding:6px 0;width:120px;"><span style="color:#6B7280;font-size:13px;">Date</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${interviewDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</strong></td></tr>
-            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Time</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${interviewDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></td></tr>
+            <tr><td style="padding:6px 0;width:120px;"><span style="color:#6B7280;font-size:13px;">Date</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${displayDate}</strong></td></tr>
+            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Time</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${displayTime}</strong></td></tr>
             <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Duration</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${duration} minutes</strong></td></tr>
             <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Type</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${typeLabel}</strong></td></tr>
             ${location ? `<tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Location</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${location}</strong></td></tr>` : ''}
@@ -829,7 +831,12 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${meetingLink ? ctaButton('Join Interview', meetingLink, '#7C3AED') : ctaButton('View Details', `${FRONTEND_URL}/interviews`, '#7C3AED')}
+          ${meetingLink && interviewDetails.id
+            ? `<div>
+                ${ctaButton('Join Interview', `${BACKEND_URL}/api/meetings/interview/${encodeURIComponent(interviewDetails.id)}/join`, '#7C3AED')}
+                <p style="color:#6B7280;font-size:12px;margin:12px 0 0;">This meeting link is active only during your scheduled interview time (${displayDate} at ${displayTime}, ${duration} minutes).</p>
+              </div>`
+            : ctaButton('View Details', `${FRONTEND_URL}/interviews`, '#7C3AED')}
         </div>
       </div>`;
 
