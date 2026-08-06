@@ -155,6 +155,164 @@ function buildBadges(profile, candidate, sScore, eScore) {
 
 const router = express.Router();
 
+// GET /api/employer/recruiter-context - Full context bundle for the AI Recruiter Assistant
+// Used by the AI service: company profile + active jobs (full JD) + top ranked candidates + pipeline stats
+router.get('/recruiter-context', async (req, res) => {
+  try {
+    const email = String(req.query.email || '').toLowerCase().trim();
+    if (!email) return res.status(400).json({ error: 'email query param required' });
+
+    const employer = await User.findOne({
+      where: { email: { [Op.iLike]: email } },
+      attributes: ['id', 'name', 'email', 'company', 'companyName', 'companyProfile', 'location', 'role']
+    });
+
+    const companyProfileRaw = (employer && employer.companyProfile) || {};
+    const company = {
+      name: (employer && (employer.companyName || employer.company)) || null,
+      industry: companyProfileRaw?.industry || null,
+      location: companyProfileRaw?.headquarters || employer?.location || null,
+      size: companyProfileRaw?.companySize || null
+    };
+
+    const jobs = await Job.findAll({
+      where: {
+        [Op.or]: [
+          { employerEmail: { [Op.iLike]: email } },
+          { postedByEmail: { [Op.iLike]: email } }
+        ],
+        isActive: true,
+        status: { [Op.ne]: 'rejected' }
+      },
+      order: [['createdAt', 'DESC']],
+      attributes: [
+        'id', 'jobTitle', 'title', 'company', 'location', 'description', 'skills',
+        'experienceRange', 'experienceLevel', 'salaryMin', 'salaryMax', 'currency',
+        'jobType', 'workSetting', 'createdAt'
+      ]
+    });
+
+    // Prefer jobs that already have applicants so the assistant talks about real candidates
+    const jobIds = jobs.map(j => j.id);
+    const applications = jobIds.length
+      ? await Application.findAll({ where: { jobId: { [Op.in]: jobIds } }, order: [['createdAt', 'DESC']] })
+      : [];
+    const appsByJob = {};
+    applications.forEach(a => {
+      (appsByJob[a.jobId] = appsByJob[a.jobId] || []).push(a);
+    });
+    const jobsWithApps = jobs
+      .map(job => ({ job, appCount: (appsByJob[job.id] || []).length }))
+      .sort((a, b) => b.appCount - a.appCount)
+      .slice(0, 5)
+      .map(entry => entry.job);
+
+    const emails = [...new Set(applications.map(a => a.candidateEmail).filter(Boolean))];
+    const ids = [...new Set(applications.map(a => a.candidateId).filter(Boolean))];
+    const [profiles, users] = await Promise.all([
+      Profile.findAll({
+        where: {
+          [Op.or]: [
+            ...(emails.length ? [{ email: { [Op.in]: emails } }] : []),
+            ...(ids.length ? [{ userId: { [Op.in]: ids } }] : [])
+          ]
+        }
+      }),
+      User.findAll({
+        where: {
+          [Op.or]: [
+            ...(emails.length ? [{ email: { [Op.in]: emails } }] : []),
+            ...(ids.length ? [{ id: { [Op.in]: ids } }] : [])
+          ]
+        },
+        attributes: ['id', 'name', 'email', 'phone', 'location', 'title', 'experience']
+      })
+    ]);
+
+    const profileByEmail = {};
+    const profileByUserId = {};
+    profiles.forEach(p => {
+      if (p.email) profileByEmail[p.email.toLowerCase()] = p.toJSON();
+      if (p.userId) profileByUserId[p.userId] = p.toJSON();
+    });
+    const userByEmail = {};
+    users.forEach(u => { userByEmail[u.email.toLowerCase()] = u.toJSON(); });
+
+    const jobsWithCandidates = jobsWithApps.map(job => {
+      const j = job.toJSON();
+      const apps = appsByJob[job.id] || [];
+      const ranked = apps.map((app, idx) => {
+        const emailKey = app.candidateEmail?.toLowerCase();
+        const profile = profileByEmail[emailKey] || profileByUserId[app.candidateId] || {};
+        const user = userByEmail[emailKey] || {
+          id: app.candidateId,
+          name: app.candidateName,
+          email: app.candidateEmail,
+          phone: app.candidatePhone
+        };
+        const base = buildRankedCandidate(user, profile, j, idx + 1);
+        return {
+          name: base.name,
+          email: base.email,
+          location: base.location,
+          title: base.title,
+          experience: base.experience,
+          skills: base.skills,
+          profileSummary: base.profileSummary,
+          overallScore: base.overallScore,
+          matchedSkills: base.matchedSkills,
+          missingSkills: base.missingSkills,
+          scoreBreakdown: base.scoreBreakdown,
+          aiScore: app.aiScore ?? null,
+          applicationStatus: app.status,
+          appliedAt: app.createdAt
+        };
+      });
+      ranked.sort((a, b) => b.overallScore - a.overallScore);
+
+      return {
+        id: job.id,
+        title: j.jobTitle || j.title,
+        company: j.company,
+        location: j.location,
+        description: (j.description || '').slice(0, 4000),
+        skills: j.skills || [],
+        experienceRange: j.experienceRange || j.experienceLevel || null,
+        salaryMin: j.salaryMin,
+        salaryMax: j.salaryMax,
+        currency: j.currency || 'USD',
+        jobType: j.jobType,
+        workSetting: j.workSetting,
+        postedDaysAgo: j.createdAt ? Math.max(0, Math.floor((Date.now() - new Date(j.createdAt).getTime()) / 86400000)) : null,
+        totalApplicants: ranked.length,
+        topCandidates: ranked.slice(0, 5)
+      };
+    });
+
+    const statusCounts = applications.reduce((acc, a) => {
+      acc[a.status] = (acc[a.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    res.json({
+      company,
+      jobs: jobsWithCandidates,
+      stats: {
+        jobs: jobsWithCandidates.length,
+        applications: applications.length,
+        pending: statusCounts.pending || 0,
+        shortlisted: statusCounts.shortlisted || 0,
+        interviewed: statusCounts.interviewed || 0,
+        rejected: statusCounts.rejected || 0,
+        hired: statusCounts.hired || 0
+      }
+    });
+  } catch (error) {
+    console.error('Recruiter context error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/candidates - Get all candidates with search and filter support
 router.get('/', async (req, res) => {
   try {
@@ -346,7 +504,7 @@ router.get('/jobs/:jobId/ranked-candidates', authenticateToken, requireRole(['em
             ...(candidateIds.length ? [{ id: { [Op.in]: candidateIds } }] : [])
           ]
         },
-        attributes: ['id', 'name', 'email', 'phone', 'location', 'title', 'experience', 'availability']
+        attributes: ['id', 'name', 'email', 'phone', 'location', 'title', 'experience']
       })
     ]);
 
@@ -356,8 +514,6 @@ router.get('/jobs/:jobId/ranked-candidates', authenticateToken, requireRole(['em
       if (p.email) profileByEmail[p.email.toLowerCase()] = p.toJSON();
       if (p.userId) profileByUserId[p.userId] = p.toJSON();
     });
-    const userByEmail = {};
-    users.forEach(u => { userByEmail[u.email.toLowerCase()] = u.toJSON(); });
 
     const ranked = applications.map((app, idx) => {
       const email = app.candidateEmail?.toLowerCase();
@@ -432,7 +588,7 @@ router.get('/ranked', async (req, res) => {
 
     const candidates = await User.findAll({
       where: userQuery,
-      attributes: ['id', 'name', 'email', 'phone', 'location', 'title', 'experience', 'availability'],
+      attributes: ['id', 'name', 'email', 'phone', 'location', 'title', 'experience'],
       limit: parseInt(limit),
       order: [['createdAt', 'DESC']]
     });

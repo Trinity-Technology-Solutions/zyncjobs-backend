@@ -143,6 +143,19 @@ router.post('/upload-and-parse', upload.single('resume'), async (req, res) => {
   }
 });
 
+// POST /api/resume/extract-text — Extract raw text from uploaded resume file (supports PDF, DOC, DOCX, images)
+router.post('/extract-text', upload.single('resume'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+    const text = await pdfTextExtractor.extractTextFromBuffer(req.file.buffer, req.file.originalname);
+    if (!text?.trim()) return res.status(400).json({ success: false, error: 'Could not extract text from file' });
+    res.json({ success: true, text });
+  } catch (error) {
+    console.error('[EXTRACT_TEXT] Error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Text extraction failed' });
+  }
+});
+
 // GET /api/resume/moderation - Mock moderation data
 router.get('/moderation', async (req, res) => {
   try {

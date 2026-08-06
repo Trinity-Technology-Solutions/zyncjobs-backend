@@ -50,31 +50,54 @@ async function getCandidateData(application) {
     resumeParsed = resume?.parsedData || null;
   }
 
-  const skills = profile?.skills || resumeParsed?.skills || [];
+  const skills = normalizeSkillList(profile?.skills) || normalizeSkillList(resumeParsed?.skills) || [];
   const yearsExp = parseFloat(profile?.yearsExperience) || resumeParsed?.yearsExperience || 0;
   const education = profile?.education || resumeParsed?.education || '';
   const location = profile?.location || resumeParsed?.location || '';
 
-  return { skills, yearsExp, education, location, profile, resumeParsed };
+  // Build a plain-text resume so the AI scorer always receives real candidate data
+  const resumeText = [
+    profile?.profileSummary ? `Summary: ${profile.profileSummary}` : '',
+    skills.length ? `Skills: ${skills.join(', ')}` : '',
+    yearsExp ? `Experience: ${yearsExp} years` : '',
+    education ? `Education: ${education}` : '',
+    location ? `Location: ${location}` : '',
+  ].filter(Boolean).join('\n');
+
+  return { skills, yearsExp, education, location, profile, resumeParsed, resume: resumeText };
+}
+
+// Normalize skills from array, comma-separated string, or object list into a clean deduped array
+function normalizeSkillList(raw) {
+  let list = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (typeof raw === 'string' && raw.trim()) list = raw.split(',').map(s => s.trim()).filter(Boolean);
+  else if (raw && typeof raw === 'object') list = Object.values(raw);
+  return [...new Set(list.map(s => String(s).trim()).filter(Boolean))];
 }
 
 // ── Rule-based scoring ───────────────────────────────────────────────────────
 const EXP_MAP = { Entry: 0, Mid: 2, Senior: 5, Lead: 8 };
 
 function scoreSkills(candidateSkills = [], jobSkills = []) {
-  if (!jobSkills.length) return 50; // No job skills specified
-  if (!candidateSkills.length) return 0; // No candidate skills
-  
-  const matched = candidateSkills.filter(candidateSkill =>
-    jobSkills.some(jobSkill => 
-      candidateSkill.toLowerCase().includes(jobSkill.toLowerCase()) || 
-      jobSkill.toLowerCase().includes(candidateSkill.toLowerCase()) ||
-      candidateSkill.toLowerCase() === jobSkill.toLowerCase()
+  const jobSkillsList = normalizeSkillList(jobSkills);
+  const candidateSkillsList = normalizeSkillList(candidateSkills);
+  if (!jobSkillsList.length) return 50; // No job skills specified
+  if (!candidateSkillsList.length) return 0; // No candidate skills
+
+  const cLower = candidateSkillsList.map(s => s.toLowerCase());
+  const jLower = jobSkillsList.map(s => s.toLowerCase());
+
+  // Each job skill matched by at least one candidate skill — count job skills, not candidate skills
+  const matchedJobSkills = jLower.filter(jobSkill =>
+    cLower.some(candidateSkill =>
+      candidateSkill.includes(jobSkill) ||
+      jobSkill.includes(candidateSkill)
     )
   );
-  
-  const matchPercentage = (matched.length / jobSkills.length) * 100;
-  return Math.round(matchPercentage);
+
+  const matchPercentage = (matchedJobSkills.length / jLower.length) * 100;
+  return Math.max(0, Math.min(100, Math.round(matchPercentage)));
 }
 
 function scoreExperience(candidateYearsExp = 0, jobExperienceLevel = 'Mid', jobExperienceRange = '') {
@@ -105,16 +128,20 @@ function scoreExperience(candidateYearsExp = 0, jobExperienceLevel = 'Mid', jobE
 }
 
 // ── AI scoring via Groq ─────────────────────────────────────────────────────
+const clampScore = (value) =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(100, Math.round(value)))
+    : null;
+
 async function getAiScore(candidate, job) {
   try {
     const result = await aiClient.rankingAIScore(candidate, job);
-    if (result && typeof result.overallScore === 'number') return result;
-    // Normalise alternate field names
+    if (!result || typeof result !== 'object') return null;
     return {
-      skillsScore: result?.skill_score ?? result?.skillsScore ?? null,
-      experienceScore: result?.experience_score ?? result?.experienceScore ?? null,
-      overallScore: result?.overall ?? result?.overallScore ?? null,
-      shouldReject: result?.should_reject ?? result?.shouldReject ?? false,
+      skillsScore: clampScore(result.skill_score ?? result.skillsScore),
+      experienceScore: clampScore(result.experience_score ?? result.experienceScore),
+      overallScore: clampScore(result.overall ?? result.overallScore),
+      shouldReject: Boolean(result.should_reject ?? result.shouldReject ?? false),
       reasons: result?.reasons || [],
       feedback: result?.feedback || '',
       matchingSkills: result?.matching_skills || result?.matchingSkills || [],
@@ -149,8 +176,8 @@ export const runAutoRejection = async (application, job, dryRun = false) => {
       }
     }
 
-    // Fallback to rule-based
-    if (skillsScore === undefined) {
+    // Fallback to rule-based whenever AI returns no valid score (null/undefined)
+    if (skillsScore == null) {
       skillsScore = scoreSkills(candidate.skills, job.skills || []);
       experienceScore = scoreExperience(candidate.yearsExp, job.experienceLevel, job.experienceRange);
       overallScore = Math.round((skillsScore * 0.6) + (experienceScore * 0.4)); // Weight skills more heavily

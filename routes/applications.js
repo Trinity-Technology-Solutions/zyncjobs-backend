@@ -1067,19 +1067,22 @@ router.get('/', authenticateToken, async (req, res) => {
         const mergedSkills = [...new Set([...profileSkills, ...appSkills])];
 
         // Calculate aiAnalysis scores (same logic as /job/:jobId route)
+        // Recompute when missing OR stale (all-zero breakdown written by older buggy versions)
         let aiAnalysis = app.aiAnalysis;
-        if (!aiAnalysis && job) {
-          const jobSkills = job.skills || [];
+        const isStaleAnalysis = aiAnalysis &&
+          aiAnalysis.overallScore === 0 && aiAnalysis.skillsScore === 0 && aiAnalysis.experienceScore === 0;
+        if ((!aiAnalysis || isStaleAnalysis) && job) {
+          const jobSkills = Array.isArray(job.skills) ? job.skills : [];
           const candidateYearsExp = parseFloat(profile.yearsExperience) || 0;
           let skillsScore = 50;
           if (jobSkills.length > 0 && mergedSkills.length > 0) {
-            const matched = mergedSkills.filter(cs =>
-              jobSkills.some(js =>
-                cs.toLowerCase().includes(js.toLowerCase()) ||
-                js.toLowerCase().includes(cs.toLowerCase())
-              )
+            // Count matched JOB skills (deduped, capped 0-100) — mirrors aiRejectionSettings scoring
+            const csLower = mergedSkills.map(s => String(s).toLowerCase().trim()).filter(Boolean);
+            const jsLower = jobSkills.map(s => String(s).toLowerCase().trim()).filter(Boolean);
+            const matched = jsLower.filter(js =>
+              csLower.some(cs => cs.includes(js) || js.includes(cs))
             );
-            skillsScore = Math.round((matched.length / jobSkills.length) * 100);
+            skillsScore = Math.max(0, Math.min(100, Math.round((matched.length / jsLower.length) * 100)));
           } else if (jobSkills.length === 0) {
             skillsScore = 50;
           } else {
