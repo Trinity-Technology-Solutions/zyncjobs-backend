@@ -181,11 +181,48 @@ router.post('/register', registrationGuard, [
         await safeDestroy('../models/Message.js', { [Op.or]: [{ senderId: userId }, { receiverId: userId }] }, 'Messages');
         await safeDestroy('../models/SavedCandidate.js', { [Op.or]: [{ employerId: userId }, { employerEmail: userEmail }, { candidateId: userId }] }, 'SavedCandidates');
         await safeDestroy('../models/SavedRecommendedJob.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'SavedRecommendedJobs');
-        await safeDestroy('../models/JobAlertNotification.js', { userId }, 'JobAlertNotifications');
         await safeDestroy('../models/CareerRoadmap.js', { userId }, 'CareerRoadmaps');
         await safeDestroy('../models/PasswordReset.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'PasswordResets');
         await safeDestroy('../models/Review.js', { [Op.or]: [{ userId }, { reviewerEmail: userEmail }] }, 'Reviews');
         await safeDestroy('../models/TeamMember.js', { [Op.or]: [{ employerId: userEmail }, { memberEmail: userEmail }] }, 'TeamMembers');
+
+        // ── Employer-owned business data ────────────────────────────────
+        // Find all jobs posted by this user's company so we can clean child
+        // rows first (applications, saved alerts, interviews) before deleting jobs.
+        let ownedJobIds = [];
+        try {
+          const Job = (await import('../models/Job.js')).default;
+          const jobs = await Job.findAll({
+            where: {
+              [Op.or]: [
+                { employerEmail: userEmail },
+                { postedBy: userEmail },
+                { postedByEmail: userEmail }
+              ]
+            },
+            attributes: ['id']
+          });
+          ownedJobIds = jobs.map(j => j.id);
+          if (ownedJobIds.length > 0) console.log(`🗑️ Re-registration found ${ownedJobIds.length} owned jobs`);
+        } catch (e) {
+          console.warn('⚠️ Could not look up owned jobs:', e.message);
+        }
+
+        if (ownedJobIds.length > 0) {
+          // Child rows that reference jobs — delete BEFORE jobs
+          await safeDestroy('../models/Application.js', { jobId: { [Op.in]: ownedJobIds } }, 'Applications (for owned jobs)');
+          await safeDestroy('../models/Interview.js', { jobId: { [Op.in]: ownedJobIds } }, 'Interviews (for owned jobs)');
+          await safeDestroy('../models/JobAlertNotification.js', { jobId: { [Op.in]: ownedJobIds } }, 'JobAlertNotifications');
+          await safeDestroy('../models/SavedRecommendedJob.js', { jobId: { [Op.in]: ownedJobIds } }, 'SavedRecommendedJobs');
+          await safeDestroy('../models/Job.js', { id: { [Op.in]: ownedJobIds } }, 'Jobs');
+        }
+
+        // Company record created by this user (e.g. "Trinity Technology Solutions")
+        const companyName = existingUser.companyName || existingUser.company || null;
+        if (companyName) {
+          await safeDestroy('../models/Company.js', { [Op.or]: [{ createdBy: userEmail }, { name: companyName }] }, 'Company');
+        }
+
         await User.destroy({ where: { id: userId } });
         console.log('✅ Deleted previous account for re-registration:', email);
       } else {
