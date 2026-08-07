@@ -779,11 +779,9 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
     const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:5000').split(',')[0].trim();
     const interviewId = encodeURIComponent(interviewDetails.id || '');
     const token = interviewDetails.responseToken || '';
-    const respondLink = (action) => token
-      ? `${BACKEND_URL}/api/interviews/respond?token=${encodeURIComponent(token)}&action=${action}`
-      : `${BACKEND_URL}/api/interviews/${interviewId}/${action}`;
-    const acceptLink = respondLink('accept');
-    const rejectLink = respondLink('reject');
+    const inviteUrl = token ? `${FRONTEND_URL}/interview-invite?token=${encodeURIComponent(token)}` : null;
+    const acceptLink = inviteUrl || `${BACKEND_URL}/api/interviews/${interviewId}/accept`;
+    const rejectLink = inviteUrl || `${BACKEND_URL}/api/interviews/${interviewId}/reject`;
 
     const content = `
       <!-- Hero -->
@@ -886,7 +884,7 @@ export const sendInterviewAcceptedEmail = async (employerEmail, companyName, can
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('View Interview Details', `${FRONTEND_URL}/interviews`, '#059669')}
+          ${ctaButton('View Interview Details', `${FRONTEND_URL}/dashboard#interviews`, '#059669')}
         </div>
       </div>`;
 

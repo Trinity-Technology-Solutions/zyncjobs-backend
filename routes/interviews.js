@@ -429,9 +429,11 @@ router.patch('/:id/confirm', async (req, res) => {
 });
 
 // Shared processor for candidate accept/decline responses (email link based)
-async function handleInterviewResponse({ interview, action, res }) {
+async function handleInterviewResponse({ interview, action, res, json = false }) {
   if (interview.candidateResponded || ['accepted', 'rejected', 'confirmed'].includes(interview.status)) {
-    return res.send(responsePage('&#9989;', 'Already Responded', 'You have already responded to this interview invitation.'));
+    return json
+      ? res.status(400).json({ success: false, error: 'You have already responded to this interview invitation.' })
+      : res.send(responsePage('&#9989;', 'Already Responded', 'You have already responded to this interview invitation.'));
   }
 
   const updates = {
@@ -451,7 +453,9 @@ async function handleInterviewResponse({ interview, action, res }) {
   });
 
   if (affected === 0) {
-    return res.send(responsePage('&#9989;', 'Already Responded', 'You have already responded to this interview invitation.'));
+    return json
+      ? res.status(400).json({ success: false, error: 'You have already responded to this interview invitation.' })
+      : res.send(responsePage('&#9989;', 'Already Responded', 'You have already responded to this interview invitation.'));
   }
 
   const updated = await Interview.findByPk(interview.id);
@@ -481,9 +485,13 @@ async function handleInterviewResponse({ interview, action, res }) {
   console.log(`🔄 Interview ${action === 'reject' ? 'declined' : 'accepted'}:`, updated.id, '| Candidate:', updated.candidateEmail, '| Employer:', updated.employerEmail);
 
   if (action === 'reject') {
-    return res.send(responsePage('&#10060;', 'Interview Declined', `You have declined the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.`, 'The recruiter has been notified.'));
+    return json
+      ? res.json({ success: true, message: 'Interview declined', interview: updated })
+      : res.send(responsePage('&#10060;', 'Interview Declined', `You have declined the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.`, 'The recruiter has been notified.'));
   }
-  return res.send(responsePage('&#10004;&#65039;', 'Interview Accepted!', `You have accepted the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.`, 'The recruiter has been notified. Check your email for details.'));
+  return json
+    ? res.json({ success: true, message: 'Interview accepted', interview: updated })
+    : res.send(responsePage('&#10004;&#65039;', 'Interview Accepted!', `You have accepted the interview for <strong>${jobTitle}</strong> at <strong>${company}</strong>.`, 'The recruiter has been notified. Check your email for details.'));
 }
 
 // GET /api/interviews/respond?token=...&action=accept|reject - Secure token-based response endpoint
@@ -511,6 +519,81 @@ router.get('/respond', async (req, res) => {
   } catch (error) {
     console.error('Interview response error:', error);
     res.status(500).send(responsePage('&#10060;', 'Something went wrong', error.message));
+  }
+});
+
+// GET /api/interviews/invite-info/:token - Fetch interview details for a response token (frontend page)
+router.get('/invite-info/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'This invitation link is missing a token.', code: 'invalid' });
+    }
+    const interview = await Interview.findOne({ where: { responseToken: token } });
+    if (!interview) {
+      return res.status(404).json({ success: false, error: 'This invitation link is no longer valid.', code: 'invalid' });
+    }
+    if (interview.tokenExpiry && new Date(interview.tokenExpiry) < new Date()) {
+      return res.json({ success: false, error: 'This interview invitation link has expired.', code: 'expired' });
+    }
+    const responded = interview.candidateResponded || ['accepted', 'rejected', 'confirmed'].includes(interview.status);
+    const job = interview.jobId ? await Job.findByPk(interview.jobId) : null;
+    const data = {
+      _id: interview.id,
+      jobTitle: job?.jobTitle || job?.title || 'Position',
+      company: job?.company || 'Company',
+      candidateName: interview.candidateName,
+      candidateEmail: interview.candidateEmail,
+      scheduledDate: interview.scheduledDate,
+      duration: interview.duration,
+      type: interview.type,
+      meetingLink: interview.meetingLink,
+      location: interview.location,
+      notes: interview.notes,
+      interviewer: interview.interviewer,
+      round: interview.round,
+      status: interview.status,
+      responded
+    };
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Invite info error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/interviews/respond - JSON token-based response (used by the frontend invite page)
+router.post('/respond', async (req, res) => {
+  try {
+    const { token, action } = req.body || {};
+    if (!token) return res.status(400).json({ success: false, error: 'This invitation link is missing a token.' });
+    if (!action || !['accept', 'reject'].includes(action)) return res.status(400).json({ success: false, error: 'This action is not supported.' });
+    const interview = await Interview.findOne({ where: { responseToken: token } });
+    if (!interview) return res.status(404).json({ success: false, error: 'This invitation link is no longer valid.' });
+    if (interview.tokenExpiry && new Date(interview.tokenExpiry) < new Date()) return res.status(410).json({ success: false, error: 'This interview invitation link has expired.' });
+    return await handleInterviewResponse({ interview, action, res, json: true });
+  } catch (error) {
+    console.error('Interview response error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/interviews/:id/respond - JSON response authenticated by candidate email (dashboard buttons)
+router.post('/:id/respond', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, candidateEmail } = req.body || {};
+    if (!isValidUUID(id)) return res.status(400).json({ success: false, error: 'Invalid interview.' });
+    if (!action || !['accept', 'reject'].includes(action)) return res.status(400).json({ success: false, error: 'This action is not supported.' });
+    const interview = await Interview.findByPk(id);
+    if (!interview) return res.status(404).json({ success: false, error: 'Interview not found.' });
+    if (!candidateEmail || interview.candidateEmail?.toLowerCase() !== String(candidateEmail).toLowerCase()) {
+      return res.status(403).json({ success: false, error: 'You are not authorized to respond to this interview.' });
+    }
+    return await handleInterviewResponse({ interview, action, res, json: true });
+  } catch (error) {
+    console.error('Interview respond error:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

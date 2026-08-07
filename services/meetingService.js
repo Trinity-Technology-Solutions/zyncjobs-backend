@@ -128,12 +128,23 @@ class MeetingService {
         }
       }
 
-      // If still no tokens, return explicit error (do not fabricate a Meet link by default)
+      // If still no tokens, return a working fallback link (Jitsi) instead of failing.
+      // Real meet.google.com links REQUIRE a connected Google account — a random
+      // meet.google.com/xxx URL would be fake and unusable. Jitsi rooms work with no auth.
       if (!accessToken) {
-        console.warn('No Google OAuth token available for Google Meet creation');
+        console.warn('No Google OAuth token available, generating working Jitsi fallback link');
+        const roomCode = `ZyncJobs-${crypto.randomUUID().slice(0, 8)}`;
+        const link = `https://meet.jit.si/${roomCode}`;
         return {
-          success: false,
-          error: 'Google Calendar not connected. Please connect a Google account to create real Meet links.'
+          success: true,
+          fallback: true,
+          meeting: {
+            platform: 'googlemeet',
+            meetingId: roomCode,
+            meetLink: link,
+            join_url: link
+          },
+          message: 'Google Calendar not connected. Using a working fallback video link. Connect Google Calendar to create real Google Meet links.'
         };
       }
 
@@ -195,11 +206,20 @@ class MeetingService {
       };
     } catch (error) {
       console.error('Error creating Google Meet:', error?.message || error);
-      // By default, do not return fabricated meet links. Offer an explicit error back to caller.
-      // If you need legacy fallback behavior, set environment variable `ALLOW_FALLBACK_MEET=true`.
+      // Fall back to a working Jitsi link instead of failing — the interview must go ahead.
+      // A random meet.google.com/xxx URL would be fake (not a real meeting), so use Jitsi.
+      const roomCode = `ZyncJobs-${crypto.randomUUID().slice(0, 8)}`;
+      const link = `https://meet.jit.si/${roomCode}`;
       return {
-        success: false,
-        error: 'Failed to create Google Meet: ' + (error?.message || String(error))
+        success: true,
+        fallback: true,
+        meeting: {
+          platform: 'googlemeet',
+          meetingId: roomCode,
+          meetLink: link,
+          join_url: link
+        },
+        message: 'Google Meet creation failed, using a working fallback video link: ' + (error?.message || String(error))
       };
     }
   }
