@@ -4,6 +4,7 @@ import Notification from '../models/Notification.js';
 import Job from '../models/Job.js';
 import Application from '../models/Application.js';
 import Interview from '../models/Interview.js';
+import User from '../models/User.js';
 import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -157,6 +158,37 @@ async function generateDynamicNotifications(employerEmail) {
         data: interview,
         createdAt: interview.createdAt || interview.scheduledDate
       });
+    }
+
+    // Include persisted notifications (e.g. interview_accepted / interview_declined)
+    // created through NotificationService — these are stored in the notifications table
+    // and must show up in the employer panel alongside the dynamically derived ones.
+    try {
+      const employer = await User.findOne({
+        where: { email: { [Op.iLike]: employerEmail } }
+      });
+      if (employer) {
+        const stored = await Notification.findAll({
+          where: { userId: employer.id },
+          order: [['createdAt', 'DESC']],
+          limit: 10
+        });
+        stored.forEach(n => {
+          notifications.push({
+            id: n.id,
+            type: n.type,
+            title: n.title,
+            message: n.message,
+            link: n.link,
+            read: n.read,
+            time: getTimeAgo(n.createdAt),
+            data: { source: 'stored', notificationId: n.id },
+            createdAt: n.createdAt
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching stored notifications:', error);
     }
 
     notifications.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));

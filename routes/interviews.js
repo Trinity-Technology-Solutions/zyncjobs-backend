@@ -473,7 +473,7 @@ async function handleInterviewResponse({ interview, action, res }) {
   }
 
   try {
-    await NotificationService.createInterviewNotification(updated);
+    await NotificationService.createInterviewResponseNotification(updated, action);
   } catch (notifError) {
     console.error('⚠️ Notification error:', notifError.message);
   }

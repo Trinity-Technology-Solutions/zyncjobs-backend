@@ -103,6 +103,7 @@ import candidateEmailRoutes from './routes/candidateEmail.js';
 import jobAlertScheduler from './services/jobAlertScheduler.js';
 import notificationScheduler from './services/notificationScheduler.js';
 import gdprRetentionScheduler from './services/gdprRetentionScheduler.js';
+import NotificationService, { setNotificationSocket } from './services/notificationService.js';
 import Notification from './models/Notification.js';
 import Message from './models/Message.js';
 import Review from './models/Review.js';
@@ -235,6 +236,7 @@ connectDB().then(async () => {
 setAnalyticsIo(io);
 setMessagesIo(io);
 setNotificationIo(io);
+setNotificationSocket(io);
 
 // Socket.io connection
 const userSockets = new Map();
