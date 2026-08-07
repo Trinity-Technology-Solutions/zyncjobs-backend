@@ -153,7 +153,40 @@ router.post('/register', registrationGuard, [
     if (existingUser) {
       // If account was previously deleted (isActive=false or status='deleted'), allow re-registration
       if (!existingUser.isActive || existingUser.status === 'deleted') {
-        await User.destroy({ where: { id: existingUser.id } });
+        // Remove FK-referenced rows first so User.destroy() doesn't violate foreign key constraints
+        const userId = existingUser.id;
+        const userEmail = existingUser.email;
+        const safeDestroy = async (modelPath, condition, label) => {
+          try {
+            const Model = (await import(modelPath)).default;
+            const count = await Model.destroy({ where: condition });
+            if (count > 0) console.log(`🗑️ Deleted ${count} from ${label} before re-registration`);
+          } catch (e) {
+            console.warn(`⚠️ Could not delete from ${label}:`, e.message);
+          }
+        };
+        await safeDestroy('../models/UserPreferences.js', { userId }, 'UserPreferences');
+        await safeDestroy('../models/GdprConsent.js', { userId }, 'GdprConsent');
+        await safeDestroy('../models/Profile.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'Profiles');
+        await safeDestroy('../models/Resume.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'Resumes');
+        await safeDestroy('../models/ResumeVersion.js', { userId }, 'ResumeVersions');
+        await safeDestroy('../models/Notification.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'Notifications');
+        await safeDestroy('../models/JobAlert.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'JobAlerts');
+        await safeDestroy('../models/Analytics.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'Analytics');
+        await safeDestroy('../models/HeadlineAnalytics.js', { userId }, 'HeadlineAnalytics');
+        await safeDestroy('../models/SearchAnalytics.js', { userId }, 'SearchAnalytics');
+        await safeDestroy('../models/SkillAssessment.js', { userId }, 'SkillAssessments');
+        await safeDestroy('../models/Application.js', { [Op.or]: [{ candidateEmail: userEmail }, { userId }] }, 'Applications');
+        await safeDestroy('../models/Interview.js', { [Op.or]: [{ candidateEmail: userEmail }, { employerEmail: userEmail }, { userId }] }, 'Interviews');
+        await safeDestroy('../models/Message.js', { [Op.or]: [{ senderId: userId }, { receiverId: userId }] }, 'Messages');
+        await safeDestroy('../models/SavedCandidate.js', { [Op.or]: [{ employerId: userId }, { employerEmail: userEmail }, { candidateId: userId }] }, 'SavedCandidates');
+        await safeDestroy('../models/SavedRecommendedJob.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'SavedRecommendedJobs');
+        await safeDestroy('../models/JobAlertNotification.js', { userId }, 'JobAlertNotifications');
+        await safeDestroy('../models/CareerRoadmap.js', { userId }, 'CareerRoadmaps');
+        await safeDestroy('../models/PasswordReset.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'PasswordResets');
+        await safeDestroy('../models/Review.js', { [Op.or]: [{ userId }, { reviewerEmail: userEmail }] }, 'Reviews');
+        await safeDestroy('../models/TeamMember.js', { [Op.or]: [{ employerId: userEmail }, { memberEmail: userEmail }] }, 'TeamMembers');
+        await User.destroy({ where: { id: userId } });
         console.log('✅ Deleted previous account for re-registration:', email);
       } else {
         console.log('❌ User already exists:', email);
