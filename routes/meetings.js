@@ -8,6 +8,9 @@ const router = express.Router();
 
 const MINUTE_MS = 60 * 1000;
 
+// Only UUIDs are valid when comparing against the users.id column
+const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v || '');
+
 // Friendly page shown for user-facing join errors (mirrors the project's interview response pages)
 const joinPage = (title, subtitle, message = '') => `
 <html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
@@ -108,13 +111,22 @@ router.get('/google-meet/callback', async (req, res) => {
     const { code, state: employerId } = req.query;
     if (!code) return res.status(400).send('Missing code');
     const tokens = await meetingService.getGoogleMeetTokens(code);
-    // Save tokens to user
-    await User.update(
-      { googleMeetAccessToken: tokens.access_token, googleMeetRefreshToken: tokens.refresh_token || null },
-      { where: { id: employerId } }
-    );
+
+    // The state can be a user UUID (owner/team member), an employerId string, or an
+    // owner email (legacy) — resolve to the actual user row before saving tokens.
+    let user = null;
+    if (isUuid(employerId)) user = await User.findOne({ where: { id: employerId } });
+    if (!user && employerId) user = await User.findOne({ where: { employerId } });
+    if (!user && employerId && employerId.includes('@')) user = await User.findOne({ where: { email: employerId } });
+    if (!user) return res.status(404).send('User not found for Google Meet connection');
+
+    await user.update({
+      googleMeetAccessToken: tokens.access_token,
+      googleMeetRefreshToken: tokens.refresh_token || null
+    });
+    console.log('✅ Google Meet tokens saved for user:', user.id);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.redirect(`${frontendUrl}/employer/dashboard?googleMeetConnected=true`);
+    res.redirect(`${frontendUrl}/dashboard?googleMeetConnected=true`);
   } catch (error) {
     console.error('Google Meet callback error:', error.message);
     res.status(500).send('OAuth failed: ' + error.message);
@@ -122,21 +134,28 @@ router.get('/google-meet/callback', async (req, res) => {
 });
 
 // GET /api/meetings/google-meet/status - Check if employer has connected Google
+// (or if the production service account path is active — then it's always ready)
 router.get('/google-meet/status', async (req, res) => {
   try {
     const { employerId } = req.query;
-    if (!employerId) return res.json({ connected: false });
-    const user = await User.findOne({ where: { id: employerId }, attributes: ['googleMeetAccessToken'] });
-    res.json({ connected: !!(user?.googleMeetAccessToken) });
+    if (meetingService.isServiceAccountConfigured()) {
+      return res.json({ connected: true, mode: 'service-account' });
+    }
+    if (!employerId) return res.json({ connected: false, mode: 'oauth' });
+    let user = null;
+    if (isUuid(employerId)) user = await User.findOne({ where: { id: employerId }, attributes: ['googleMeetAccessToken'] });
+    if (!user) user = await User.findOne({ where: { employerId }, attributes: ['googleMeetAccessToken'] });
+    if (!user && employerId.includes('@')) user = await User.findOne({ where: { email: employerId }, attributes: ['googleMeetAccessToken'] });
+    res.json({ connected: !!(user?.googleMeetAccessToken), mode: 'oauth' });
   } catch {
-    res.json({ connected: false });
+    res.json({ connected: false, mode: 'oauth' });
   }
 });
 
 // Create meeting (supports both Zoom and Google Meet)
 router.post('/create', async (req, res) => {
   try {
-    const { platform, topic, start_time, duration, description } = req.body;
+    const { platform, topic, start_time, duration, description, employerId, employerEmail, candidateEmail } = req.body;
     
     if (!platform) {
       return res.status(400).json({ 
@@ -150,7 +169,10 @@ router.post('/create', async (req, res) => {
       topic: topic || 'Interview Meeting',
       start_time,
       duration: duration || 60,
-      description: description || 'Interview meeting'
+      description: description || 'Interview meeting',
+      employerId,
+      employerEmail,
+      candidateEmail
     });
     
     // Always return JSON response

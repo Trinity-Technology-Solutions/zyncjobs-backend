@@ -7,6 +7,7 @@ import Resume from '../models/Resume.js';
 import Application from '../models/Application.js';
 import Profile from '../models/Profile.js';
 import Job from '../models/Job.js';
+import DeletedUser from '../models/DeletedUser.js';
 import { generateGdprPdf } from '../services/gdprPdfService.js';
 import { formatJobCode } from '../utils/idGenerator.js';
 
@@ -442,6 +443,51 @@ router.post('/delete-account', authenticateToken, async (req, res) => {
     // Log the deletion attempt
     console.log(`📝 Deletion reason: ${reason || 'User requested account deletion'}`);
 
+    // ── STEP 1: Archive user data before deletion ──────────────────────────
+    try {
+      const [profile, resumes, applications] = await Promise.all([
+        Profile.findOne({ where: { [Op.or]: [{ userId }, { email: userEmail }] } }),
+        Resume.findAll({ where: { [Op.or]: [{ userId }, { email: userEmail }] } }),
+        Application.count({ where: { [Op.or]: [{ candidateEmail: userEmail }, { userId }] } })
+      ]);
+
+      await DeletedUser.create({
+        originalUserId: userId,
+        email: userEmail,
+        name: userName,
+        role: user.role,
+        phone: user.phone || profile?.phone || null,
+        location: user.location || profile?.location || null,
+        deletionReason: reason || 'User requested account deletion',
+        deletedAt: new Date(),
+        userSnapshot: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          phone: user.phone,
+          location: user.location,
+          skills: user.skills,
+          resumeUrl: user.resumeUrl,
+          createdAt: user.createdAt,
+          plan: user.plan
+        },
+        profileSnapshot: profile ? profile.toJSON() : null,
+        resumeSnapshot: resumes.length > 0 ? resumes.map(r => ({
+          fileName: r.fileName,
+          fileUrl: r.fileUrl,
+          parsedData: r.parsedData,
+          uploadedAt: r.createdAt
+        })) : null,
+        applicationCount: applications
+      });
+      console.log(`✅ User data archived to deleted_users table: ${userEmail}`);
+    } catch (archiveErr) {
+      // Archive failure should NOT block deletion
+      console.warn(`⚠️ Archive failed (continuing with deletion): ${archiveErr.message}`);
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
     const safeDestroy = async (modelPath, condition, label) => {
       try {
         const Model = (await import(modelPath)).default;
@@ -474,17 +520,19 @@ router.post('/delete-account', authenticateToken, async (req, res) => {
     await safeDestroy('../models/SkillAssessment.js', { userId }, 'SkillAssessments');
     await safeDestroy('../models/PasswordReset.js',   { [Op.or]: [{ userId }, { email: userEmail }] }, 'PasswordResets');
     await safeDestroy('../models/UserPreferences.js', { userId }, 'UserPreferences');
+    await safeDestroy('../models/SavedRecommendedJob.js', { [Op.or]: [{ userId }, { email: userEmail }] }, 'SavedRecommendedJobs');
+    await safeDestroy('../models/CareerRoadmap.js',   { userId }, 'CareerRoadmaps');
+    await safeDestroy('../models/HeadlineAnalytics.js', { userId }, 'HeadlineAnalytics');
+    await safeDestroy('../models/SearchAnalytics.js', { userId }, 'SearchAnalytics');
+    await safeDestroy('../models/Credentialing.js',   { [Op.or]: [{ candidateEmail: userEmail }, { employerEmail: userEmail }] }, 'Credentialing');
     
     // Delete GDPR consent record
     await GdprConsent.destroy({ where: { userId } });
     console.log(`✅ Deleted GDPR consent records`);
 
-    // Mark user account as deleted (soft delete) instead of destroying
-    await User.update(
-      { status: 'deleted', isActive: false },
-      { where: { id: userId } }
-    );
-    console.log(`✅ Marked user account as deleted: ${userName} (${userEmail})`);
+    // Hard delete the user row so re-registration with same email is cleanly blocked
+    await User.destroy({ where: { id: userId } });
+    console.log(`✅ User account permanently deleted: ${userName} (${userEmail})`);
 
     console.log(`🎉 GDPR full delete completed successfully for: ${userEmail}`);
     

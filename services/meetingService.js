@@ -110,41 +110,143 @@ class MeetingService {
     }
   }
 
-  async createGoogleMeet(meetingData) {
+  // PRODUCTION PATH: Service Account with domain-wide delegation.
+  // Once the Workspace admin grants Calendar scopes to the service account's client ID,
+  // the backend can create real Google Meet events on behalf of any company account —
+  // no per-user OAuth, no consent screens, no "unverified app" warnings.
+  getServiceAccountAuth(impersonateEmail) {
+    const scopes = [
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/calendar.events'
+    ];
+    const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
+    const saEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    const privateKeyB64 = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+
+    if (keyFile) {
+      return new google.auth.JWT({
+        keyFile,
+        scopes,
+        subject: impersonateEmail
+      });
+    }
+    if (saEmail && privateKeyB64) {
+      const privateKey = Buffer.from(privateKeyB64, 'base64').toString('utf8').replace(/\\n/g, '\n');
+      return new google.auth.JWT({
+        email: saEmail,
+        key: privateKey,
+        scopes,
+        subject: impersonateEmail
+      });
+    }
+    return null;
+  }
+
+  isServiceAccountConfigured() {
+    return !!(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE
+      || (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY));
+  }
+
+  // Resolve which company account to impersonate. Prefer the employer's own email when it
+  // belongs to the Workspace domain, otherwise fall back to a dedicated meetings account.
+  resolveImpersonateEmail(employerEmail) {
+    const fallback = process.env.GOOGLE_MEET_IMPERSONATE_EMAIL;
+    const domain = process.env.GOOGLE_WORKSPACE_DOMAIN;
+    if (employerEmail && domain && employerEmail.toLowerCase().endsWith(`@${domain.toLowerCase()}`)) {
+      return employerEmail;
+    }
+    return fallback;
+  }
+
+  buildMeetAttendees(meetingData) {
+    const attendees = [];
+    if (meetingData.candidateEmail) attendees.push({ email: meetingData.candidateEmail });
+    if (meetingData.employerEmail
+      && meetingData.employerEmail.toLowerCase() !== (meetingData.candidateEmail || '').toLowerCase()) {
+      attendees.push({ email: meetingData.employerEmail });
+    }
+    return attendees;
+  }
+
+  createGoogleMeet(meetingData) {
+    // Normalize start_time to full ISO string (Google Calendar API requires it)
+    let rawStart = meetingData.start_time || new Date(Date.now() + 60000).toISOString();
+    // If it's a partial datetime-local string like '2025-07-01T10:00', append seconds
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(rawStart)) rawStart += ':00';
+    const startTime = new Date(rawStart).toISOString();
+    const endTime = new Date(new Date(startTime).getTime() + (meetingData.duration || 60) * 60000).toISOString();
+
+    const event = {
+      summary: meetingData.topic || 'Interview Meeting',
+      description: meetingData.description || 'Interview scheduled via ZyncJobs',
+      start: { dateTime: startTime, timeZone: 'UTC' },
+      end: { dateTime: endTime, timeZone: 'UTC' },
+      conferenceData: {
+        createRequest: {
+          requestId: crypto.randomUUID(),
+          conferenceSolutionKey: { type: 'hangoutsMeet' }
+        }
+      },
+      attendees: meetingData.attendees || this.buildMeetAttendees(meetingData)
+    };
+
+    return this.createMeetEvent(event, meetingData);
+  }
+
+  async createMeetEvent(event, meetingData) {
     try {
+      // --- PRODUCTION PATH (preferred): service account impersonation ---
+      const impersonateEmail = this.resolveImpersonateEmail(meetingData.employerEmail);
+      const saAuth = impersonateEmail ? this.getServiceAccountAuth(impersonateEmail) : null;
+      if (saAuth) {
+        console.log('✅ Creating Google Meet via service account (impersonating:', impersonateEmail + ')');
+        const calendar = google.calendar({ version: 'v3', auth: saAuth });
+        const response = await calendar.events.insert({
+          calendarId: 'primary',
+          resource: event,
+          conferenceDataVersion: 1
+        });
+        const meetLink = response.data.conferenceData?.entryPoints?.find(ep => ep.entryPointType === 'video')?.uri;
+        const meetingId = response.data.conferenceData?.conferenceId;
+        return {
+          success: true,
+          meeting: {
+            platform: 'googlemeet',
+            meetingId: meetingId || response.data.id,
+            meetLink: meetLink || response.data.hangoutLink,
+            join_url: meetLink || response.data.hangoutLink,
+            eventId: response.data.id,
+            eventData: response.data
+          }
+        };
+      }
+
+      // --- LEGACY PATH: per-employer OAuth token ---
       let accessToken = meetingData.accessToken;
       let refreshToken = meetingData.refreshToken;
 
-      // If no tokens passed, use the first available connected employer as service account
-      if (!accessToken) {
-        const [serviceAccount] = await sequelize.query(
-          'SELECT "googleMeetAccessToken", "googleMeetRefreshToken" FROM users WHERE "googleMeetAccessToken" IS NOT NULL LIMIT 1',
-          { type: sequelize.QueryTypes.SELECT }
+      // If no tokens passed, use the requesting employer's connected Google account
+      if (!accessToken && meetingData.employerId) {
+        const [account] = await sequelize.query(
+          `SELECT id, "googleMeetAccessToken", "googleMeetRefreshToken" FROM users
+           WHERE (id::text = $1 OR "employerId" = $2 OR email = $3) AND "googleMeetAccessToken" IS NOT NULL LIMIT 1`,
+          { bind: [meetingData.employerId, meetingData.employerId, meetingData.employerId], type: sequelize.QueryTypes.SELECT }
         );
-        if (serviceAccount) {
-          accessToken = serviceAccount.googleMeetAccessToken;
-          refreshToken = serviceAccount.googleMeetRefreshToken;
-          console.log('✅ Using service account tokens for Google Meet');
+        if (account) {
+          accessToken = account.googleMeetAccessToken;
+          refreshToken = account.googleMeetRefreshToken;
+          console.log('✅ Using employer Google Meet tokens for user:', account.id);
         }
       }
 
-      // If still no tokens, return a working fallback link (Jitsi) instead of failing.
       // Real meet.google.com links REQUIRE a connected Google account — a random
-      // meet.google.com/xxx URL would be fake and unusable. Jitsi rooms work with no auth.
+      // meet.google.com/xxx URL would be fake and unusable, so we never fabricate one.
       if (!accessToken) {
-        console.warn('No Google OAuth token available, generating working Jitsi fallback link');
-        const roomCode = `ZyncJobs-${crypto.randomUUID().slice(0, 8)}`;
-        const link = `https://meet.jit.si/${roomCode}`;
+        console.warn('No Google OAuth token available for employer:', meetingData.employerId);
         return {
-          success: true,
-          fallback: true,
-          meeting: {
-            platform: 'googlemeet',
-            meetingId: roomCode,
-            meetLink: link,
-            join_url: link
-          },
-          message: 'Google Calendar not connected. Using a working fallback video link. Connect Google Calendar to create real Google Meet links.'
+          success: false,
+          needsConnect: true,
+          error: 'No Google account connected. Connect your Google account to generate a real Google Meet link.'
         };
       }
 
@@ -161,29 +263,6 @@ class MeetingService {
       });
 
       const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-
-      // Create calendar event with Google Meet
-      // Normalize start_time to full ISO string (Google Calendar API requires it)
-      let rawStart = meetingData.start_time || new Date(Date.now() + 60000).toISOString();
-      // If it's a partial datetime-local string like '2025-07-01T10:00', append seconds
-      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(rawStart)) rawStart += ':00';
-      const startTime = new Date(rawStart).toISOString();
-      const endTime = new Date(new Date(startTime).getTime() + (meetingData.duration || 60) * 60000).toISOString();
-
-      const event = {
-        summary: meetingData.topic || 'Interview Meeting',
-        description: meetingData.description || 'Interview scheduled via ZyncJobs',
-        start: { dateTime: startTime, timeZone: 'UTC' },
-        end: { dateTime: endTime, timeZone: 'UTC' },
-        conferenceData: {
-          createRequest: {
-            requestId: crypto.randomUUID(),
-            conferenceSolutionKey: { type: 'hangoutsMeet' }
-          }
-        },
-        attendees: meetingData.attendees || []
-      };
-
       const response = await calendar.events.insert({
         calendarId: 'primary',
         resource: event,
@@ -206,20 +285,13 @@ class MeetingService {
       };
     } catch (error) {
       console.error('Error creating Google Meet:', error?.message || error);
-      // Fall back to a working Jitsi link instead of failing — the interview must go ahead.
-      // A random meet.google.com/xxx URL would be fake (not a real meeting), so use Jitsi.
-      const roomCode = `ZyncJobs-${crypto.randomUUID().slice(0, 8)}`;
-      const link = `https://meet.jit.si/${roomCode}`;
+      // Never fabricate a fake meet link or a Jitsi fallback — the employer asked for
+      // a real Google Meet. Surface the error so the frontend can guide re-connection.
+      const needsConnect = /unauthor|invalid_grant|invalid token|token.*expired|auth|domain.*delegat|insufficient/i.test(error?.message || String(error));
       return {
-        success: true,
-        fallback: true,
-        meeting: {
-          platform: 'googlemeet',
-          meetingId: roomCode,
-          meetLink: link,
-          join_url: link
-        },
-        message: 'Google Meet creation failed, using a working fallback video link: ' + (error?.message || String(error))
+        success: false,
+        ...(needsConnect ? { needsConnect: true } : {}),
+        error: 'Failed to create Google Meet: ' + (error?.message || String(error))
       };
     }
   }
@@ -294,5 +366,6 @@ export const createZoomMeeting = (meetingData) => meetingService.createZoomMeeti
 export const createGoogleMeet = (meetingData) => meetingService.createGoogleMeet(meetingData);
 export const getGoogleMeetAuthUrl = (employerId) => meetingService.getGoogleMeetAuthUrl(employerId);
 export const getGoogleMeetTokens = (code) => meetingService.getGoogleMeetTokens(code);
+export const isServiceAccountConfigured = () => meetingService.isServiceAccountConfigured();
 export default MeetingService;
 export { meetingService };

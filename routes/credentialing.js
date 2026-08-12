@@ -20,6 +20,25 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET dynamic onboarding checklist items
+router.get('/checklist-items', async (req, res) => {
+  try {
+    // Can be extended to fetch from a DB settings table in future
+    res.json([
+      'Offer Letter Signed',
+      'ID Proof Submitted',
+      'Address Proof Submitted',
+      'Bank Details Submitted',
+      'NDA Signed',
+      'Background Check Completed',
+      'Equipment Assigned',
+      'System Access Granted',
+    ]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET eligible hired candidates (not yet in credentialing)
 router.get('/eligible', async (req, res) => {
   try {
@@ -107,8 +126,9 @@ router.put('/:id/onboarding', async (req, res) => {
     const { completedItems } = req.body;
     const record = await Credentialing.findByPk(req.params.id);
     if (!record) return res.status(404).json({ error: 'Record not found' });
+    const total = record.onboardingChecklist?.length || completedItems.length || 8;
     const status = completedItems.length === 0 ? 'not-started'
-      : completedItems.length >= 8 ? 'completed' : 'in-progress';
+      : completedItems.length >= total ? 'completed' : 'in-progress';
     await record.update({ onboardingChecklist: completedItems, onboardingStatus: status });
     res.json(record);
   } catch (err) {

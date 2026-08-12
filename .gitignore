@@ -74,3 +74,6 @@ pids/
 
 # Optional: keep package-lock if you want reproducible installs
 # package-lock.json
+
+# Google service account key (contains private key - never commit)
+google-service-account*.json

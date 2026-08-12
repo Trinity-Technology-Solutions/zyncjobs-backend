@@ -436,6 +436,15 @@ const connectPostgreSQL = async () => {
       console.warn('⚠️  job_alert_notifications table sync warning:', e.message);
     }
 
+    // Auto-create deleted_users archive table
+    try {
+      const { default: DeletedUser } = await import('../models/DeletedUser.js');
+      await DeletedUser.sync({ alter: false });
+      console.log('✅ deleted_users table synced');
+    } catch (e) {
+      console.warn('⚠️  deleted_users table sync warning:', e.message);
+    }
+
     await applyIndexes();
     return sequelize;
   } catch (error) {
