@@ -3,6 +3,7 @@ import passport from '../config/passport.js';
 import jwt from 'jsonwebtoken';
 import fetch from 'node-fetch';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
+import { createRefreshSession } from '../utils/refreshSessions.js';
 import { getGoogleMeetAuthUrl, getGoogleMeetTokens } from '../services/meetingService.js';
 import User from '../models/User.js';
 
@@ -91,6 +92,7 @@ router.get('/google/callback',
 
       const token = generateAccessToken(req.user.id);
       const refreshToken = generateRefreshToken(req.user.id);
+      await createRefreshSession(req.user.id, refreshToken, req);
 
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
       // Set httpOnly refresh token cookie
@@ -147,6 +149,7 @@ router.get('/linkedin/callback',
 
       const token = generateAccessToken(req.user.id);
       const refreshToken = generateRefreshToken(req.user.id);
+      await createRefreshSession(req.user.id, refreshToken, req);
 
       const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
       res.cookie('refreshToken', refreshToken, {

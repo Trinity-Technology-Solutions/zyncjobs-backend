@@ -7,6 +7,7 @@ import User from '../models/User.js';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
+import { createRefreshSession } from '../utils/refreshSessions.js';
 
 dotenv.config();
 
@@ -64,6 +65,7 @@ router.get('/accept/:token', async (req, res) => {
 
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
+    await createRefreshSession(user.id, refreshToken, req);
 
     res.json({
       success: true,
@@ -127,6 +129,7 @@ router.post('/accept/:token', async (req, res) => {
 
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
+    await createRefreshSession(user.id, refreshToken, req);
 
     res.json({
       success: true,

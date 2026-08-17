@@ -74,6 +74,7 @@ import resumeViewerRoutes from './routes/resumeViewer.js';
 import savedCandidatesRoutes from './routes/savedCandidates.js';
 import reviewRoutes from './routes/reviews.js';
 import matchRoutes from './routes/match.js';
+import atsRoutes from './routes/ats.js';
 import savedRecommendedJobsRoutes from './routes/savedRecommendedJobs.js';
 import savedJobsRoutes from './routes/savedJobs.js';
 import userPreferencesRoutes from './routes/userPreferences.js';
@@ -209,6 +210,28 @@ connectDB().then(async () => {
   } catch (migrationError) {
     console.warn('⚠️ Job type enum migration warning:', migrationError.message);
     // Don't fail server startup if migration fails
+  }
+
+  // Sync ATS models
+  try {
+    const { default: RecruiterActivityLog } = await import('./models/RecruiterActivityLog.js');
+    const { default: CandidateAssignment } = await import('./models/CandidateAssignment.js');
+    const { default: CandidateNote } = await import('./models/CandidateNote.js');
+    await RecruiterActivityLog.sync({ alter: false });
+    await CandidateAssignment.sync({ alter: false });
+    await CandidateNote.sync({ alter: false });
+    console.log('✅ ATS models synced');
+  } catch (e) {
+    console.warn('⚠️ ATS model sync warning:', e.message);
+  }
+
+  // Sync refresh-session table (server-side refresh-token revocation)
+  try {
+    const { default: RefreshSession } = await import('./models/RefreshSession.js');
+    await RefreshSession.sync({ alter: false });
+    console.log('✅ refresh_sessions table synced');
+  } catch (e) {
+    console.warn('⚠️ refresh_sessions sync warning:', e.message);
   }
   
   // Comment out loadInitialData for faster startup
@@ -442,6 +465,7 @@ app.use('/api/admin/audit', adminAuditRoutes);
 app.use('/api/ai', aiScoringRoutes);
 app.use('/api/ai-flow', aiScoringFlowRoutes);
 app.use('/api/employer', employerCandidatesRoutes);
+app.use('/api/ats', atsRoutes);
 app.use('/api/candidates', employerCandidatesRoutes);
 app.use('/api/profiles', employerCandidatesRoutes);
 app.use('/api/admin/system', adminSystemRoutes);

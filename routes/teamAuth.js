@@ -4,6 +4,7 @@ import { Op } from 'sequelize';
 import User from '../models/User.js';
 import TeamMember from '../models/TeamMember.js';
 import { generateAccessToken, generateRefreshToken } from '../utils/jwt.js';
+import { createRefreshSession } from '../utils/refreshSessions.js';
 import { TeamOTPService } from '../services/teamOTPService.js';
 
 const router = express.Router();
@@ -133,6 +134,7 @@ router.post('/verify-otp', async (req, res) => {
     // Generate tokens
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
+    await createRefreshSession(user.id, refreshToken, req);
     
     // Get team member permissions
     const permissions = getTeamMemberPermissions(teamMember.role);

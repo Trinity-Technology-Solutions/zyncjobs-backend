@@ -436,10 +436,11 @@ router.get('/employer/email/:email', async (req, res) => {
       jobEmailsToQuery = [...new Set(companyEmails.filter(Boolean))];
     }
 
-    const whereClause = {
-      isActive: true
+    const whereClause = {};
+    if (req.query.includeInactive !== 'true') {
+      whereClause.isActive = true;
       // Deleted jobs are already filtered by isActive: false
-    };
+    }
 
     if (isOwner) {
       whereClause.employerEmail = { [Op.in]: jobEmailsToQuery };

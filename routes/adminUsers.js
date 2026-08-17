@@ -190,6 +190,8 @@ router.post('/accept-invite', async (req, res) => {
     const { generateAccessToken, generateRefreshToken } = await import('../utils/jwt.js');
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
+    const { createRefreshSession } = await import('../utils/refreshSessions.js');
+    await createRefreshSession(user.id, refreshToken, req);
 
     res.json({
       success: true,

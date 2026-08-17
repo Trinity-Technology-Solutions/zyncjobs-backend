@@ -83,11 +83,38 @@ router.post('/career-coach', async (req, res) => {
 // Job description generation
 router.post('/job-description', async (req, res) => {
   try {
-    const { jobTitle, company, location, description, responsibilities, requirements } = req.body;
+    const {
+      jobTitle, company, location, description,
+      responsibilities = [], requirements = [],
+      skills = [], educationLevel = '', experienceRange = '',
+      jobType = '', salary = '', benefits = [],
+      payType = '', locationType = '', jobCategory = '',
+      variation = 1,
+    } = req.body;
     if (!jobTitle) return res.status(400).json({ error: 'Job title is required' });
 
     try {
-      const result = await aiClient.generateJD(jobTitle, '', [], company || '', location || '');
+      const result = await aiClient.generateJD(
+        jobTitle,
+        '',
+        skills || [],
+        company || '',
+        location || '',
+        {
+          responsibilities: Array.isArray(responsibilities) ? responsibilities : [],
+          requirements: Array.isArray(requirements) ? requirements : [],
+          educationLevel,
+          experienceRange,
+          jobType: Array.isArray(jobType) ? jobType.join('/') : jobType,
+          salary,
+          benefits: Array.isArray(benefits) ? benefits : [],
+          payType,
+          locationType,
+          jobCategory,
+          variation,
+          existingDescription: description || '',
+        }
+      );
       let desc = result.job_description || '';
       if (desc) {
         desc = desc.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');

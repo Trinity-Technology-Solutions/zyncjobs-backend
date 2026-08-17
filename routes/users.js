@@ -6,8 +6,10 @@ import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import User from '../models/User.js';
 import Profile from '../models/Profile.js';
+import RefreshSession from '../models/RefreshSession.js';
 import { Op } from 'sequelize';
 import { generateAccessToken, generateRefreshToken, verifyToken, verifyRefreshToken } from '../utils/jwt.js';
+import { ensureRefreshSession, revokeRefreshSession, revokeAllSessionsForUser, rotateRefreshSession, createRefreshSession } from '../utils/refreshSessions.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { sendWelcomeEmail } from '../services/emailService.js';
 import { updateLastActive } from '../services/gdprRetentionScheduler.js';
@@ -450,6 +452,7 @@ router.post('/register', registrationGuard, [
     // Generate tokens
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
+    await createRefreshSession(user.id, refreshToken, req);
 
     const userResponse = {
       id: user.id,
@@ -727,6 +730,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
     const accessToken = generateAccessToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
+    await createRefreshSession(user.id, refreshToken, req);
 
     // Check if this user is a team member — get their role + owner's company
     // Check both active AND pending status (user may have been invited but logged in directly)
@@ -853,9 +857,18 @@ router.post('/refresh', async (req, res) => {
       return res.status(403).json({ error: 'Invalid refresh token' });
     }
 
+    // Server-side session check — rejects revoked/expired sessions
+    const session = await ensureRefreshSession(oldRefreshToken, decoded.userId, req);
+    if (!session) {
+      return res.status(401).json({ error: 'Refresh token revoked or expired. Please login again', code: 'REFRESH_TOKEN_REVOKED' });
+    }
+
     // Generate new tokens
     const newAccessToken = generateAccessToken(user.id);
     const newRefreshToken = generateRefreshToken(user.id);
+
+    // Rotate: invalidate the old token server-side (grace window), register the new one
+    await rotateRefreshSession(oldRefreshToken, newRefreshToken, user.id, req);
 
     // Set new refresh token cookie
     res.cookie('refreshToken', newRefreshToken, {
@@ -881,11 +894,19 @@ router.post('/logout', async (req, res) => {
     const { logoutAll } = req.body; // Option to logout from all devices
 
     if (refreshToken) {
-      const decoded = verifyToken(refreshToken);
-      const user = await User.findByPk(decoded.userId);
-      
-      if (user) {
-        // Token invalidation handled by token expiry
+      try {
+        const decoded = verifyRefreshToken(refreshToken);
+        const user = await User.findByPk(decoded.userId);
+
+        if (user) {
+          if (logoutAll) {
+            await revokeAllSessionsForUser(user.id);
+          } else {
+            await revokeRefreshSession(refreshToken);
+          }
+        }
+      } catch (e) {
+        // Ignore invalid/expired refresh tokens — still clear the cookie
       }
     }
 
@@ -930,19 +951,58 @@ router.get('/pending-employers', authenticateToken, async (req, res) => {
 router.get('/sessions', async (req, res) => {
   try {
     const refreshToken = req.cookies.refreshToken;
-    
+
     if (!refreshToken) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const decoded = verifyToken(refreshToken);
+    const decoded = verifyRefreshToken(refreshToken);
     const user = await User.findByPk(decoded.userId);
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({ sessions: [] });
+    const sessions = await RefreshSession.findAll({
+      where: { userId: user.id, revokedAt: null },
+      order: [['createdAt', 'DESC']],
+      limit: 50
+    });
+
+    res.json({
+      sessions: sessions.map(s => ({
+        id: s.id,
+        ip: s.ip,
+        userAgent: s.userAgent,
+        createdAt: s.createdAt,
+        lastUsedAt: s.lastUsedAt,
+        expiresAt: s.expiresAt
+      }))
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/users/sessions/:id - Revoke a specific session (logout from one device)
+router.delete('/sessions/:id', async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const decoded = verifyRefreshToken(refreshToken);
+    const session = await RefreshSession.findByPk(req.params.id);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    if (String(session.userId) !== String(decoded.userId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    await session.update({ revokedAt: new Date() });
+    res.json({ message: 'Session revoked' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
