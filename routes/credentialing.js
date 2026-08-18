@@ -187,10 +187,13 @@ router.get('/:id/billing', async (req, res) => {
 // PUT update billing
 router.put('/:id/billing', async (req, res) => {
   try {
-    const { rate, hours } = req.body;
+    const { rate, hours } = req.body || {};
     const record = await Credentialing.findByPk(req.params.id);
     if (!record) return res.status(404).json({ error: 'Record not found' });
-    await record.update({ billingRate: rate || 0, totalHours: hours || 0 });
+    const updates = {};
+    if (rate !== undefined && rate !== null && rate !== '') updates.billingRate = Number(rate) || 0;
+    if (hours !== undefined && hours !== null && hours !== '') updates.totalHours = Number(hours) || 0;
+    await record.update(updates);
     res.json(record);
   } catch (err) {
     res.status(500).json({ error: err.message });
