@@ -120,11 +120,6 @@ router.get('/job-detail', async (req, res) => {
     <meta property="og:image:height" content="630">
     <meta property="og:image:type" content="image/png">
     <meta property="og:site_name" content="ZyncJobs">
-
-    <!-- Secondary Favicon OG Image for crawlers requesting square site icons -->
-    <meta property="og:image" content="${siteIconUrl}">
-    <meta property="og:image:width" content="512">
-    <meta property="og:image:height" content="512">
     
     <!-- Twitter Card -->
     <meta property="twitter:card" content="summary_large_image">
