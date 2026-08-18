@@ -985,6 +985,11 @@ router.post('/', authenticateToken, maxJobsGuard, [
       delete jobData.salary;
     }
 
+    // Validate salary range: maximum must be greater than or equal to minimum
+    if (jobData.salaryMin > 0 && jobData.salaryMax > 0 && jobData.salaryMax < jobData.salaryMin) {
+      return res.status(400).json({ error: 'Maximum salary must be greater than or equal to the minimum salary' });
+    }
+
     console.log('Available functions:', { generateEmployerId, generatePositionId, generatePositionIdWithYear });
 
     // Generate position ID with year - inline fallback if import fails
@@ -1153,6 +1158,54 @@ router.delete('/:id/permanent', authenticateToken, requireRole(['employer', 'adm
   }
 });
 
+// PATCH /api/jobs/:id/close - Close a job posting.
+// Sets status to 'closed' (keeps isActive: true) so the job still appears in the
+// employer's Job Management under the Closed Jobs tab, while no longer being
+// eligible for new applications or public listings (both require status 'approved').
+router.patch('/:id/close', authenticateToken, async (req, res) => {
+  try {
+    const job = await Job.findByPk(req.params.id);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const callerEmail = (req.user?.email || '').toLowerCase();
+    if (!callerEmail) return res.status(401).json({ error: 'Authentication required' });
+
+    // View Only users cannot manage jobs
+    if (await isViewOnlyUser(callerEmail)) {
+      return res.status(403).json({ error: 'Access denied. View only users cannot close jobs.' });
+    }
+
+    // Resolve company owner — team members resolve to the owning employer
+    const teamRecord = await TeamMember.findOne({
+      where: { memberEmail: callerEmail, status: 'active' }
+    });
+    const ownerEmail = (teamRecord?.employerId || callerEmail).toLowerCase();
+
+    // Company-wide emails allowed to manage this owner's jobs (matches GET /employer/email/:email)
+    const teamMembers = await TeamMember.findAll({
+      where: { employerId: ownerEmail },
+      attributes: ['memberEmail'],
+      raw: true
+    });
+    const companyEmails = [...new Set([ownerEmail, ...teamMembers.map(m => String(m.memberEmail).toLowerCase())].filter(Boolean))];
+
+    const jobEmployer = (job.employerEmail || job.postedBy || job.postedByEmail || '').toLowerCase();
+    const jobAssignedTo = (job.assignedTo || '').toLowerCase();
+    const canManage = companyEmails.includes(jobEmployer) || (jobAssignedTo && jobAssignedTo === callerEmail);
+
+    if (!canManage) {
+      return res.status(403).json({ error: 'Access denied. You are not authorized to close this job.' });
+    }
+
+    await job.update({ status: 'closed' });
+
+    res.json({ message: 'Job closed successfully', job });
+  } catch (error) {
+    console.error('Error closing job:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // PUT /api/jobs/:id - Update job
 router.put('/:id', async (req, res) => {
   try {
@@ -1174,6 +1227,13 @@ router.put('/:id', async (req, res) => {
       updates.salaryMin = req.body.salary.min;
       updates.salaryMax = req.body.salary.max;
       if (req.body.salary.currency) updates.currency = req.body.salary.currency;
+    }
+
+    // Validate salary range: maximum must be greater than or equal to minimum
+    const minSalary = updates.salaryMin !== undefined ? updates.salaryMin : job.salaryMin;
+    const maxSalary = updates.salaryMax !== undefined ? updates.salaryMax : job.salaryMax;
+    if (minSalary > 0 && maxSalary > 0 && maxSalary < minSalary) {
+      return res.status(400).json({ error: 'Maximum salary must be greater than or equal to the minimum salary' });
     }
 
     // Format description with bullets if updated

@@ -38,6 +38,36 @@ const blockViewer = async (req, res, next) => {
 const router = express.Router();
 const PLACEHOLDERS = ['resume_from_quick_apply', 'resume_from_profile', 'resume_uploaded'];
 
+// Resolves the company (team) owner email that a given email belongs to.
+// For an owner/standalone employer this returns their own email.
+async function resolveTeamOwnerEmail(email) {
+  let ownerEmail = email.toLowerCase();
+  const teamRecord = await TeamMember.findOne({ where: { memberEmail: ownerEmail } });
+  if (teamRecord?.employerId) {
+    if (teamRecord.employerId.includes('@')) {
+      ownerEmail = teamRecord.employerId.toLowerCase();
+    } else {
+      const ownerRecord = await TeamMember.findOne({
+        where: { employerId: teamRecord.employerId, role: 'Owner' },
+        attributes: ['memberEmail']
+      });
+      if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
+    }
+  }
+  return ownerEmail;
+}
+
+// Collects the owner email plus all active team member emails.
+async function collectTeamEmails(ownerEmail) {
+  const allEmails = [ownerEmail.toLowerCase()];
+  const teamMembers = await TeamMember.findAll({
+    where: { employerId: ownerEmail, status: 'active' },
+    attributes: ['memberEmail']
+  });
+  teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
+  return [...new Set(allEmails)];
+}
+
 async function resolveResumeFileUrl(application) {
   const resume = await Resume.findOne({
     where: {
@@ -99,6 +129,12 @@ router.post('/', authenticateToken, [
     if (!job) {
       console.log('❌ Job not found:', jobId);
       return res.status(404).json({ error: 'Job not found' });
+    }
+
+    // Closed jobs no longer accept new applications
+    if (job.status === 'closed') {
+      console.log('⛔ Job is closed, rejecting application:', jobId);
+      return res.status(400).json({ error: 'This job is no longer accepting applications.' });
     }
 
     console.log('✅ Job found:', { id: job.id, title: job.jobTitle, company: job.company });
@@ -1006,37 +1042,26 @@ router.get('/', authenticateToken, async (req, res) => {
       return res.json({ applications: [], total: 0 });
     }
 
-    const where = {};
+    // Resolve the authenticated user's company (team) owner
+    const callerOwnerEmail = await resolveTeamOwnerEmail(req.user.email);
+
+    // If a company email filter is requested, make sure it belongs to the
+    // caller's own company — prevents cross-company data exposure.
+    if (employerEmail) {
+      const requestedOwnerEmail = await resolveTeamOwnerEmail(employerEmail);
+      if (requestedOwnerEmail !== callerOwnerEmail) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
+    // Company-wide scope: applications for all jobs posted by the caller's team
+    const companyEmails = await collectTeamEmails(callerOwnerEmail);
+
+    const where = { employerEmail: { [Op.in]: companyEmails } };
 
     if (status) where.status = status;
     if (jobId) where.jobId = jobId;
     if (employerId) where.employerId = employerId;
-    if (employerEmail) {
-      // Resolve team owner email and collect all team member emails
-      try {
-        const TeamMember = (await import('../models/TeamMember.js')).default;
-        let ownerEmail = employerEmail.toLowerCase();
-        const teamRecord = await TeamMember.findOne({ where: { memberEmail: ownerEmail } });
-        if (teamRecord?.employerId) {
-          if (teamRecord.employerId.includes('@')) {
-            ownerEmail = teamRecord.employerId.toLowerCase();
-          } else {
-            const ownerRecord = await TeamMember.findOne({
-              where: { employerId: teamRecord.employerId, role: 'Owner' },
-              attributes: ['memberEmail']
-            });
-            if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
-          }
-        }
-        const allEmails = [ownerEmail];
-        const teamMembers = await TeamMember.findAll({
-          where: { employerId: ownerEmail, status: 'active' },
-          attributes: ['memberEmail']
-        });
-        teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
-        where.employerEmail = { [Op.in]: [...new Set(allEmails)] };
-      } catch (e) { /* non-blocking */ }
-    }
 
     // If no pagination params, return all
     if (!page && !limit) {
