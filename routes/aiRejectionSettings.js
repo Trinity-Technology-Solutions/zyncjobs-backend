@@ -83,7 +83,7 @@ function scoreSkills(candidateSkills = [], jobSkills = []) {
   const jobSkillsList = normalizeSkillList(jobSkills);
   const candidateSkillsList = normalizeSkillList(candidateSkills);
   if (!jobSkillsList.length) return 50; // No job skills specified
-  if (!candidateSkillsList.length) return 0; // No candidate skills
+  if (!candidateSkillsList.length) return 40; // Unknown (not 0) — never auto-reject on missing profile data
 
   const cLower = candidateSkillsList.map(s => s.toLowerCase());
   const jLower = jobSkillsList.map(s => s.toLowerCase());

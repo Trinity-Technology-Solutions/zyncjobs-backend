@@ -450,7 +450,9 @@ router.get('/job/:jobId', authenticateToken, async (req, res) => {
         } else if (jobSkills.length === 0) {
           skillsScore = 50;
         } else {
-          skillsScore = 0;
+          // Job lists skills but the candidate profile has none — unknown, not zero.
+          // Prevents candidates with sparse profiles being unfairly scored 0.
+          skillsScore = 40;
         }
 
         // Experience scoring

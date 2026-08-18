@@ -112,22 +112,20 @@ router.post('/job-description', async (req, res) => {
           locationType,
           jobCategory,
           variation,
-          existingDescription: description || '',
+          existingDescription: '',  // never pass old JD — always generate fresh from role
+          // flat fields so jd_generator_brain can read them directly
+          title: jobTitle,
+          company: company || '',
+          location: location || '',
+          skills: skills || [],
         }
       );
       let desc = result.job_description || '';
       if (desc) {
         desc = desc.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
         desc = desc.replace(/^#{1,6}\s*(.*)$/gm, '$1').replace(/\n{3,}/g, '\n\n').trim();
-        if (company) {
-          desc = desc.replace(/zyncjobs/gi, company);
-          desc = desc.replace(/our\s+company/gi, company);
-        }
-        // Force the "How to Apply" section to route candidates through ZyncJobs —
-        // a job posted here is applied to here, not via the employer's site/email.
-        const applySection = `How to Apply
-
-Interested candidates should click the Apply button on this ZyncJobs job posting and submit their application online. Applications are only accepted through ZyncJobs.`;
+        // Fix "How to Apply" section to always route through ZyncJobs
+        const applySection = `How to Apply\n\nInterested candidates should click the Apply button on this ZyncJobs job posting and submit their application online. Applications are only accepted through ZyncJobs.`;
         if (/how\s*to\s*apply/i.test(desc)) {
           desc = desc.replace(/how\s*to\s*apply[^\n]*\n?[\s\S]*$/i, applySection);
         } else {
