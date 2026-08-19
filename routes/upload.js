@@ -125,9 +125,9 @@ const router = express.Router();
 console.log('☁️ S3 storage enabled for resume uploads (bucket: zyncjobs.com)');
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = ['.pdf', '.doc', '.docx', '.rtf'];
+  const allowedTypes = ['.pdf', '.doc', '.docx', '.rtf', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.tif'];
   const ext = path.extname(file.originalname).toLowerCase();
-  allowedTypes.includes(ext) ? cb(null, true) : cb(new Error('Only PDF, DOC, DOCX, RTF files are allowed'));
+  allowedTypes.includes(ext) ? cb(null, true) : cb(new Error('Invalid file type. Allowed: PDF, DOC, DOCX, RTF, JPG, PNG, WebP, BMP, TIFF'));
 };
 
 const imageFilter = (req, file, cb) => {

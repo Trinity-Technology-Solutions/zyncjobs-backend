@@ -160,9 +160,10 @@ class MeetingService {
 
   buildMeetAttendees(meetingData) {
     const attendees = [];
-    if (meetingData.candidateEmail) attendees.push({ email: meetingData.candidateEmail });
-    if (meetingData.employerEmail
-      && meetingData.employerEmail.toLowerCase() !== (meetingData.candidateEmail || '').toLowerCase()) {
+    // Only add employer as Calendar attendee — they become the Meet host
+    // Candidate should NOT be a Calendar attendee, or they get host-level join access.
+    // Candidate receives the link via email separately and must be admitted.
+    if (meetingData.employerEmail) {
       attendees.push({ email: meetingData.employerEmail });
     }
     return attendees;

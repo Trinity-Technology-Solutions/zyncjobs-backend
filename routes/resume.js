@@ -120,7 +120,7 @@ const upload = multer({
     if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF, DOC, DOCX, RTF, or image files are allowed'), false);
+      cb(new Error('Invalid file type. Allowed: PDF, DOC, DOCX, RTF, JPG, PNG, WebP, BMP, TIFF'), false);
     }
   }
 });

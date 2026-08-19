@@ -43,7 +43,7 @@ const upload = multer({
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only PDF, DOC, and image files allowed.'));
+      cb(new Error('Invalid file type. Allowed: PDF, DOC, DOCX, JPG, PNG, WebP, BMP, TIFF'), false);
     }
   }
 });
