@@ -110,6 +110,7 @@ import Message from './models/Message.js';
 import Review from './models/Review.js';
 import Company from './models/Company.js';
 import { loadInitialData } from './scripts/loadInitialData.js';
+import { ensureDefaultSuperAdmin } from './scripts/createAdmin.js';
 
 import { generateAccessToken, generateRefreshToken } from './utils/jwt.js';
 import { errorHandler, notFound } from './utils/errorHandler.js';
@@ -232,6 +233,14 @@ connectDB().then(async () => {
     console.log('✅ refresh_sessions table synced');
   } catch (e) {
     console.warn('⚠️ refresh_sessions sync warning:', e.message);
+  }
+
+  // Ensure the default super admin exists for admin-only routes and bootstrapping.
+  try {
+    const adminResult = await ensureDefaultSuperAdmin();
+    console.log('✅ Default admin bootstrap complete:', adminResult);
+  } catch (adminError) {
+    console.warn('⚠️ Default admin bootstrap warning:', adminError.message);
   }
   
   // Comment out loadInitialData for faster startup
