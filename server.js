@@ -552,6 +552,13 @@ app.get('/api/logo-proxy', async (req, res) => {
 app.post('/api/companies/auto-fetch-logo', async (req, res) => {
   const { companyName, domain } = req.body;
   if (!companyName || !domain) return res.status(400).json({ error: 'companyName and domain required' });
+  
+  // Skip auto-fetch for companies with known logos
+  const knownCompanies = ['Trinity Technology Solutions', 'Nambikkai India'];
+  if (knownCompanies.includes(companyName)) {
+    return res.json({ logoUrl: null, skipped: 'known_company' });
+  }
+  
   const cleanDomain = domain.replace(/[^a-zA-Z0-9.-]/g, '');
   const urls = [
     `https://logo.clearbit.com/${cleanDomain}`,
@@ -562,8 +569,11 @@ app.post('/api/companies/auto-fetch-logo', async (req, res) => {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (r.ok && r.headers.get('content-type')?.startsWith('image')) {
-        logoUrl = url;
-        break;
+        // Skip hosting provider favicons (Vercel, Netlify, etc.)
+        if (!/vercel\.app|netlify\.app|github\.io|gitlab\.io|firebaseapp\.com|cloudflare\.workers\.dev|herokuapp\.com|amazonaws\.com|azurewebsites\.net/.test(url)) {
+          logoUrl = url;
+          break;
+        }
       }
     } catch {}
   }
@@ -581,14 +591,20 @@ app.post('/api/admin/bulk-fetch-logos', async (req, res) => {
   try {
     const Company = (await import('./models/Company.js')).default;
     const { Op } = await import('sequelize');
+    const knownCompanies = ['Trinity Technology Solutions', 'Nambikkai India'];
     const companies = await Company.findAll({
       where: {
-        [Op.or]: [
-          { logo: null },
-          { logo: '' },
-          { logo: { [Op.like]: '%clearbit%' } },
-          { logo: { [Op.like]: '%google.com/s2/favicons%' } },
-          { logo: { [Op.like]: '%ui-avatars%' } },
+        [Op.and]: [
+          {
+            [Op.or]: [
+              { logo: null },
+              { logo: '' },
+              { logo: { [Op.like]: '%clearbit%' } },
+              { logo: { [Op.like]: '%google.com/s2/favicons%' } },
+              { logo: { [Op.like]: '%ui-avatars%' } },
+            ]
+          },
+          { name: { [Op.notIn]: knownCompanies } }
         ]
       }
     });
@@ -617,7 +633,10 @@ app.post('/api/admin/bulk-fetch-logos', async (req, res) => {
         try {
           const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
           if (r.ok && r.headers.get('content-type')?.startsWith('image')) {
-            logoUrl = url; break;
+            // Skip hosting provider favicons (Vercel, Netlify, etc.)
+            if (!/vercel\.app|netlify\.app|github\.io|gitlab\.io|firebaseapp\.com|cloudflare\.workers\.dev|herokuapp\.com|amazonaws\.com|azurewebsites\.net/.test(url)) {
+              logoUrl = url; break;
+            }
           }
         } catch {}
       }

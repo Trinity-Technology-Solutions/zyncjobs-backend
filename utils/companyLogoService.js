@@ -8,20 +8,8 @@
  * @param {Object} company - Company object with name, domain, logo, website
  * @returns {Object} Logo information with URL and fallback data
  */
-const isFaviconUrl = (url) => url && url.includes('google.com/s2/favicons');
-
 export const getCompanyLogo = (company) => {
-  // If company has a custom logo URL (not a stale favicon), use it
-  const storedLogo = company.logo || company.logoUrl;
-  if (storedLogo && !isFaviconUrl(storedLogo)) {
-    return {
-      logoUrl: storedLogo,
-      fallbackType: 'custom',
-      companyName: company.name
-    };
-  }
-
-  // Try to get logo from well-known company URLs first
+  // 1. First check known logos (explicit mappings) - highest priority
   const knownLogo = getKnownCompanyLogo(company.name);
   if (knownLogo) {
     return {
@@ -32,7 +20,17 @@ export const getCompanyLogo = (company) => {
     };
   }
 
-  // Try to get logo from domain using multiple fallback services
+  // 2. If company has a custom logo URL (not a stale/hosting favicon), use it
+  const storedLogo = company.logo || company.logoUrl;
+  if (storedLogo && !isFaviconUrl(storedLogo) && !isHostingFavicon(storedLogo)) {
+    return {
+      logoUrl: storedLogo,
+      fallbackType: 'custom',
+      companyName: company.name
+    };
+  }
+
+  // 3. Try to get logo from domain using multiple fallback services
   const domain = company.domain || extractDomain(company.website);
   
   if (domain) {
@@ -62,6 +60,25 @@ export const getCompanyLogo = (company) => {
     initials: getCompanyInitials(company.name)
   };
 };
+
+// Detect favicon URLs from hosting providers (Vercel, Netlify, etc.)
+const isHostingFavicon = (url) => {
+  if (!url) return false;
+  const hostingPatterns = [
+    /vercel\.app/,
+    /netlify\.app/,
+    /github\.io/,
+    /gitlab\.io/,
+    /firebaseapp\.com/,
+    /cloudflare\.workers\.dev/,
+    /herokuapp\.com/,
+    /amazonaws\.com/,
+    /azurewebsites\.net/,
+  ];
+  return hostingPatterns.some(p => p.test(url));
+};
+
+const isFaviconUrl = (url) => url && (url.includes('google.com/s2/favicons') || isHostingFavicon(url));
 
 /**
  * Get known company logo URLs for major companies
