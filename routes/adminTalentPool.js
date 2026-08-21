@@ -3,16 +3,32 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { Op, col } from 'sequelize';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import nodemailer from 'nodemailer';
 import TalentCandidate from '../models/TalentCandidate.js';
-import { uploadResumeToS3, uploadTalentResumeToS3 } from '../services/s3Service.js';
+import Skill from '../models/Skill.js';
+import CandidateSkill from '../models/CandidateSkill.js';
+import { uploadResumeToS3, uploadTalentResumeToS3, getResumeStreamFromS3 } from '../services/s3Service.js';
+import { normalizeSkillName, getNormalizedSkillNames } from '../services/skillNormalizer.js';
+import { computeTotalExperience, extractExperienceYearsFromText } from '../services/experienceCalculator.js';
 import { baseTemplate, ctaButton, divider, featureCard, FRONTEND_URL } from '../services/emailTemplates.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const router = express.Router();
+
+// In-memory progress tracker for bulk uploads (visible via /processing-status)
+const processingState = {
+  isProcessing: false,
+  status: '',
+  processed: 0,
+  total: 0,
+  success: 0,
+  failed: 0,
+  startedAt: null
+};
 
 // Storage
 const upload = multer({
@@ -23,6 +39,175 @@ const upload = multer({
   },
   limits: { fileSize: 10 * 1024 * 1024 }
 });
+
+// ── Shared helpers ────────────────────────────────────────────────────────
+
+// Upsert normalized skills + candidate_skills join rows (replaces previous rows)
+async function saveCandidateSkills(candidateId, skillsArray) {
+  const names = getNormalizedSkillNames(skillsArray);
+  await CandidateSkill.destroy({ where: { candidateId } });
+  for (const name of names) {
+    const [skill] = await Skill.findOrCreate({
+      where: { name },
+      defaults: { name, normalizedName: name.toLowerCase() }
+    });
+    await CandidateSkill.findOrCreate({
+      where: { candidateId, skillId: skill.id },
+      defaults: { candidateId, skillId: skill.id }
+    });
+  }
+  return names;
+}
+
+// Build the create payload from a parse result + file metadata
+function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) {
+  const skillsArray = Array.isArray(parsed.skills) ? parsed.skills : [];
+  const workExps = Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [];
+  const totalExperience = computeTotalExperience(workExps) ?? extractExperienceYearsFromText(parsed.rawText || '');
+  const currentCompany = workExps.length
+    ? (workExps[workExps.length - 1].company || workExps[0].company || '')
+    : '';
+  const ext = fileName ? path.extname(fileName).toLowerCase() : '';
+  const ok = !!(parsed.name || parsed.email);
+
+  return {
+    id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    name: parsed.name || '',
+    email: parsed.email || '',
+    phone: parsed.phone || '',
+    dob: parsed.dob || '',
+    skills: skillsArray.join(', '),
+    experience: workExps.length ? `${workExps.length} role(s)` : '',
+    totalExperience,
+    jobTitle: parsed.title || '',
+    currentCompany,
+    summary: parsed.summary || '',
+    location: parsed.location || '',
+    country: parsed.country || '',
+    tools: Array.isArray(parsed.tools) ? parsed.tools.join(', ') : '',
+    softSkills: Array.isArray(parsed.softSkills) ? parsed.softSkills.join(', ') : '',
+    workExperiences: JSON.stringify(workExps),
+    internships: JSON.stringify(Array.isArray(parsed.internships) ? parsed.internships : []),
+    languages: Array.isArray(parsed.languages) ? parsed.languages.join(', ') : (parsed.languages || ''),
+    awards: JSON.stringify(Array.isArray(parsed.awards) ? parsed.awards : []),
+    educations: JSON.stringify(Array.isArray(parsed.educations) ? parsed.educations : []),
+    projects: JSON.stringify(Array.isArray(parsed.projects) ? parsed.projects : []),
+    certifications: JSON.stringify(Array.isArray(parsed.certifications) ? parsed.certifications : []),
+    resumePath: fileUrl,
+    resumeFile: fileName,
+    resumeOriginalName: fileName,
+    resumeType: ext || '',
+    resumeSize: fileSize,
+    status: ok ? 'Parsed' : 'Error',
+    parserStatus: ok ? 'Parsed' : 'Failed',
+    parserError: ok ? '' : 'Could not extract name or email from resume',
+    source: 'uploaded_resume',
+    rawText: (parsed.rawText || '').substring(0, 2000)
+  };
+}
+
+// Resolve a stored resume path to a displayable/downloadable URL
+function resolveResumeUrl(candidate) {
+  return candidate?.resumePath || '';
+}
+
+// Build a common filter object used by /search and /export
+function buildTalentFilters(query = {}) {
+  const where = {};
+  const include = [];
+
+  if (query.q) {
+    const q = String(query.q).trim();
+    where[Op.or] = [
+      { jobTitle: { [Op.iLike]: `%${q}%` } },
+      { name: { [Op.iLike]: `%${q}%` } },
+      { skills: { [Op.iLike]: `%${q}%` } },
+      { location: { [Op.iLike]: `%${q}%` } },
+      { summary: { [Op.iLike]: `%${q}%` } },
+      { experience: { [Op.iLike]: `%${q}%` } }
+    ];
+  }
+  if (query.jobTitle) where.jobTitle = { [Op.iLike]: `%${String(query.jobTitle).trim()}%` };
+  if (query.location) where.location = { [Op.iLike]: `%${String(query.location).trim()}%` };
+  if (query.gender) where.gender = String(query.gender).trim();
+  if ((query.expMin !== undefined && query.expMin !== '') || (query.expMax !== undefined && query.expMax !== '')) {
+    where.totalExperience = {};
+    if (query.expMin !== undefined && query.expMin !== '') where.totalExperience[Op.gte] = parseFloat(query.expMin);
+    if (query.expMax !== undefined && query.expMax !== '') where.totalExperience[Op.lte] = parseFloat(query.expMax);
+  }
+  if (query.status) where.parserStatus = String(query.status);
+
+  // Normalized skill filter — candidates having ALL the given skills
+  if (query.skills) {
+    const skillList = Array.isArray(query.skills) ? query.skills : String(query.skills).split(',').map(s => s.trim()).filter(Boolean);
+    const normalized = skillList.map(normalizeSkillName).filter(Boolean);
+    if (normalized.length) {
+      include.push({
+        model: CandidateSkill,
+        as: 'candidateSkills',
+        required: true,
+        where: { [Op.and]: normalized.map(s => ({ '$candidateSkills.skill.normalizedName$': s.toLowerCase() })) },
+        include: [{ model: Skill, as: 'skill', required: true }]
+      });
+    }
+  }
+
+  return { where, include };
+}
+
+// Serialize a candidate row for the search UI
+function serializeCandidate(c) {
+  const candidate = c.get ? c.get({ plain: true }) : c;
+  const skills = Array.isArray(candidate.candidateSkills)
+    ? candidate.candidateSkills
+        .map(cs => cs.skill?.name || '')
+        .filter(Boolean)
+    : [];
+  let workExperiences = [];
+  try { workExperiences = JSON.parse(candidate.workExperiences || '[]'); } catch { /* ignore */ }
+  let internships = [];
+  try { internships = JSON.parse(candidate.internships || '[]'); } catch { /* ignore */ }
+  let languages = [];
+  try { languages = (candidate.languages || '').split(',').map(s => s.trim()).filter(Boolean); } catch { /* ignore */ }
+  let awards = [];
+  try { awards = JSON.parse(candidate.awards || '[]'); } catch { /* ignore */ }
+  let educations = [];
+  try { educations = JSON.parse(candidate.educations || '[]'); } catch { /* ignore */ }
+  let projects = [];
+  try { projects = JSON.parse(candidate.projects || '[]'); } catch { /* ignore */ }
+  return {
+    id: candidate.id,
+    name: candidate.name || '',
+    email: candidate.email || '',
+    phone: candidate.phone || '',
+    gender: candidate.gender || '',
+    dob: candidate.dob || '',
+    jobTitle: candidate.jobTitle || '',
+    currentCompany: candidate.currentCompany || '',
+    location: candidate.location || '',
+    country: candidate.country || '',
+    summary: candidate.summary || '',
+    skills: Array.isArray(candidate.candidateSkills) ? skills : (candidate.skills || '').split(',').map(s => s.trim()).filter(Boolean),
+    totalExperience: candidate.totalExperience,
+    workExperiences,
+    internships,
+    languages,
+    awards,
+    educations,
+    projects,
+    certifications: candidate.certifications || '',
+    resumePath: candidate.resumePath || '',
+    resumeUrl: resolveResumeUrl(candidate),
+    resumeFile: candidate.resumeFile || '',
+    resumeOriginalName: candidate.resumeOriginalName || '',
+    resumeType: candidate.resumeType || '',
+    status: candidate.status || '',
+    parserStatus: candidate.parserStatus || '',
+    parserError: candidate.parserError || '',
+    retryCount: candidate.retryCount || 0,
+    addedDate: candidate.addedDate || null
+  };
+}
 
 // POST /api/admin/talent/upload
 router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 2000), async (req, res) => {
@@ -47,41 +232,28 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       const existing = await TalentCandidate.findOne({ where: { resumePath: s3Url } });
       if (existing) {
         console.log(`[TALENT] Already parsed, skipping: ${fileName}`);
+        processingState.processed++;
         return { file: fileName, status: 'ok', name: existing.name, email: existing.email, skipped: true };
       }
       console.log(`[TALENT] Parsing: ${fileName} from ${s3Url}`);
       const { stream } = await getResumeStreamFromS3(s3Url);
       const chunks = [];
-      for await (const chunk of stream) chunks.push(chunk);
+      let size = 0;
+      for await (const chunk of stream) { chunks.push(chunk); size += chunk.length; }
       const buffer = Buffer.concat(chunks);
       const text = await pdfTextExtractor.extractTextFromBuffer(buffer, fileName);
       const parsed = await resumeParser.parseResumeToProfile(text);
-      const candidate = await TalentCandidate.create({
-        id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name: parsed.name || '',
-        email: parsed.email || '',
-        phone: parsed.phone || '',
-        skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : '',
-        experience: parsed.workExperiences?.length ? `${parsed.workExperiences.length} role(s)` : '',
-        jobTitle: parsed.title || '',
-        summary: parsed.summary || '',
-        location: parsed.location || '',
-        country: parsed.country || '',
-        tools: Array.isArray(parsed.tools) ? parsed.tools.join(', ') : '',
-        softSkills: Array.isArray(parsed.softSkills) ? parsed.softSkills.join(', ') : '',
-        workExperiences: JSON.stringify(parsed.workExperiences || []),
-        educations: JSON.stringify(parsed.educations || []),
-        projects: JSON.stringify(parsed.projects || []),
-        certifications: JSON.stringify(parsed.certifications || []),
-        resumePath: s3Url,
-        resumeFile: fileName,
-        status: (parsed.name || parsed.email) ? 'Parsed' : 'Error',
-        source: 'uploaded_resume',
-        rawText: text.substring(0, 500)
-      });
+      parsed.rawText = text;
+      const record = candidateRecordFromParsed(parsed, { fileName, fileUrl: s3Url, fileSize: size });
+      const candidate = await TalentCandidate.create(record);
+      await saveCandidateSkills(candidate.id, parsed.skills);
+      processingState.processed++;
+      processingState.success++;
       return { file: fileName, status: 'ok', name: candidate.name, email: candidate.email };
     } catch (err) {
       console.error(`[TALENT] FAILED ${fileName}:`, err.message);
+      processingState.processed++;
+      processingState.failed++;
       return { file: fileName, status: 'error', error: err.message };
     }
   }
@@ -92,35 +264,21 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
       console.log(`Talent resume ${alreadyExists ? 'already existed' : 'uploaded'}: ${fileUrl}`);
       const existing = await TalentCandidate.findOne({ where: { resumePath: fileUrl } });
       if (existing) {
+        processingState.processed++;
         return { file: file.originalname, status: 'ok', name: existing.name, email: existing.email, skipped: true };
       }
       const text = await pdfTextExtractor.extractTextFromBuffer(file.buffer, file.originalname);
       const parsed = await resumeParser.parseResumeToProfile(text);
-      const candidate = await TalentCandidate.create({
-        id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name: parsed.name || '',
-        email: parsed.email || '',
-        phone: parsed.phone || '',
-        skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : '',
-        experience: parsed.workExperiences?.length ? `${parsed.workExperiences.length} role(s)` : '',
-        jobTitle: parsed.title || '',
-        summary: parsed.summary || '',
-        location: parsed.location || '',
-        country: parsed.country || '',
-        tools: Array.isArray(parsed.tools) ? parsed.tools.join(', ') : '',
-        softSkills: Array.isArray(parsed.softSkills) ? parsed.softSkills.join(', ') : '',
-        workExperiences: JSON.stringify(parsed.workExperiences || []),
-        educations: JSON.stringify(parsed.educations || []),
-        projects: JSON.stringify(parsed.projects || []),
-        certifications: JSON.stringify(parsed.certifications || []),
-        resumePath: fileUrl,
-        resumeFile: file.originalname,
-        status: (parsed.name || parsed.email) ? 'Parsed' : 'Error',
-        source: 'uploaded_resume',
-        rawText: text.substring(0, 500)
-      });
+      parsed.rawText = text;
+      const record = candidateRecordFromParsed(parsed, { fileName: file.originalname, fileUrl, fileSize: file.size });
+      const candidate = await TalentCandidate.create(record);
+      await saveCandidateSkills(candidate.id, parsed.skills);
+      processingState.processed++;
+      processingState.success++;
       return { file: file.originalname, status: 'ok', name: candidate.name, email: candidate.email };
     } catch (err) {
+      processingState.processed++;
+      processingState.failed++;
       return { file: file.originalname, status: 'error', error: err.message };
     }
   }
@@ -132,6 +290,14 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
   const fileTasks = uploadedFiles.map(file => () => parseAndSaveFromFile(file));
   const allTasks = [...s3Tasks, ...fileTasks];
 
+  processingState.isProcessing = true;
+  processingState.status = 'Processing resumes';
+  processingState.processed = 0;
+  processingState.total = allTasks.length;
+  processingState.success = 0;
+  processingState.failed = 0;
+  processingState.startedAt = new Date().toISOString();
+
   for (let i = 0; i < allTasks.length; i += CONCURRENCY) {
     const batch = allTasks.slice(i, i + CONCURRENCY);
     const batchResults = await Promise.all(batch.map(task => task()));
@@ -139,13 +305,134 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
     if (i + CONCURRENCY < allTasks.length) await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
   }
 
-  res.json({ success: true, processed: results.length, results });
+  processingState.isProcessing = false;
+  processingState.status = allTasks.length ? (processingState.failed === 0 ? 'Completed' : 'Completed with errors') : 'Completed';
+  processingState.startedAt = null;
+
+  res.json({ success: true, processed: results.length, results, progress: { ...processingState } });
 });
 
 // GET /api/admin/talent/candidates
 router.get('/candidates', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const candidates = await TalentCandidate.findAll({ order: [['addedDate', 'DESC']] });
-  res.json({ candidates });
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+  const { where } = buildTalentFilters(req.query);
+  const { rows, count } = await TalentCandidate.findAndCountAll({
+    where,
+    order: [['addedDate', 'DESC']],
+    offset: (page - 1) * limit,
+    limit
+  });
+  res.json({ candidates: rows.map(serializeCandidate), total: count, page, limit });
+});
+
+// GET /api/admin/talent/skills — distinct normalized skills with candidate counts
+router.get('/skills', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 200));
+  const rows = await CandidateSkill.findAll({
+    attributes: ['skillId'],
+    include: [{ model: Skill, as: 'skill', attributes: ['id', 'name'] }],
+    group: ['CandidateSkill.skillId', 'skill.id', 'skill.name'],
+    attributes: {
+      include: [
+        [Op.fn('COUNT', col('CandidateSkill.id')), 'count']
+      ]
+    },
+    order: [[Op.literal('count'), 'DESC']],
+    limit,
+    raw: true
+  });
+  const skills = rows
+    .filter(r => r['skill.name'])
+    .map(r => ({ name: r['skill.name'], count: parseInt(r.count, 10) || 0 }))
+    .sort((a, b) => b.count - a.count);
+  res.json({ skills });
+});
+
+// GET /api/admin/talent/search — recruiter search across title/skills/experience
+router.get('/search', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+  const { where, include } = buildTalentFilters(req.query);
+
+  const { rows, count } = await TalentCandidate.findAndCountAll({
+    where,
+    include,
+    distinct: true,
+    order: [['addedDate', 'DESC']],
+    offset: (page - 1) * limit,
+    limit
+  });
+  res.json({
+    candidates: rows.map(serializeCandidate),
+    total: count,
+    page,
+    limit,
+    query: {
+      q: req.query.q || '',
+      jobTitle: req.query.jobTitle || '',
+      location: req.query.location || '',
+      gender: req.query.gender || '',
+      skills: req.query.skills || ''
+    }
+  });
+});
+
+// POST /api/admin/talent/export — CSV export of filtered candidates with field selection
+router.post('/export', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { filters = {}, fields = [], limit = 10000 } = req.body;
+  const FIELD_MAP = {
+    name: 'Name',
+    email: 'Email',
+    phone: 'Phone',
+    location: 'Location',
+    country: 'Country',
+    jobTitle: 'Job Title',
+    currentCompany: 'Current Company',
+    skills: 'Skills',
+    totalExperience: 'Experience (Years)',
+    gender: 'Gender',
+    dob: 'Date of Birth',
+    summary: 'Summary',
+    resumeUrl: 'Resume URL'
+  };
+  const selected = fields.filter(f => FIELD_MAP[f]);
+
+  const { where, include } = buildTalentFilters(filters || {});
+  const rows = await TalentCandidate.findAll({
+    where,
+    include,
+    distinct: true,
+    limit: Math.min(50000, Math.max(1, parseInt(limit) || 10000)),
+    order: [['addedDate', 'DESC']]
+  });
+
+  const csvEscape = (v) => {
+    const s = String(v ?? '');
+    let out = s.replace(/\r?\n/g, ' ').replace(/"/g, '""');
+    if (/^[=+\-@]/.test(out)) out = "'" + out;
+    return `"${out}"`;
+  };
+
+  const header = selected.map(f => FIELD_MAP[f]).join(',');
+  const lines = rows.map(c => {
+    const skills = Array.isArray(c.candidateSkills)
+      ? c.candidateSkills.map(cs => cs.skill?.name || '').filter(Boolean).join('; ')
+      : (c.skills || '');
+    const values = {
+      name: c.name, email: c.email, phone: c.phone, location: c.location, country: c.country,
+      jobTitle: c.jobTitle, currentCompany: c.currentCompany, skills,
+      totalExperience: c.totalExperience ?? '', gender: c.gender, dob: c.dob,
+      summary: c.summary, resumeUrl: c.resumePath || ''
+    };
+    return selected.map(f => csvEscape(values[f])).join(',');
+  });
+
+  const csv = [header, ...lines].join('\r\n');
+  const date = new Date().toISOString().slice(0, 10);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="recruiter-export-${date}.csv"`);
+  res.send(`\uFEFF${csv}`);
 });
 
 // DELETE /api/admin/talent/candidates/:id
@@ -464,33 +751,70 @@ router.post('/candidates/:id/retry', authenticateToken, requireRole(['admin']), 
     const buffer = Buffer.concat(chunks);
     const text = await pdfTextExtractor.extractTextFromBuffer(buffer, candidate.resumeFile || 'resume');
     const parsed = await resumeParser.parseResumeToProfile(text);
+    parsed.rawText = text;
+
+    const workExps = Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [];
+    const totalExperience = computeTotalExperience(workExps) ?? extractExperienceYearsFromText(text);
+    const currentCompany = workExps.length
+      ? (workExps[workExps.length - 1].company || workExps[0].company || '')
+      : '';
 
     const updates = {
       name: parsed.name || candidate.name || '',
       email: parsed.email || candidate.email || '',
       phone: parsed.phone || candidate.phone || '',
+      dob: parsed.dob || candidate.dob || '',
       skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : (candidate.skills || ''),
-      experience: parsed.workExperiences?.length ? `${parsed.workExperiences.length} role(s)` : (candidate.experience || ''),
+      experience: workExps.length ? `${workExps.length} role(s)` : (candidate.experience || ''),
+      totalExperience: totalExperience ?? candidate.totalExperience,
+      currentCompany: currentCompany || candidate.currentCompany || '',
       jobTitle: parsed.title || candidate.jobTitle || '',
       summary: parsed.summary || '',
       location: parsed.location || '',
-      workExperiences: JSON.stringify(parsed.workExperiences || []),
-      educations: JSON.stringify(parsed.educations || []),
-      rawText: text.substring(0, 500),
+      workExperiences: JSON.stringify(workExps),
+      educations: JSON.stringify(Array.isArray(parsed.educations) ? parsed.educations : []),
+      rawText: text.substring(0, 2000),
       status: (parsed.name || parsed.email) ? 'Parsed' : 'Error',
+      parserStatus: (parsed.name || parsed.email) ? 'Parsed' : 'Failed',
+      parserError: (parsed.name || parsed.email) ? '' : 'Could not extract name or email from resume',
+      retryCount: (candidate.retryCount || 0) + 1
     };
 
     await candidate.update(updates);
-    return res.json({ ...updates, id: candidate.id });
+    await saveCandidateSkills(candidate.id, parsed.skills);
+    return res.json({ ...serializeCandidate(await TalentCandidate.findByPk(candidate.id)), id: candidate.id });
   } catch (err) {
     console.error(`[TALENT RETRY] Failed for ${req.params.id}:`, err.message);
     return res.status(500).json({ error: err.message });
   }
 });
 
+// GET /api/admin/talent/resume/:id — stream a talent candidate's original resume
+// Reuses the existing getResumeStreamFromS3 helper (same S3 integration as the
+// candidate-facing /resume-viewer flow) — no raw S3 URL is exposed to the client.
+router.get('/resume/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const candidate = await TalentCandidate.findByPk(req.params.id);
+    if (!candidate || !candidate.resumePath) {
+      return res.status(404).json({ error: 'Resume not found' });
+    }
+    const { stream, contentType, contentLength } = await getResumeStreamFromS3(candidate.resumePath);
+    const fileName = candidate.resumeFile || candidate.resumeOriginalName || 'resume';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+    stream.on('error', () => res.end());
+    stream.pipe(res);
+  } catch (err) {
+    console.error(`[TALENT RESUME STREAM] Failed for ${req.params.id}:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/admin/talent/processing-status
 router.get('/processing-status', authenticateToken, requireRole(['admin']), (req, res) => {
-  res.json({ isProcessing: false, status: '', progress: 0 });
+  res.json({ ...processingState, progress: processingState.total ? Math.round((processingState.processed / processingState.total) * 100) : 0 });
 });
 
 // GET /api/admin/talent/stats

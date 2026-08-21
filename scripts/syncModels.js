@@ -27,6 +27,9 @@ import '../models/Credentialing.js';
 import '../models/GdprConsent.js';
 import '../models/TalentCandidate.js';
 import '../models/EmailLog.js';
+import '../models/Skill.js';
+import '../models/CandidateSkill.js';
+import '../models/associations.js';
 
 const syncModels = async () => {
   try {

@@ -831,7 +831,7 @@ router.post('/bulk', authenticateToken, maxJobsGuard, async (req, res) => {
           companyId,
           refreshCount: 0,
           originalPostedAt: new Date(),
-        });
+      });
 
         const slug = generateSlug(job.jobTitle, job.company, job.id);
         await job.update({ slug });

@@ -43,43 +43,28 @@ class PDFTextExtractor {
         const loadingTask = pdfjsLib.getDocument({ data: uint8Array, useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true });
         const pdf = await loadingTask.promise;
         let fullText = '';
+        let totalChars = 0;
+        const pageCount = pdf.numPages;
+        console.log(`[EXTRACTOR] PDF has ${pageCount} pages`);
 
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-          const page = await pdf.getPage(pageNum);
-          const textContent = await page.getTextContent();
-          const viewport = page.getViewport({ scale: 1 });
-
-          const items = textContent.items
-            .filter(item => item.str && item.str.trim())
-            .map(item => ({
-              str: item.str,
-              x: item.transform[4],
-              y: viewport.height - item.transform[5]
-            }))
-            .sort((a, b) => {
-              const yDiff = Math.round(a.y / 5) - Math.round(b.y / 5);
-              return yDiff !== 0 ? yDiff : a.x - b.x;
-            });
-
-          const lines = [];
-          let currentLine = [];
-          let lastY = null;
-          for (const item of items) {
-            const rowY = Math.round(item.y / 5);
-            if (lastY === null || rowY === lastY) {
-              currentLine.push(item.str);
-            } else {
-              if (currentLine.length) lines.push(currentLine.join(' '));
-              currentLine = [item.str];
-            }
-            lastY = rowY;
+        for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
+          try {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1 });
+            const lines = await this._extractLinesFromPage(page, viewport);
+            const pageText = this._reorderLinesByColumns(lines, viewport);
+            console.log(`[EXTRACTOR] Page ${pageNum}/${pageCount}: ${pageText.length} chars`);
+            totalChars += pageText.length;
+            fullText += pageText + '\n';
+          } catch (pageError) {
+            console.warn(`[EXTRACTOR] Failed to extract page ${pageNum}:`, pageError.message);
           }
-          if (currentLine.length) lines.push(currentLine.join(' '));
-          fullText += lines.join('\n') + '\n';
         }
 
-        if (!fullText.trim()) throw new Error('No text content found in PDF');
-        console.log('[EXTRACTOR] pdfjs extracted, length:', fullText.length);
+        if (!fullText.trim() || totalChars < 100) {
+          throw new Error(`Insufficient text extracted (${totalChars} chars) — likely scanned/image-based PDF`);
+        }
+        console.log('[EXTRACTOR] pdfjs extracted total:', totalChars, 'chars from', pageCount, 'pages');
         return this.cleanExtractedText(fullText);
       } catch (pdfjsError) {
         console.warn('[EXTRACTOR] pdfjs failed, falling back to pdf-parse:', pdfjsError.message);
@@ -89,7 +74,7 @@ class PDFTextExtractor {
     try {
       console.log('[EXTRACTOR] Extracting PDF with pdf-parse:', fileName);
       const data = await pdfParse.default(buffer);
-      if (!data.text.trim()) throw new Error('No text content found in PDF');
+      if (!data.text.trim() || data.text.length < 100) throw new Error('Insufficient text from pdf-parse');
       return this.cleanExtractedText(data.text);
     } catch (error) {
       // Last resort: OCR the PDF pages as images
@@ -98,15 +83,105 @@ class PDFTextExtractor {
     }
   }
 
+  // Layout-aware line extraction: reads each item's (x, y) from the PDF
+  // transform and groups text runs into visual lines using position, not
+  // raw text order. This is what lets us detect two-column layouts.
+  async _extractLinesFromPage(page, viewport) {
+    const textContent = await page.getTextContent();
+    const items = textContent.items
+      .filter(item => item.str && item.str.trim())
+      .map(item => ({
+        str: item.str,
+        x: item.transform[4],
+        y: viewport.height - item.transform[5]
+      }))
+      .sort((a, b) => {
+        const yDiff = Math.round(a.y / 5) - Math.round(b.y / 5);
+        return yDiff !== 0 ? yDiff : a.x - b.x;
+      });
+
+    const rawLines = [];
+    let current = null;
+    for (const item of items) {
+      const rowY = Math.round(item.y / 5);
+      if (current && rowY === current.y) {
+        current.texts.push(item.str);
+        current.xMin = Math.min(current.xMin, item.x);
+        current.xMax = Math.max(current.xMax, item.x);
+      } else {
+        if (current) rawLines.push(current);
+        current = { y: rowY, texts: [item.str], xMin: item.x, xMax: item.x };
+      }
+    }
+    if (current) rawLines.push(current);
+
+    return rawLines.map(l => ({
+      text: l.texts.join(' '),
+      y: l.y,
+      xMin: l.xMin,
+      xMax: l.xMax,
+      xMid: (l.xMin + l.xMax) / 2
+    }));
+  }
+
+  // Column detection: finds the widest horizontal gap between line
+  // midpoints. If both sides are substantial, the page is treated as
+  // two-column and read left column top->bottom, then right column.
+  // Full-width lines (headers/footers) are placed around the columns by
+  // their vertical position. Falls back to plain top->bottom otherwise.
+  _reorderLinesByColumns(lines, viewport) {
+    if (lines.length < 4) {
+      return lines.map(l => l.text).join('\n');
+    }
+
+    const mids = lines.map(l => l.xMid).sort((a, b) => a - b);
+    let bestGap = -1;
+    let splitAt = null;
+    for (let i = 1; i < mids.length; i++) {
+      const gap = mids[i] - mids[i - 1];
+      if (gap > bestGap) {
+        bestGap = gap;
+        splitAt = (mids[i] + mids[i - 1]) / 2;
+      }
+    }
+
+    const pageWidth = viewport.width || 595;
+    if (bestGap < pageWidth * 0.08 || splitAt === null) {
+      return lines.sort((a, b) => a.y - b.y).map(l => l.text).join('\n');
+    }
+
+    const left = [];
+    const right = [];
+    const full = [];
+    for (const l of lines) {
+      const span = l.xMax - l.xMin;
+      if (span > pageWidth * 0.6) full.push(l);
+      else if (l.xMid < splitAt) left.push(l);
+      else right.push(l);
+    }
+
+    if (left.length < 3 || right.length < 3) {
+      return lines.sort((a, b) => a.y - b.y).map(l => l.text).join('\n');
+    }
+
+    const byY = arr => arr.sort((a, b) => a.y - b.y);
+    const pageHeight = viewport.height || 842;
+    const topFull = byY(full.filter(l => l.y < pageHeight / 2)).map(l => l.text);
+    const bottomFull = byY(full.filter(l => l.y >= pageHeight / 2)).map(l => l.text);
+
+    return [...topFull, ...byY(left).map(l => l.text), ...byY(right).map(l => l.text), ...bottomFull].join('\n');
+  }
+
   async _ocrPdf(buffer, fileName) {
-    // Convert PDF to image via sharp isn't possible directly — use tesseract on the raw buffer
-    // as a best-effort for scanned PDFs (tesseract can sometimes handle PDF bytes)
     console.log('[EXTRACTOR] Attempting OCR on scanned PDF:', fileName);
+    // Note: Full multi-page PDF OCR requires pdf2image + tesseract (available in AI service).
+    // This fallback uses tesseract.js on raw buffer (works for single-page PDFs).
+    // For multi-page scanned PDFs, the AI service's OCR is more robust.
     const worker = await createWorker('eng');
     try {
       const { data: { text } } = await worker.recognize(buffer);
       if (!text?.trim()) throw new Error('OCR returned no text from PDF');
-      console.log('[EXTRACTOR] PDF OCR extracted, length:', text.length);
+      console.log('[EXTRACTOR] PDF OCR extracted (raw):', text.length, 'chars');
       return this.cleanExtractedText(text);
     } finally {
       await worker.terminate();

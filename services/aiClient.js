@@ -50,8 +50,9 @@ export class AIClient {
     };
   }
 
-  async parseResume(resumeText) {
-    return await execute('parse resume', 'candidate', {}, resumeText, 'text');
+  async parseResume(resumeText, extraInstructions = '') {
+    const content = extraInstructions ? `${resumeText}\n\n${extraInstructions}` : resumeText;
+    return await execute('parse resume', 'candidate', {}, content, 'text');
   }
 
   async hybridParseResume(resumeText) {
