@@ -671,7 +671,7 @@ export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApp
 export const sendAdminInviteEmail = async (toEmail, name, role, token) => {
   try {
     const { baseTemplate, ctaButton, FRONTEND_URL } = await import('./emailTemplates.js');
-    const roleLabel = role === 'super_admin' ? 'Super Administrator' : 'Administrator';
+    const roleLabel = role === 'super_admin' ? 'Super Administrator' : role === 'recruiter' ? 'Recruiter' : 'Administrator';
     const inviteUrl = `${FRONTEND_URL}/admin/accept-invite?token=${token}`;
 
     const content = `

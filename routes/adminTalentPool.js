@@ -3,13 +3,14 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { Op, col } from 'sequelize';
+import { Op, col, fn, literal } from 'sequelize';
 import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import nodemailer from 'nodemailer';
 import TalentCandidate from '../models/TalentCandidate.js';
 import Skill from '../models/Skill.js';
 import CandidateSkill from '../models/CandidateSkill.js';
+import '../models/associations.js';
 import { uploadResumeToS3, uploadTalentResumeToS3, getResumeStreamFromS3 } from '../services/s3Service.js';
 import { normalizeSkillName, getNormalizedSkillNames } from '../services/skillNormalizer.js';
 import { computeTotalExperience, extractExperienceYearsFromText } from '../services/experienceCalculator.js';
@@ -60,6 +61,7 @@ async function saveCandidateSkills(candidateId, skillsArray) {
 }
 
 // Build the create payload from a parse result + file metadata
+let candidateIdCounter = 0;
 function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) {
   const skillsArray = Array.isArray(parsed.skills) ? parsed.skills : [];
   const workExps = Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [];
@@ -70,8 +72,12 @@ function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) 
   const ext = fileName ? path.extname(fileName).toLowerCase() : '';
   const ok = !!(parsed.name || parsed.email);
 
+  candidateIdCounter++;
+  const candidateId = `ZC-${String(candidateIdCounter).padStart(6, '0')}`;
+
   return {
     id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    candidateId,
     name: parsed.name || '',
     email: parsed.email || '',
     phone: parsed.phone || '',
@@ -177,6 +183,7 @@ function serializeCandidate(c) {
   try { projects = JSON.parse(candidate.projects || '[]'); } catch { /* ignore */ }
   return {
     id: candidate.id,
+    candidateId: candidate.candidate_id,
     name: candidate.name || '',
     email: candidate.email || '',
     phone: candidate.phone || '',
@@ -335,10 +342,10 @@ router.get('/skills', authenticateToken, requireRole(['admin']), async (req, res
     group: ['CandidateSkill.skillId', 'skill.id', 'skill.name'],
     attributes: {
       include: [
-        [Op.fn('COUNT', col('CandidateSkill.id')), 'count']
+        [fn('COUNT', col('CandidateSkill.id')), 'count']
       ]
     },
-    order: [[Op.literal('count'), 'DESC']],
+    order: [[literal('count'), 'DESC']],
     limit,
     raw: true
   });

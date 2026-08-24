@@ -19,7 +19,7 @@ const transporter = nodemailer.createTransport({
 let notificationQueue = [];
 
 // GET /api/admin/notifications?limit=5 - Get recent notifications for bell dropdown
-router.get('/', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
+router.get('/', authenticateToken, requireRole(['admin', 'super_admin', 'recruiter']), async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
     const User = (await import('../models/User.js')).default;
@@ -50,7 +50,7 @@ router.get('/', authenticateToken, requireRole(['admin', 'super_admin']), async 
 });
 
 // POST /api/admin/notifications/send - Send notification
-router.post('/send', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
+router.post('/send', authenticateToken, requireRole(['admin', 'super_admin', 'recruiter']), async (req, res) => {
   try {
     const { type, recipients, subject, message, priority = 'medium' } = req.body;
 
@@ -113,7 +113,7 @@ router.get('/queue', authenticateToken, requireRole(['admin']), async (req, res)
 });
 
 // POST /api/admin/notifications/broadcast - Broadcast to real users
-router.post('/broadcast', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
+router.post('/broadcast', authenticateToken, requireRole(['admin', 'super_admin', 'recruiter']), async (req, res) => {
   try {
     const { subject, message, userType = 'all' } = req.body;
     const User = (await import('../models/User.js')).default;
@@ -164,7 +164,7 @@ router.post('/broadcast', authenticateToken, requireRole(['admin', 'super_admin'
 });
 
 // POST /api/admin/notifications/reminder - Send reminder email with status tracking
-router.post('/reminder', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res) => {
+router.post('/reminder', authenticateToken, requireRole(['admin', 'super_admin', 'recruiter']), async (req, res) => {
   try {
     const { userType = 'both', subject, message, recipientIds } = req.body;
     if (!subject || !message) return res.status(400).json({ error: 'Subject and message are required' });

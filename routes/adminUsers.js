@@ -74,8 +74,8 @@ router.post('/create-admin', ...superAdminGuard, async (req, res) => {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     if (password.length < 6)
       return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-    if (!['admin', 'super_admin'].includes(role))
-      return res.status(400).json({ error: 'Invalid role. Must be admin or super_admin' });
+    if (!['admin', 'super_admin', 'recruiter'].includes(role))
+      return res.status(400).json({ error: 'Invalid role. Must be admin, super_admin, or recruiter' });
 
     const existingUser = await User.findOne({ where: { email: email.toLowerCase() } });
     if (existingUser)
@@ -110,7 +110,7 @@ router.post('/invite-admin', ...superAdminGuard, async (req, res) => {
   try {
     const { name, email, role } = req.body;
     if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
-    if (!['admin', 'super_admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+    if (!['admin', 'super_admin', 'recruiter'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
 
     const existing = await User.findOne({ where: { email: email.toLowerCase() } });
     if (existing && existing.isActive)
@@ -326,7 +326,7 @@ router.put('/:id/unlock', ...adminGuard, async (req, res) => {
 router.put('/:id/role', ...adminGuard, async (req, res) => {
   try {
     const { role } = req.body;
-    const validRoles = ['candidate', 'employer', 'admin', 'super_admin', 'manager'];
+    const validRoles = ['candidate', 'employer', 'admin', 'super_admin', 'manager', 'recruiter'];
     if (!validRoles.includes(role)) return res.status(400).json({ error: 'Invalid role' });
 
     const requestorRole = req.user?.role;

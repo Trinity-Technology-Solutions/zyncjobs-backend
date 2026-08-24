@@ -99,6 +99,7 @@ import contactRoutes from './routes/contact.js';
 import aiRoutes from './routes/ai.js';
 import multer from 'multer';
 import aiProxyRoutes from './routes/aiProxy.js';
+import submissionRoutes from './routes/submissions.js';
 
 const aiProxyUpload = multer({ storage: multer.memoryStorage() });
 import gstVerifyRoutes from './routes/gstVerify.js';
@@ -529,6 +530,7 @@ app.use('/api/gdpr', gdprRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/ai-proxy', aiProxyUpload.any(), aiProxyRoutes);
+app.use('/api/submissions', submissionRoutes);
 app.use('/api/verify', gstVerifyRoutes);
 app.use('/api/candidate', candidateEmailRoutes);
 app.use('/', ogTagsRoutes);

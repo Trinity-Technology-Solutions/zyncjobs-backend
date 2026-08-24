@@ -6,6 +6,12 @@ const TalentCandidate = sequelize.define('TalentCandidate', {
     type: DataTypes.STRING,
     primaryKey: true
   },
+  candidateId: {
+    type: DataTypes.STRING(20),
+    field: 'candidate_id',
+    unique: true,
+    allowNull: false
+  },
   name: { type: DataTypes.STRING, defaultValue: '' },
   email: { type: DataTypes.STRING, defaultValue: '' },
   phone: { type: DataTypes.STRING, defaultValue: '' },
