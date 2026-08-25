@@ -169,13 +169,33 @@ export function getSignedResumeUrl(fileUrl, expires = 60) {
   return s3.getSignedUrl('getObject', { Bucket: BUCKET, Key: key, Expires: expires });
 }
 
+// Retry helper with exponential backoff
+async function withRetry(fn, retries = 3, baseDelay = 1000) {
+  let lastError;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+        console.warn(`[S3] Attempt ${attempt} failed, retrying in ${Math.round(delay)}ms:`, error.message);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function getResumeStreamFromS3(fileUrl) {
   const key = extractS3Key(fileUrl);
   console.log(`[S3] Streaming key: ${key}`);
-  const head = await s3.headObject({ Bucket: BUCKET, Key: key }).promise();
+  
+  const head = await withRetry(() => s3.headObject({ Bucket: BUCKET, Key: key }).promise());
   const rawType = head.ContentType;
   const fallbackType = getContentType(key);
   const contentType = (rawType && rawType !== 'application/octet-stream') ? rawType : fallbackType;
+  
   return {
     stream: s3.getObject({ Bucket: BUCKET, Key: key }).createReadStream(),
     contentType,

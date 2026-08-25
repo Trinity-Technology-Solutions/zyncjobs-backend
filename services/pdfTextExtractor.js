@@ -3,6 +3,9 @@ import path from 'path';
 import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import { createWorker } from 'tesseract.js';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import os from 'os';
 
 let pdfjsLib = null;
 try {
@@ -10,6 +13,8 @@ try {
     || await import('pdfjs-dist/build/pdf.mjs').catch(() => null);
 } catch {}
 console.log('[EXTRACTOR] pdfjs-dist:', pdfjsLib ? 'loaded' : 'not available, using pdf-parse fallback');
+
+const execAsync = promisify(exec);
 
 class PDFTextExtractor {
   // fileName is optional — used to detect file type when buffer has no header
@@ -172,17 +177,108 @@ class PDFTextExtractor {
     return [...topFull, ...byY(left).map(l => l.text), ...byY(right).map(l => l.text), ...bottomFull].join('\n');
   }
 
+  // OCR PDF using pdf2image (poppler) + tesseract - works for multi-page PDFs
   async _ocrPdf(buffer, fileName) {
-    console.log('[EXTRACTOR] Attempting OCR on scanned PDF:', fileName);
-    // Note: Full multi-page PDF OCR requires pdf2image + tesseract (available in AI service).
-    // This fallback uses tesseract.js on raw buffer (works for single-page PDFs).
-    // For multi-page scanned PDFs, the AI service's OCR is more robust.
+    console.log('[EXTRACTOR] Attempting OCR on scanned PDF using pdf2image:', fileName);
+    
+    // Check if pdftoppm (poppler) is available
+    const hasPoppler = await this._checkCommand('pdftoppm');
+    if (!hasPoppler) {
+      console.warn('[EXTRACTOR] pdftoppm not available, falling back to single-page tesseract');
+      return await this._ocrPdfSinglePage(buffer, fileName);
+    }
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-ocr-'));
+    const pdfPath = path.join(tempDir, 'input.pdf');
+    const imagePrefix = path.join(tempDir, 'page');
+    
+    try {
+      // Write PDF buffer to temp file
+      fs.writeFileSync(pdfPath, buffer);
+      
+      // Convert PDF to images using pdftoppm (poppler-utils)
+      // -png for PNG output, -r 300 for 300 DPI quality
+      console.log('[EXTRACTOR] Converting PDF to images with pdftoppm...');
+      const { stdout, stderr } = await execAsync(`pdftoppm -png -r 300 "${pdfPath}" "${imagePrefix}"`, {
+        timeout: 120000, // 2 min timeout
+        maxBuffer: 1024 * 1024 * 50 // 50MB buffer
+      });
+      
+      if (stderr) console.warn('[EXTRACTOR] pdftoppm stderr:', stderr);
+      
+      // Find generated image files
+      const imageFiles = fs.readdirSync(tempDir)
+        .filter(f => f.startsWith('page-') && f.endsWith('.png'))
+        .sort((a, b) => {
+          const numA = parseInt(a.match(/page-(\d+)\.png/)?.[1] || '0', 10);
+          const numB = parseInt(b.match(/page-(\d+)\.png/)?.[1] || '0', 10);
+          return numA - numB;
+        });
+      
+      console.log(`[EXTRACTOR] Generated ${imageFiles.length} page images for OCR`);
+      
+      if (imageFiles.length === 0) {
+        throw new Error('No pages generated from PDF');
+      }
+      
+      // OCR each page with tesseract.js
+      const worker = await createWorker('eng');
+      let fullText = '';
+      
+      try {
+        for (let i = 0; i < imageFiles.length; i++) {
+          const imagePath = path.join(tempDir, imageFiles[i]);
+          console.log(`[EXTRACTOR] OCR page ${i + 1}/${imageFiles.length}: ${imageFiles[i]}`);
+          
+          try {
+            const { data: { text } } = await worker.recognize(imagePath);
+            if (text?.trim()) {
+              fullText += text + '\n';
+            }
+          } catch (pageError) {
+            console.warn(`[EXTRACTOR] Failed to OCR page ${i + 1}:`, pageError.message);
+          }
+        }
+        
+        if (!fullText.trim()) throw new Error('OCR returned no text from any page');
+        
+        console.log('[EXTRACTOR] PDF OCR extracted (multi-page):', fullText.length, 'chars');
+        return this.cleanExtractedText(fullText);
+      } finally {
+        await worker.terminate();
+      }
+    } catch (error) {
+      console.warn('[EXTRACTOR] Multi-page OCR failed, trying single-page fallback:', error.message);
+      return await this._ocrPdfSinglePage(buffer, fileName);
+    } finally {
+      // Cleanup temp files
+      try {
+        if (fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Fallback: Single-page OCR using tesseract.js directly on PDF buffer
+  // Only works for single-page PDFs, but better than nothing
+  async _ocrPdfSinglePage(buffer, fileName) {
+    console.log('[EXTRACTOR] Attempting single-page OCR fallback:', fileName);
     const worker = await createWorker('eng');
     try {
-      const { data: { text } } = await worker.recognize(buffer);
+      // Add timeout wrapper
+      const recognizePromise = worker.recognize(buffer);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('OCR timeout after 60s')), 60000)
+      );
+      
+      const { data: { text } } = await Promise.race([recognizePromise, timeoutPromise]);
       if (!text?.trim()) throw new Error('OCR returned no text from PDF');
-      console.log('[EXTRACTOR] PDF OCR extracted (raw):', text.length, 'chars');
+      console.log('[EXTRACTOR] Single-page PDF OCR extracted:', text.length, 'chars');
       return this.cleanExtractedText(text);
+    } catch (error) {
+      console.error('[EXTRACTOR] Single-page OCR failed:', error.message);
+      throw new Error(`PDF OCR failed: ${error.message}`);
     } finally {
       await worker.terminate();
     }
@@ -192,12 +288,31 @@ class PDFTextExtractor {
     console.log('[EXTRACTOR] Running OCR on image:', fileName);
     const worker = await createWorker('eng');
     try {
-      const { data: { text } } = await worker.recognize(buffer);
+      // Add timeout wrapper for image OCR too
+      const recognizePromise = worker.recognize(buffer);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('OCR timeout after 60s')), 60000)
+      );
+      
+      const { data: { text } } = await Promise.race([recognizePromise, timeoutPromise]);
       if (!text?.trim()) throw new Error('OCR returned no text');
       console.log('[EXTRACTOR] OCR extracted, length:', text.length);
       return this.cleanExtractedText(text);
+    } catch (error) {
+      console.error('[EXTRACTOR] Image OCR failed:', error.message);
+      throw new Error(`Image OCR failed: ${error.message}`);
     } finally {
       await worker.terminate();
+    }
+  }
+
+  // Check if a command is available in PATH
+  async _checkCommand(cmd) {
+    try {
+      await execAsync(`which ${cmd}`);
+      return true;
+    } catch {
+      return false;
     }
   }
 

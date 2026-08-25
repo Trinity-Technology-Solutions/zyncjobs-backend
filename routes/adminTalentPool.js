@@ -60,17 +60,119 @@ async function saveCandidateSkills(candidateId, skillsArray) {
   return names;
 }
 
+// Strict field validation — ensures each field only contains its intended data type
+function sanitizeField(value, fieldType) {
+  if (!value || typeof value !== 'string') return '';
+  const v = value.trim();
+  
+  switch (fieldType) {
+    case 'name':
+      // Only letters, spaces, dots, hyphens - no digits, @, +, job title keywords
+      if (/[\d@+]/.test(v)) return '';
+      if (/\b(developer|engineer|manager|analyst|intern|architect|consultant|director|lead|senior|junior|hr|ceo|cto|founder|student|fresher|software|full.?stack|front.?end|back.?end|data|devops|cloud|mobile|web|recruiter|designer|tester|qa|admin|executive|specialist|associate|coordinator|officer|president|vice|head|principal|staff|trainee)\b/i.test(v)) return '';
+      if (!/^[A-Za-z][A-Za-z.'\-\s]{1,50}$/.test(v)) return '';
+      if (v.split(/\s+/).length > 4) return ''; // Max 4 words
+      return v.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    
+    case 'email':
+      if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(v)) return '';
+      return v.toLowerCase();
+    
+    case 'phone':
+      // Only digits, +, -, spaces, parentheses - no letters
+      if (/[a-zA-Z]/.test(v)) return '';
+      const digits = v.replace(/\D/g, '');
+      if (digits.length < 10 || digits.length > 15) return '';
+      // Reject years/date ranges
+      if (/^(19|20)\d{2}/.test(digits)) return '';
+      return v;
+    
+    case 'jobTitle':
+      // Should contain role keywords, not names or contact info
+      if (/[@+]/.test(v)) return '';
+      if (/^\d+$/.test(v)) return '';
+      if (v.split(/\s+/).length > 6) return '';
+      return v;
+    
+    case 'location':
+      // City names only - no emails, phones, job titles
+      if (/[@+]/.test(v)) return '';
+      if (/\b(developer|engineer|manager|analyst|intern|hr|ceo|cto)\b/i.test(v)) return '';
+      if (v.length > 50) return '';
+      return v;
+    
+    case 'company':
+      // Company names - no emails, phones
+      if (/[@+]/.test(v)) return '';
+      if (v.length > 100) return '';
+      return v;
+    
+    case 'summary':
+      // Max 2000 chars, no contact info
+      if (v.length > 2000) return v.substring(0, 2000);
+      return v;
+    
+    default:
+      return v;
+  }
+}
+
+function sanitizeArray(arr, fieldType) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map(item => {
+      if (typeof item === 'object' && item !== null) {
+        // For objects (workExperiences, educations, etc.), sanitize each field
+        const sanitized = {};
+        for (const [key, val] of Object.entries(item)) {
+          if (key === 'jobTitle' || key === 'title') sanitized[key] = sanitizeField(String(val || ''), 'jobTitle');
+          else if (key === 'company' || key === 'school') sanitized[key] = sanitizeField(String(val || ''), 'company');
+          else if (key === 'degree') sanitized[key] = sanitizeField(String(val || ''), 'jobTitle'); // degree like jobTitle
+          else if (key === 'name') sanitized[key] = sanitizeField(String(val || ''), 'jobTitle'); // project name
+          else if (key === 'descriptions' && Array.isArray(val)) sanitized[key] = val.map(d => sanitizeField(String(d || ''), 'summary'));
+          else sanitized[key] = String(val || '');
+        }
+        return sanitized;
+      }
+      return sanitizeField(String(item || ''), fieldType);
+    })
+    .filter(item => {
+      if (typeof item === 'string') return item.length > 0;
+      if (typeof item === 'object') return Object.values(item).some(v => v && v.length > 0);
+      return false;
+    });
+}
+
 // Build the create payload from a parse result + file metadata
 let candidateIdCounter = 0;
 function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) {
-  const skillsArray = Array.isArray(parsed.skills) ? parsed.skills : [];
-  const workExps = Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [];
+  const skillsArray = sanitizeArray(Array.isArray(parsed.skills) ? parsed.skills : [], 'jobTitle');
+  const workExps = sanitizeArray(Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [], 'jobTitle');
+  const internships = sanitizeArray(Array.isArray(parsed.internships) ? parsed.internships : [], 'jobTitle');
+  const educations = sanitizeArray(Array.isArray(parsed.educations) ? parsed.educations : [], 'jobTitle');
+  const projects = sanitizeArray(Array.isArray(parsed.projects) ? parsed.projects : [], 'jobTitle');
+  const certifications = sanitizeArray(Array.isArray(parsed.certifications) ? parsed.certifications : [], 'jobTitle');
+  
   const totalExperience = computeTotalExperience(workExps) ?? extractExperienceYearsFromText(parsed.rawText || '');
   const currentCompany = workExps.length
     ? (workExps[workExps.length - 1].company || workExps[0].company || '')
     : '';
   const ext = fileName ? path.extname(fileName).toLowerCase() : '';
-  const ok = !!(parsed.name || parsed.email);
+  
+  // Strict sanitization of each field
+  const name = sanitizeField(parsed.name || '', 'name');
+  const email = sanitizeField(parsed.email || '', 'email');
+  const phone = sanitizeField(parsed.phone || '', 'phone');
+  const jobTitle = sanitizeField(parsed.title || '', 'jobTitle');
+  const location = sanitizeField(parsed.location || '', 'location');
+  const country = parsed.country || (location ? 'India' : '');
+  const summary = sanitizeField(parsed.summary || '', 'summary');
+  const tools = sanitizeArray(Array.isArray(parsed.tools) ? parsed.tools : [], 'jobTitle').join(', ');
+  const softSkills = sanitizeArray(Array.isArray(parsed.softSkills) ? parsed.softSkills : [], 'jobTitle').join(', ');
+  const languages = sanitizeArray(Array.isArray(parsed.languages) ? parsed.languages : [], 'jobTitle').join(', ');
+  const awards = sanitizeArray(Array.isArray(parsed.awards) ? parsed.awards : [], 'jobTitle');
+  
+  const ok = !!(name || email);
 
   candidateIdCounter++;
   const candidateId = `ZC-${String(candidateIdCounter).padStart(6, '0')}`;
@@ -78,27 +180,27 @@ function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) 
   return {
     id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     candidateId,
-    name: parsed.name || '',
-    email: parsed.email || '',
-    phone: parsed.phone || '',
-    dob: parsed.dob || '',
+    name,
+    email,
+    phone,
+    dob: sanitizeField(parsed.dob || '', 'phone'), // DOB similar to phone (digits only)
     skills: skillsArray.join(', '),
     experience: workExps.length ? `${workExps.length} role(s)` : '',
     totalExperience,
-    jobTitle: parsed.title || '',
-    currentCompany,
-    summary: parsed.summary || '',
-    location: parsed.location || '',
-    country: parsed.country || '',
-    tools: Array.isArray(parsed.tools) ? parsed.tools.join(', ') : '',
-    softSkills: Array.isArray(parsed.softSkills) ? parsed.softSkills.join(', ') : '',
+    jobTitle,
+    currentCompany: sanitizeField(currentCompany, 'company'),
+    summary,
+    location,
+    country,
+    tools,
+    softSkills,
     workExperiences: JSON.stringify(workExps),
-    internships: JSON.stringify(Array.isArray(parsed.internships) ? parsed.internships : []),
-    languages: Array.isArray(parsed.languages) ? parsed.languages.join(', ') : (parsed.languages || ''),
-    awards: JSON.stringify(Array.isArray(parsed.awards) ? parsed.awards : []),
-    educations: JSON.stringify(Array.isArray(parsed.educations) ? parsed.educations : []),
-    projects: JSON.stringify(Array.isArray(parsed.projects) ? parsed.projects : []),
-    certifications: JSON.stringify(Array.isArray(parsed.certifications) ? parsed.certifications : []),
+    internships: JSON.stringify(internships),
+    languages,
+    awards: JSON.stringify(awards),
+    educations: JSON.stringify(educations),
+    projects: JSON.stringify(projects),
+    certifications: JSON.stringify(certifications),
     resumePath: fileUrl,
     resumeFile: fileName,
     resumeOriginalName: fileName,
