@@ -21,7 +21,7 @@ const sendMail = (opts) => transporter.sendMail(opts);
 // Send job application confirmation email
 export const sendJobApplicationEmail = async (candidateEmail, candidateName, jobTitle, company) => {
   try {
-    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = candidateName || 'there';
 
     const content = `
@@ -54,8 +54,8 @@ export const sendJobApplicationEmail = async (candidateEmail, candidateName, job
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Track Your Application', `${FRONTEND_URL}/my-applications`)}
-          <p style="margin:12px 0 0;"><a href="${FRONTEND_URL}/job-listings" style="color:#4F46E5;font-size:13px;text-decoration:none;">Browse more jobs &rarr;</a></p>
+          ${ctaButton('Track Your Application', `${getFrontendUrl()}/my-applications`)}
+          <p style="margin:12px 0 0;"><a href="${getFrontendUrl()}/job-listings" style="color:#4F46E5;font-size:13px;text-decoration:none;">Browse more jobs &rarr;</a></p>
         </div>
       </div>`;
 
@@ -76,7 +76,7 @@ export const sendJobApplicationEmail = async (candidateEmail, candidateName, job
 // Send application rejection email (supports optional AI feedback)
 export const sendApplicationRejectionEmail = async (candidateEmail, candidateName, jobTitle, company, aiFeedback = null, aiReasons = [], employerEmail = null, employerName = null) => {
   try {
-    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = candidateName || 'there';
 
     const reasonsHtml = aiReasons.length ? `
@@ -114,7 +114,7 @@ export const sendApplicationRejectionEmail = async (candidateEmail, candidateNam
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Find More Jobs', `${FRONTEND_URL}/job-listings`, '#10B981')}
+          ${ctaButton('Find More Jobs', `${getFrontendUrl()}/job-listings`, '#10B981')}
         </div>
       </div>`;
 
@@ -136,7 +136,7 @@ export const sendApplicationRejectionEmail = async (candidateEmail, candidateNam
 // Send application status update email
 export const sendApplicationStatusEmail = async (candidateEmail, candidateName, jobTitle, company, status, employerEmail = null, employerName = null) => {
   try {
-    const { baseTemplate, ctaButton, statusBadge, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, statusBadge, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = candidateName || 'there';
 
     const statusConfig = {
@@ -172,8 +172,8 @@ export const sendApplicationStatusEmail = async (candidateEmail, candidateName, 
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('View Application', `${FRONTEND_URL}/my-applications`, cfg.color)}
-          ${status !== 'hired' && status !== 'rejected' ? `<p style="margin:12px 0 0;"><a href="${FRONTEND_URL}/job-listings" style="color:#4F46E5;font-size:13px;text-decoration:none;">Browse more jobs →</a></p>` : ''}
+          ${ctaButton('View Application', `${getFrontendUrl()}/my-applications`, cfg.color)}
+          ${status !== 'hired' && status !== 'rejected' ? `<p style="margin:12px 0 0;"><a href="${getFrontendUrl()}/job-listings" style="color:#4F46E5;font-size:13px;text-decoration:none;">Browse more jobs →</a></p>` : ''}
         </div>
       </div>`;
 
@@ -195,7 +195,7 @@ export const sendApplicationStatusEmail = async (candidateEmail, candidateName, 
 // Send job alert email
 export const sendJobAlertEmail = async (userEmail, userName, jobs) => {
   try {
-    const { baseTemplate, ctaButton, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = userName || 'there';
 
     const jobCards = jobs.slice(0, 5).map(job => `
@@ -208,7 +208,7 @@ export const sendJobAlertEmail = async (userEmail, userName, jobs) => {
               <p style="color:#6B7280;font-size:12px;margin:0;">${job.location || 'Remote'} &nbsp;&bull;&nbsp; ${job.salary || 'Competitive'}</p>
             </td>
             <td style="text-align:right;vertical-align:middle;">
-              <a href="${FRONTEND_URL}/job-listings" style="background:#4F46E5;color:#fff;font-size:12px;font-weight:700;padding:8px 16px;border-radius:8px;text-decoration:none;">Apply</a>
+              <a href="${getFrontendUrl()}/job-listings" style="background:#4F46E5;color:#fff;font-size:12px;font-weight:700;padding:8px 16px;border-radius:8px;text-decoration:none;">Apply</a>
             </td>
           </tr>
         </table>
@@ -234,8 +234,8 @@ export const sendJobAlertEmail = async (userEmail, userName, jobs) => {
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('View All Matching Jobs', `${FRONTEND_URL}/job-listings`)}
-          <p style="margin:12px 0 0;"><a href="${FRONTEND_URL}/dashboard" style="color:#6B7280;font-size:12px;text-decoration:none;">Manage job alerts →</a></p>
+          ${ctaButton('View All Matching Jobs', `${getFrontendUrl()}/job-listings`)}
+          <p style="margin:12px 0 0;"><a href="${getFrontendUrl()}/dashboard" style="color:#6B7280;font-size:12px;text-decoration:none;">Manage job alerts →</a></p>
         </div>
       </div>`;
 
@@ -256,7 +256,7 @@ export const sendJobAlertEmail = async (userEmail, userName, jobs) => {
 // Send welcome email for new registrations
 export const sendWelcomeEmail = async (userEmail, userName, userType, verificationData = {}) => {
   try {
-    const { baseTemplate, ctaButton, featureCard, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, featureCard, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = userName || 'there';
     const isEmployer = userType === 'employer';
 
@@ -316,8 +316,8 @@ export const sendWelcomeEmail = async (userEmail, userName, userType, verificati
         ${divider()}
 
         <div style="text-align:center;margin:28px 0;">
-          ${ctaButton(isEmployer ? 'Start Hiring Now' : 'Explore Jobs', isEmployer ? `${FRONTEND_URL}/employer-complete-profile` : `${FRONTEND_URL}/job-listings`)}
-          <p style="margin:14px 0 0;"><a href="${FRONTEND_URL}/dashboard" style="color:#4F46E5;font-size:13px;text-decoration:none;">Or go to your dashboard →</a></p>
+          ${ctaButton(isEmployer ? 'Start Hiring Now' : 'Explore Jobs', isEmployer ? `${getFrontendUrl()}/employer-complete-profile` : `${getFrontendUrl()}/job-listings`)}
+          <p style="margin:14px 0 0;"><a href="${getFrontendUrl()}/dashboard" style="color:#4F46E5;font-size:13px;text-decoration:none;">Or go to your dashboard →</a></p>
         </div>
 
         ${divider()}
@@ -350,7 +350,7 @@ export const sendWelcomeEmail = async (userEmail, userName, userType, verificati
 // Send follow-up reminder email
 export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, jobTitle, company, reminderType, reminderData = {}, employerEmail = null, employerName = null) => {
   try {
-    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = candidateName || 'there';
 
     const configs = {
@@ -359,7 +359,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
         icon: '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="14 2 14 8 20 8" stroke="white" stroke-width="2"/><line x1="16" y1="13" x2="8" y2="13" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="17" x2="8" y2="17" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>',
         title: 'Application Follow-up', subtitle: 'We wanted to keep you updated',
         body: `Your application for <strong>${jobTitle}</strong> at <strong>${company}</strong> is still under review. We appreciate your patience and will update you as soon as we have more information.`,
-        cta: 'Track Application', ctaUrl: `${FRONTEND_URL}/my-applications`,
+        cta: 'Track Application', ctaUrl: `${getFrontendUrl()}/my-applications`,
       },
       interview_reminder: {
         subject: `Interview Reminder: ${jobTitle} at ${company}`,
@@ -375,21 +375,21 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
             ${reminderData.meetingLink ? `<tr><td style="padding:3px 0;"><span style="color:#6B7280;font-size:13px;">Link</span></td><td><a href="${reminderData.meetingLink}" style="color:#5C6BC8;font-size:13px;">Join Meeting</a></td></tr>` : ''}
           </table>`) : '',
         cta: reminderData?.meetingLink ? 'Join Interview' : 'View Details',
-        ctaUrl: reminderData?.meetingLink || `${FRONTEND_URL}/interviews`,
+        ctaUrl: reminderData?.meetingLink || `${getFrontendUrl()}/interviews`,
       },
       follow_up: {
         subject: `Follow-up opportunity: ${jobTitle}`,
         icon: '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         title: 'Follow-up Opportunity', subtitle: 'We hope you are still interested',
         body: `We hope you're still interested in the <strong>${jobTitle}</strong> position at <strong>${company}</strong>. If you have any questions or would like to provide additional information, please don't hesitate to reach out.`,
-        cta: 'View Job', ctaUrl: `${FRONTEND_URL}/job-listings`,
+        cta: 'View Job', ctaUrl: `${getFrontendUrl()}/job-listings`,
       },
       deadline_reminder: {
         subject: `Deadline Reminder: ${jobTitle} application`,
         icon: '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/><polyline points="12 6 12 12 16 14" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
         title: 'Application Deadline', subtitle: 'The deadline is approaching',
         body: `The application deadline for <strong>${jobTitle}</strong> at <strong>${company}</strong> is approaching. Please ensure you complete any pending requirements before the deadline.`,
-        cta: 'Complete Application', ctaUrl: `${FRONTEND_URL}/my-applications`,
+        cta: 'Complete Application', ctaUrl: `${getFrontendUrl()}/my-applications`,
       },
     };
 
@@ -398,7 +398,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
       icon: '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="white" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>',
       title: 'Application Update', subtitle: 'An update on your application',
       body: `We have an update regarding your application for <strong>${jobTitle}</strong> at <strong>${company}</strong>.`,
-      cta: 'View Application', ctaUrl: `${FRONTEND_URL}/my-applications`,
+      cta: 'View Application', ctaUrl: `${getFrontendUrl()}/my-applications`,
     };
 
     const subject = cfg.subject;
@@ -439,7 +439,7 @@ export const sendFollowUpReminderEmail = async (candidateEmail, candidateName, j
 // Send new application notification to employer with candidate resume
 export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, company, candidate, employerName = null) => {
   try {
-    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const { name, email, phone, resumeUrl, coverLetter } = candidate;
 
     const attachments = [];
@@ -477,7 +477,7 @@ export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, comp
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Review Application', `${FRONTEND_URL}/dashboard`, '#059669')}
+          ${ctaButton('Review Application', `${getFrontendUrl()}/dashboard`, '#059669')}
         </div>
       </div>`;
 
@@ -500,7 +500,7 @@ export const sendEmployerApplicationEmail = async (employerEmail, jobTitle, comp
 // Send employer account rejected email
 export const sendEmployerRejectedEmail = async (employerEmail, employerName) => {
   try {
-    const { baseTemplate, ctaButton, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, getFrontendUrl } = await import('./emailTemplates.js');
     const name = employerName || 'there';
     const content = `
       <div style="background:linear-gradient(135deg,#DC2626 0%,#991B1B 100%);padding:36px 40px;text-align:center;">
@@ -520,7 +520,7 @@ export const sendEmployerRejectedEmail = async (employerEmail, employerName) => 
           <p style="color:#7F1D1D;font-size:13px;margin:3px 0;">• Ensure your GST number is active and correct</p>
         </div>
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Contact Support', `${FRONTEND_URL}/contact`, '#DC2626')}
+          ${ctaButton('Contact Support', `${getFrontendUrl()}/contact`, '#DC2626')}
         </div>
       </div>`;
     await transporter.sendMail({
@@ -540,7 +540,7 @@ export const sendEmployerRejectedEmail = async (employerEmail, employerName) => 
 // Send employer account verified email
 export const sendEmployerApprovedEmail = async (employerEmail, employerName) => {
   try {
-    const { baseTemplate, ctaButton, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, getFrontendUrl } = await import('./emailTemplates.js');
     const name = employerName || 'there';
     const content = `
       <div style="background:linear-gradient(135deg,#059669 0%,#047857 100%);padding:36px 40px;text-align:center;">
@@ -554,7 +554,7 @@ export const sendEmployerApprovedEmail = async (employerEmail, employerName) => 
           Your account has been verified by admin. You can now log in and start posting jobs, searching for candidates, and using all employer features on ZyncJobs.
         </p>
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Go to Dashboard', `${FRONTEND_URL}/employer-login`, '#059669')}
+          ${ctaButton('Go to Dashboard', `${getFrontendUrl()}/employer-login`, '#059669')}
         </div>
       </div>`;
     await transporter.sendMail({
@@ -574,7 +574,7 @@ export const sendEmployerApprovedEmail = async (employerEmail, employerName) => 
 // Send admin reminder email to candidates/employers
 export const sendReminderEmail = async (userEmail, userName, subject, message, userType = 'both') => {
   try {
-    const { baseTemplate, ctaButton, divider, infoBox, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, divider, infoBox, getFrontendUrl } = await import('./emailTemplates.js');
     const name = userName || 'User';
     const personalizedMessage = message.replace(/\{\{name\}\}/g, name);
 
@@ -634,8 +634,8 @@ export const sendReminderEmail = async (userEmail, userName, subject, message, u
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Visit ZyncJobs', FRONTEND_URL)}
-          <p style="margin:12px 0 0;"><a href="${FRONTEND_URL}/dashboard" style="color:#4F46E5;font-size:13px;text-decoration:none;">Go to your dashboard &rarr;</a></p>
+          ${ctaButton('Visit ZyncJobs', getFrontendUrl())}
+          <p style="margin:12px 0 0;"><a href="${getFrontendUrl()}/dashboard" style="color:#4F46E5;font-size:13px;text-decoration:none;">Go to your dashboard &rarr;</a></p>
         </div>
 
         ${divider()}
@@ -670,9 +670,9 @@ export default { sendJobApplicationEmail, sendApplicationRejectionEmail, sendApp
 // Send admin invitation email
 export const sendAdminInviteEmail = async (toEmail, name, role, token) => {
   try {
-    const { baseTemplate, ctaButton, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, getFrontendUrl } = await import('./emailTemplates.js');
     const roleLabel = role === 'super_admin' ? 'Super Administrator' : role === 'recruiter' ? 'Recruiter' : 'Administrator';
-    const inviteUrl = `${FRONTEND_URL}/admin/accept-invite?token=${token}`;
+    const inviteUrl = `${getFrontendUrl()}/admin/accept-invite?token=${token}`;
 
     const content = `
       <div style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:36px 40px;text-align:center;">
@@ -712,7 +712,7 @@ export const sendAdminInviteEmail = async (toEmail, name, role, token) => {
 // Send GDPR inactivity reminder email (Step 4)
 export const sendGdprInactivityReminderEmail = async (userEmail, userName) => {
   try {
-    const { baseTemplate, ctaButton, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = userName || 'there';
 
     const content = `
@@ -737,18 +737,18 @@ export const sendGdprInactivityReminderEmail = async (userEmail, userName) => {
 
         <p style="color:#1F2937;font-size:14px;font-weight:700;margin:0 0 10px;">What you can do:</p>
         <table cellpadding="0" cellspacing="0" width="100%">
-          <tr><td style="padding:6px 0;"><a href="${FRONTEND_URL}/dashboard" style="color:#4F46E5;font-size:14px;text-decoration:none;">→ Login to keep your resume active</a></td></tr>
-          <tr><td style="padding:6px 0;"><a href="${FRONTEND_URL}/resume-builder" style="color:#4F46E5;font-size:14px;text-decoration:none;">→ Update your resume</a></td></tr>
-          <tr><td style="padding:6px 0;"><a href="${FRONTEND_URL}/privacy-settings" style="color:#4F46E5;font-size:14px;text-decoration:none;">→ Delete your resume anytime</a></td></tr>
+          <tr><td style="padding:6px 0;"><a href="${getFrontendUrl()}/dashboard" style="color:#4F46E5;font-size:14px;text-decoration:none;">→ Login to keep your resume active</a></td></tr>
+          <tr><td style="padding:6px 0;"><a href="${getFrontendUrl()}/resume-builder" style="color:#4F46E5;font-size:14px;text-decoration:none;">→ Update your resume</a></td></tr>
+          <tr><td style="padding:6px 0;"><a href="${getFrontendUrl()}/privacy-settings" style="color:#4F46E5;font-size:14px;text-decoration:none;">→ Delete your resume anytime</a></td></tr>
         </table>
 
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Keep My Resume Active', `${FRONTEND_URL}/dashboard`, '#F59E0B')}
+          ${ctaButton('Keep My Resume Active', `${getFrontendUrl()}/dashboard`, '#F59E0B')}
         </div>
 
-        <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:0;">To manage privacy settings: <a href="${FRONTEND_URL}/privacy-settings" style="color:#4F46E5;">Privacy Settings</a></p>
+        <p style="color:#9CA3AF;font-size:12px;text-align:center;margin:0;">To manage privacy settings: <a href="${getFrontendUrl()}/privacy-settings" style="color:#4F46E5;">Privacy Settings</a></p>
       </div>`;
 
     await transporter.sendMail({
@@ -768,7 +768,7 @@ export const sendGdprInactivityReminderEmail = async (userEmail, userName) => {
 // Send interview scheduled email to candidate
 export const sendInterviewScheduledEmail = async (candidateEmail, candidateName, jobTitle, company, interviewDetails, employerEmail = null, employerName = null) => {
   try {
-    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const { scheduledDate, duration, type, meetingLink, location, notes } = interviewDetails;
     const name = candidateName || 'there';
     const interviewDate = new Date(scheduledDate);
@@ -779,7 +779,7 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
     const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:5000').split(',')[0].trim();
     const interviewId = encodeURIComponent(interviewDetails.id || '');
     const token = interviewDetails.responseToken || '';
-    const inviteUrl = token ? `${FRONTEND_URL}/interview-invite?token=${encodeURIComponent(token)}` : null;
+    const inviteUrl = token ? `${getFrontendUrl()}/interview-invite?token=${encodeURIComponent(token)}` : null;
     const acceptLink = inviteUrl || `${BACKEND_URL}/api/interviews/${interviewId}/accept`;
     const rejectLink = inviteUrl || `${BACKEND_URL}/api/interviews/${interviewId}/reject`;
 
@@ -834,7 +834,7 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
                 ${ctaButton('Join Interview', `${BACKEND_URL}/api/meetings/interview/${encodeURIComponent(interviewDetails.id)}/join`, '#7C3AED')}
                 <p style="color:#6B7280;font-size:12px;margin:12px 0 0;">This meeting link is active only during your scheduled interview time (${displayDate} at ${displayTime}, ${duration} minutes).</p>
               </div>`
-            : ctaButton('View Details', `${FRONTEND_URL}/interviews`, '#7C3AED')}
+            : ctaButton('View Details', `${getFrontendUrl()}/interviews`, '#7C3AED')}
         </div>
       </div>`;
 
@@ -856,7 +856,7 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
 // Send interview acceptance notification to employer/scheduler
 export const sendInterviewAcceptedEmail = async (employerEmail, companyName, candidateName, jobTitle, interviewDate) => {
   try {
-    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = candidateName || 'A candidate';
     const date = interviewDate ? new Date(interviewDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'the scheduled date';
     const time = interviewDate ? new Date(interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'the scheduled time';
@@ -884,7 +884,7 @@ export const sendInterviewAcceptedEmail = async (employerEmail, companyName, can
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('View Interview Details', `${FRONTEND_URL}/dashboard#interviews`, '#059669')}
+          ${ctaButton('View Interview Details', `${getFrontendUrl()}/dashboard#interviews`, '#059669')}
         </div>
       </div>`;
 
@@ -905,7 +905,7 @@ export const sendInterviewAcceptedEmail = async (employerEmail, companyName, can
 // Send interview rejection/decline notification to employer/scheduler
 export const sendInterviewRejectedEmail = async (employerEmail, companyName, candidateName, jobTitle, interviewDate) => {
   try {
-    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = candidateName || 'A candidate';
     const date = interviewDate ? new Date(interviewDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'the scheduled date';
     const time = interviewDate ? new Date(interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'the scheduled time';
@@ -933,7 +933,7 @@ export const sendInterviewRejectedEmail = async (employerEmail, companyName, can
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('View Interview Details', `${FRONTEND_URL}/interviews`, '#DC2626')}
+          ${ctaButton('View Interview Details', `${getFrontendUrl()}/interviews`, '#DC2626')}
         </div>
       </div>`;
 
@@ -954,7 +954,7 @@ export const sendInterviewRejectedEmail = async (employerEmail, companyName, can
 // Send interview cancellation email to candidate
 export const sendInterviewCancelledEmail = async (candidateEmail, candidateName, jobTitle, company, interviewDetails, employerName = null) => {
   try {
-    const { baseTemplate, ctaButton, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const { scheduledDate, duration, type, location } = interviewDetails;
     const name = candidateName || 'there';
     const interviewDate = new Date(scheduledDate);
@@ -991,7 +991,7 @@ export const sendInterviewCancelledEmail = async (candidateEmail, candidateName,
         ${divider()}
 
         <div style="text-align:center;margin:24px 0;">
-          ${ctaButton('Explore More Jobs', `${FRONTEND_URL}/job-listings`, '#DC2626')}
+          ${ctaButton('Explore More Jobs', `${getFrontendUrl()}/job-listings`, '#DC2626')}
         </div>
       </div>`;
 

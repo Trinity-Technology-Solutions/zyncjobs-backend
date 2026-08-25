@@ -68,7 +68,7 @@ router.post('/send', authenticateToken, requireRole(['admin', 'super_admin', 're
     notificationQueue.push(notification);
 
     if (type === 'email') {
-      const { baseTemplate, FRONTEND_URL } = await import('../services/emailTemplates.js');
+      const { baseTemplate, getFrontendUrl } = await import('../services/emailTemplates.js');
       for (const email of recipients) {
         try {
           const content = `
@@ -126,7 +126,7 @@ router.post('/broadcast', authenticateToken, requireRole(['admin', 'super_admin'
 
     const users = await User.findAll({ where, attributes: ['email'] });
     const emails = users.map(u => u.email);
-    const { baseTemplate, FRONTEND_URL } = await import('../services/emailTemplates.js');
+    const { baseTemplate, getFrontendUrl } = await import('../services/emailTemplates.js');
 
     const broadcastContent = `
       <div style="background:linear-gradient(175deg,#5C6BC8 0%,#4A58B8 50%,#6878D0 100%);padding:28px 32px;text-align:center;">
@@ -138,7 +138,7 @@ router.post('/broadcast', authenticateToken, requireRole(['admin', 'super_admin'
         <p style="color:#4B5563;font-size:15px;line-height:1.7;margin:0 0 20px;">${message.replace(/\n/g, '<br>')}</p>
         <hr style="border:none;border-top:1px solid #ECEEF5;margin:24px 0;"/>
         <div style="text-align:center;">
-          <a href="${FRONTEND_URL}" style="color:#5C6BC8;font-size:13px;text-decoration:none;">Visit ZyncJobs &rarr;</a>
+          <a href="${getFrontendUrl()}" style="color:#5C6BC8;font-size:13px;text-decoration:none;">Visit ZyncJobs &rarr;</a>
         </div>
       </div>`;
 

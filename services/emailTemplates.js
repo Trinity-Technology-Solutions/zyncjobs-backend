@@ -1,6 +1,7 @@
 // Shared email base template for ZyncJobs
 
-const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://www.zyncjobs.com').split(',')[0].trim();
+// Read FRONTEND_URL at runtime (not module load) so env changes work without restart
+export const getFrontendUrl = () => (process.env.FRONTEND_URL || 'https://www.zyncjobs.com').split(',')[0].trim();
 
 // ─── BASE TEMPLATE ────────────────────────────────────────────────────────────
 export const baseTemplate = (content, previewText = '') => `
@@ -28,9 +29,9 @@ export const baseTemplate = (content, previewText = '') => `
           <table width="100%" cellpadding="0" cellspacing="0">
             <tr>
               <td style="text-align:center;padding-bottom:14px;">
-                <a href="${FRONTEND_URL}" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Home</a>
-                <a href="${FRONTEND_URL}/job-listings" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Jobs</a>
-                <a href="${FRONTEND_URL}/privacy" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Privacy</a>
+                <a href="${getFrontendUrl()}" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Home</a>
+                <a href="${getFrontendUrl()}/job-listings" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Jobs</a>
+                <a href="${getFrontendUrl()}/privacy" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Privacy</a>
                 <a href="mailto:Admin@zyncjobs.com" style="color:#A0AABF;text-decoration:none;font-size:13px;margin:0 10px;">Support</a>
               </td>
             </tr>
@@ -95,4 +96,4 @@ export const infoBox = (content, color = '#5C6BC8') => `
 // ─── DIVIDER ──────────────────────────────────────────────────────────────────
 export const divider = () => `<hr style="border:none;border-top:1px solid #ECEEF5;margin:24px 0;"/>`;
 
-export { FRONTEND_URL };
+

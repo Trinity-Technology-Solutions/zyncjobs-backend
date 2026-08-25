@@ -24,7 +24,7 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const { baseTemplate, infoBox, divider, FRONTEND_URL } = await import('./emailTemplates.js');
+    const { baseTemplate, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
 
     // Email to admin
     const adminContent = `
