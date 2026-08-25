@@ -163,7 +163,6 @@ const corsOptions = {
   exposedHeaders: ['Content-Range', 'X-Content-Range'],
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
 
 // Trust proxy for deployment
 app.set('trust proxy', 1);
