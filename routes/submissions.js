@@ -42,7 +42,7 @@ function generateSubmissionCSV(candidates, batchId, fields = []) {
 }
 
 // POST /api/submissions/create - Create submission batch from selected candidates
-router.post('/create', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
+router.post('/create', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
     const { candidateIds, clientName, jobTitle, notes } = req.body;
     if (!candidateIds?.length || !clientName) {
@@ -92,7 +92,7 @@ router.post('/create', authenticateToken, requireRole(['admin', 'recruiter']), a
 });
 
 // POST /api/submissions/generate-csv - Generate CSV for a batch
-router.post('/generate-csv', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
+router.post('/generate-csv', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
     const { batchId, fields } = req.body;
     if (!batchId) return res.status(400).json({ error: 'batchId required' });
@@ -128,7 +128,7 @@ router.post('/generate-csv', authenticateToken, requireRole(['admin', 'recruiter
 });
 
 // GET /api/submissions - List all submission batches
-router.get('/', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
+router.get('/', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
     const { clientName, status, page = 1, limit = 20 } = req.query;
     const where = {};
@@ -167,7 +167,7 @@ router.get('/', authenticateToken, requireRole(['admin', 'recruiter']), async (r
 });
 
 // GET /api/submissions/:batchId - Get batch details with candidates
-router.get('/:batchId', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
+router.get('/:batchId', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
     const batch = await SubmissionBatch.findOne({ where: { batch_id: req.params.batchId } });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
@@ -217,7 +217,7 @@ router.get('/:batchId', authenticateToken, requireRole(['admin', 'recruiter']), 
 });
 
 // POST /api/submissions/import-shortlist - Import shortlist CSV from client
-router.post('/import-shortlist', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
+router.post('/import-shortlist', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
     const { csvText } = req.body;
     if (!csvText) return res.status(400).json({ error: 'csvText required' });
@@ -263,7 +263,7 @@ router.post('/import-shortlist', authenticateToken, requireRole(['admin', 'recru
 });
 
 // POST /api/submissions/smart-import - Smart import with auto-matching by name/email/phone
-router.post('/smart-import', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
+router.post('/smart-import', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
     const { batchId, csvText, columnMap } = req.body;
     if (!batchId || !csvText) return res.status(400).json({ error: 'batchId and csvText required' });
@@ -374,7 +374,7 @@ router.post('/smart-import', authenticateToken, requireRole(['admin', 'recruiter
 });
 
 // POST /api/submissions/confirm-smart-import - Confirm and apply smart import matches
-router.post('/confirm-smart-import', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
+router.post('/confirm-smart-import', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
     const { batchId, matches } = req.body;
     if (!batchId || !matches?.length) return res.status(400).json({ error: 'batchId and matches required' });
