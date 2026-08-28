@@ -560,6 +560,7 @@ router.delete('/candidates/:id', authenticateToken, requireRole(['admin']), asyn
       }
     }
 
+    await CandidateSkill.destroy({ where: { candidateId: candidate.id } });
     await candidate.destroy();
     res.json({ success: true });
   } catch (err) {
