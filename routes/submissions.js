@@ -216,42 +216,118 @@ router.get('/:batchId', authenticateToken, requireRole(['admin', 'recruiter', 's
   }
 });
 
-// POST /api/submissions/import-shortlist - Import shortlist CSV from client
+// POST /api/submissions/import-shortlist - Import shortlist CSV from client (flexible matching)
 router.post('/import-shortlist', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
-    const { csvText } = req.body;
+    const { csvText, batchId, columnMap } = req.body;
     if (!csvText) return res.status(400).json({ error: 'csvText required' });
+    if (!batchId) return res.status(400).json({ error: 'batchId required' });
+
+    const batch = await SubmissionBatch.findOne({ where: { batch_id: batchId } });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+
+    // Get all candidates in this batch with full details
+    const submissions = await CandidateSubmission.findAll({
+      where: { batch_id: batch.id },
+      include: [{
+        model: TalentCandidate,
+        as: 'candidate',
+        attributes: ['candidate_id', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
+        required: false
+      }]
+    });
+
+    // Build candidate lookup maps (same as smart-import)
+    const byEmail = new Map();
+    const byPhone = new Map();
+    const byName = new Map();
+    const byCandidateId = new Map();
+    
+    submissions.forEach(s => {
+      const c = s.candidate || { candidate_id: s.candidate_id, name: s.candidate_name, email: s.candidate_email };
+      if (c.candidate_id) byCandidateId.set(c.candidate_id, s);
+      if (c.email) byEmail.set(c.email.toLowerCase().trim(), s);
+      if (c.phone) byPhone.set(c.phone.replace(/\D/g, '').slice(-10), s);
+      if (c.name) byName.set(c.name.toLowerCase().trim(), s);
+    });
 
     const rows = parseCSV(csvText);
     if (!rows.length) return res.status(400).json({ error: 'CSV empty' });
 
-    const requiredCols = ['Candidate ID', 'Status'];
-    if (!requiredCols.every(c => Object.keys(rows[0]).includes(c))) {
-      return res.status(400).json({ error: 'CSV must have "Candidate ID" and "Status" columns' });
-    }
+    // Column mapping - support flexible column names (same as smart-import)
+    const defaultMap = {
+      candidateId: 'Candidate ID',
+      name: 'Name',
+      email: 'Email',
+      phone: 'Phone',
+      status: 'Status'
+    };
+    const map = { ...defaultMap, ...columnMap };
 
     let shortlisted = 0, rejected = 0, notFound = 0;
 
     for (const row of rows) {
-      const candidateId = row['Candidate ID'];
-      const status = (row['Status'] || '').toLowerCase().trim();
-      
-      const submission = await CandidateSubmission.findOne({
-        where: { candidate_id: candidateId },
-        include: [{ model: SubmissionBatch, as: 'batch' }]
-      });
+      const candidateId = (row[map.candidateId] || '').trim();
+      const name = (row[map.name] || '').trim();
+      const email = (row[map.email] || '').trim().toLowerCase();
+      const phone = (row[map.phone] || '').replace(/\D/g, '').slice(-10);
+      const status = (row[map.status] || '').toLowerCase().trim();
 
-      if (!submission) {
+      let matched = null;
+      let confidence = 0;
+      let matchType = 'none';
+
+      // 1. Exact candidate_id match (100%)
+      if (candidateId && byCandidateId.has(candidateId)) {
+        matched = byCandidateId.get(candidateId);
+        confidence = 100;
+        matchType = 'candidate_id';
+      }
+      // 2. Exact email match (95%)
+      else if (email && byEmail.has(email)) {
+        matched = byEmail.get(email);
+        confidence = 95;
+        matchType = 'email';
+      }
+      // 3. Exact phone match (90%)
+      else if (phone && byPhone.has(phone)) {
+        matched = byPhone.get(phone);
+        confidence = 90;
+        matchType = 'phone';
+      }
+      // 4. Exact name match (80%) - only if unique
+      else if (name && byName.has(name.toLowerCase())) {
+        matched = byName.get(name.toLowerCase());
+        confidence = 80;
+        matchType = 'name';
+      }
+      // 5. Fuzzy name match (contains)
+      else if (name) {
+        const nameLower = name.toLowerCase();
+        for (const [key, sub] of byName) {
+          if (key.includes(nameLower) || nameLower.includes(key)) {
+            matched = sub;
+            confidence = 65;
+            matchType = 'name_fuzzy';
+            break;
+          }
+        }
+      }
+
+      if (!matched) {
         notFound++;
         continue;
       }
 
       if (status === 'shortlisted') {
-        await submission.update({ status: 'shortlisted', shortlisted_at: new Date() });
+        await matched.update({ status: 'shortlisted', shortlisted_at: new Date() });
         shortlisted++;
       } else if (status === 'rejected') {
-        await submission.update({ status: 'rejected', rejected_at: new Date() });
+        await matched.update({ status: 'rejected', rejected_at: new Date() });
         rejected++;
+      } else {
+        // If no valid status, count as not found
+        notFound++;
       }
     }
 
