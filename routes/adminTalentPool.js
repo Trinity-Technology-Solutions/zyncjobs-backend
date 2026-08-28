@@ -437,25 +437,27 @@ router.get('/candidates', authenticateToken, requireRole(['admin']), async (req,
 
 // GET /api/admin/talent/skills — distinct normalized skills with candidate counts
 router.get('/skills', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 200));
-  const rows = await CandidateSkill.findAll({
-    attributes: ['skillId'],
-    include: [{ model: Skill, as: 'skill', attributes: ['id', 'name'] }],
-    group: ['CandidateSkill.skillId', 'skill.id', 'skill.name'],
-    attributes: {
-      include: [
-        [fn('COUNT', col('CandidateSkill.id')), 'count']
-      ]
-    },
-    order: [[literal('count'), 'DESC']],
-    limit,
-    raw: true
-  });
-  const skills = rows
-    .filter(r => r['skill.name'])
-    .map(r => ({ name: r['skill.name'], count: parseInt(r.count, 10) || 0 }))
-    .sort((a, b) => b.count - a.count);
-  res.json({ skills });
+  try {
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 200));
+    const rows = await CandidateSkill.findAll({
+      attributes: [
+        'skillId',
+        [fn('COUNT', col('CandidateSkill.skillId')), 'count']
+      ],
+      include: [{ model: Skill, as: 'skill', attributes: ['id', 'name'] }],
+      group: ['CandidateSkill.skillId', 'skill.id', 'skill.name'],
+      order: [[literal('count'), 'DESC']],
+      limit,
+      raw: true
+    });
+    const skills = rows
+      .filter(r => r['skill.name'])
+      .map(r => ({ name: r['skill.name'], count: parseInt(r.count, 10) || 0 }));
+    res.json({ skills });
+  } catch (err) {
+    console.error('[TALENT SKILLS] Failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/admin/talent/search — recruiter search across title/skills/experience
