@@ -11,7 +11,7 @@ import TalentCandidate from '../models/TalentCandidate.js';
 import Skill from '../models/Skill.js';
 import CandidateSkill from '../models/CandidateSkill.js';
 import '../models/associations.js';
-import { uploadResumeToS3, uploadTalentResumeToS3, getResumeStreamFromS3 } from '../services/s3Service.js';
+import { uploadResumeToS3, uploadTalentResumeToS3, getResumeStreamFromS3, deleteResumeFromS3 } from '../services/s3Service.js';
 import { normalizeSkillName, getNormalizedSkillNames } from '../services/skillNormalizer.js';
 import { computeTotalExperience, extractExperienceYearsFromText } from '../services/experienceCalculator.js';
 import { baseTemplate, ctaButton, divider, featureCard, getFrontendUrl } from '../services/emailTemplates.js';
@@ -546,8 +546,26 @@ router.post('/export', authenticateToken, requireRole(['admin']), async (req, re
 
 // DELETE /api/admin/talent/candidates/:id
 router.delete('/candidates/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
-  await TalentCandidate.destroy({ where: { id: req.params.id } });
-  res.json({ success: true });
+  try {
+    const candidate = await TalentCandidate.findOne({ where: { id: req.params.id } });
+    if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
+
+    // Delete from S3 only if no other candidate shares the same file
+    if (candidate.resumePath) {
+      try {
+        const sharedCount = await TalentCandidate.count({ where: { resumePath: candidate.resumePath } });
+        if (sharedCount <= 1) await deleteResumeFromS3(candidate.resumePath);
+      } catch (s3Err) {
+        console.warn('[TALENT DELETE] S3 cleanup failed (continuing):', s3Err.message);
+      }
+    }
+
+    await candidate.destroy();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[TALENT DELETE] Failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // SVG icons used in feature cards
