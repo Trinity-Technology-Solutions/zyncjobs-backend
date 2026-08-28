@@ -40,7 +40,8 @@ export const adminAuth = async (req, res, next) => {
 
 // Super admin check
 export const superAdminAuth = (req, res, next) => {
-  if (req.user?.role !== 'super_admin' && req.user?.email !== 'admin@zyncjobs.com' && req.user?.email !== 'antony@trinitetech.com') {
+  const SUPER_ADMIN_EMAILS = ['admin@zyncjobs.com', 'antony@trinitetech.com', 'muthees@trinitetech.com'];
+  if (req.user?.role !== 'super_admin' && !SUPER_ADMIN_EMAILS.includes(req.user?.email)) {
     return res.status(403).json({ error: 'Super admin access required' });
   }
   next();
