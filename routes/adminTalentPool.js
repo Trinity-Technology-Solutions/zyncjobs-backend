@@ -11,7 +11,7 @@ import TalentCandidate from '../models/TalentCandidate.js';
 import Skill from '../models/Skill.js';
 import CandidateSkill from '../models/CandidateSkill.js';
 import '../models/associations.js';
-import { uploadResumeToS3, uploadTalentResumeToS3, getResumeStreamFromS3, deleteResumeFromS3 } from '../services/s3Service.js';
+import { uploadResumeToS3, uploadTalentResumeToS3, getResumeStreamFromS3, deleteResumeFromS3, getSignedResumeUrl } from '../services/s3Service.js';
 import { normalizeSkillName, getNormalizedSkillNames } from '../services/skillNormalizer.js';
 import { computeTotalExperience, extractExperienceYearsFromText } from '../services/experienceCalculator.js';
 import { baseTemplate, ctaButton, divider, featureCard, getFrontendUrl } from '../services/emailTemplates.js';
@@ -916,6 +916,19 @@ router.post('/candidates/:id/retry', authenticateToken, requireRole(['admin']), 
   } catch (err) {
     console.error(`[TALENT RETRY] Failed for ${req.params.id}:`, err.message);
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/talent/presign — return a short-lived presigned URL for a private S3 resume
+router.post('/presign', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { resumeUrl } = req.body;
+  if (!resumeUrl) return res.status(400).json({ error: 'resumeUrl required' });
+  try {
+    const presignedUrl = getSignedResumeUrl(resumeUrl, 300);
+    res.json({ presignedUrl });
+  } catch (err) {
+    console.error('[TALENT PRESIGN] Failed:', err.message);
+    res.status(500).json({ error: 'Failed to generate presigned URL' });
   }
 });
 
