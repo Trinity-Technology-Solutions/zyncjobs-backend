@@ -14,7 +14,7 @@ export const adminAuth = async (req, res, next) => {
     const decoded = verifyToken(token);
     const user = await User.findOne({ where: { id: decoded.userId } });
     
-    if (!user || !['admin', 'super_admin', 'manager'].includes(user.role) || !user.isActive) {
+    if (!user || !['admin', 'super_admin', 'manager', 'recruiter'].includes(user.role) || !user.isActive) {
       logAdminAction('UNAUTHORIZED_ACCESS', { 
         ip: req.ip, 
         userAgent: req.get('User-Agent'),

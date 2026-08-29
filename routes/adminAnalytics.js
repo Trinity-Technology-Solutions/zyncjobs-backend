@@ -9,7 +9,7 @@ import { requireRole } from '../middleware/roleAuth.js';
 
 const router = express.Router();
 
-const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin', 'manager'])];
+const adminGuard = [authenticateToken, requireRole(['admin', 'super_admin', 'manager', 'recruiter'])];
 
 // Health check endpoint for admin routes
 router.get('/health', async (req, res) => {

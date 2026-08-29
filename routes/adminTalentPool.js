@@ -319,7 +319,7 @@ function serializeCandidate(c) {
 }
 
 // POST /api/admin/talent/upload
-router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('resumes', 2000), async (req, res) => {
+router.post('/upload', authenticateToken, requireRole(['admin', 'recruiter']), upload.array('resumes', 2000), async (req, res) => {
   const resumeUrls = req.body.resumeUrls ? (Array.isArray(req.body.resumeUrls) ? req.body.resumeUrls : [req.body.resumeUrls]) : [];
   const fileNames = req.body.fileNames ? (Array.isArray(req.body.fileNames) ? req.body.fileNames : [req.body.fileNames]) : [];
   const uploadedFiles = req.files || [];
@@ -422,7 +422,7 @@ router.post('/upload', authenticateToken, requireRole(['admin']), upload.array('
 });
 
 // GET /api/admin/talent/candidates
-router.get('/candidates', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.get('/candidates', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
   const { where } = buildTalentFilters(req.query);
@@ -436,7 +436,7 @@ router.get('/candidates', authenticateToken, requireRole(['admin']), async (req,
 });
 
 // GET /api/admin/talent/skills — distinct normalized skills with candidate counts
-router.get('/skills', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.get('/skills', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   try {
     const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 200));
     const rows = await CandidateSkill.findAll({
@@ -461,7 +461,7 @@ router.get('/skills', authenticateToken, requireRole(['admin']), async (req, res
 });
 
 // GET /api/admin/talent/search — recruiter search across title/skills/experience
-router.get('/search', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.get('/search', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
   const { where, include } = buildTalentFilters(req.query);
@@ -490,7 +490,7 @@ router.get('/search', authenticateToken, requireRole(['admin']), async (req, res
 });
 
 // POST /api/admin/talent/export — CSV export of filtered candidates with field selection
-router.post('/export', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.post('/export', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   const { filters = {}, fields = [], limit = 10000 } = req.body;
   const FIELD_MAP = {
     name: 'Name',
@@ -547,7 +547,7 @@ router.post('/export', authenticateToken, requireRole(['admin']), async (req, re
 });
 
 // DELETE /api/admin/talent/candidates/:id
-router.delete('/candidates/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.delete('/candidates/:id', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   try {
     const candidate = await TalentCandidate.findOne({ where: { id: req.params.id } });
     if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
@@ -784,7 +784,7 @@ const TEMPLATES = {
 };
 
 // POST /api/admin/talent/email
-router.post('/email', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.post('/email', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   const { candidateIds, template, batchSize = 100, testEmail } = req.body;
 
   // ── Test send: send to a single address without needing candidateIds ──
@@ -865,7 +865,7 @@ router.post('/email', authenticateToken, requireRole(['admin']), async (req, res
 });
 
 // POST /api/admin/talent/candidates/:id/retry
-router.post('/candidates/:id/retry', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.post('/candidates/:id/retry', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   const candidate = await TalentCandidate.findOne({ where: { id: req.params.id } });
   if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
   if (!candidate.resumePath) return res.status(400).json({ error: 'No resume URL stored for this candidate' });
@@ -920,7 +920,7 @@ router.post('/candidates/:id/retry', authenticateToken, requireRole(['admin']), 
 });
 
 // POST /api/admin/talent/presign — return a short-lived presigned URL for a private S3 resume
-router.post('/presign', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.post('/presign', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   const { resumeUrl } = req.body;
   if (!resumeUrl) return res.status(400).json({ error: 'resumeUrl required' });
   try {
@@ -935,7 +935,7 @@ router.post('/presign', authenticateToken, requireRole(['admin']), async (req, r
 // GET /api/admin/talent/resume/:id — stream a talent candidate's original resume
 // Reuses the existing getResumeStreamFromS3 helper (same S3 integration as the
 // candidate-facing /resume-viewer flow) — no raw S3 URL is exposed to the client.
-router.get('/resume/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.get('/resume/:id', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   try {
     const candidate = await TalentCandidate.findByPk(req.params.id);
     if (!candidate || !candidate.resumePath) {
@@ -956,12 +956,12 @@ router.get('/resume/:id', authenticateToken, requireRole(['admin']), async (req,
 });
 
 // GET /api/admin/talent/processing-status
-router.get('/processing-status', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/processing-status', authenticateToken, requireRole(['admin', 'recruiter']), (req, res) => {
   res.json({ ...processingState, progress: processingState.total ? Math.round((processingState.processed / processingState.total) * 100) : 0 });
 });
 
 // GET /api/admin/talent/stats
-router.get('/stats', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.get('/stats', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
   const { Op } = await import('sequelize');
   const [total, parsed, errors, emailSent] = await Promise.all([
     TalentCandidate.count(),
