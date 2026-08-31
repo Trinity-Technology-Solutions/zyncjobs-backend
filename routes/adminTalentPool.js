@@ -955,6 +955,62 @@ router.get('/resume/:id', authenticateToken, requireRole(['admin', 'recruiter'])
   }
 });
 
+// POST /api/admin/talent/invite-register — send a pre-filled registration invite to talent pool candidates
+router.post('/invite-register', authenticateToken, requireRole(['admin', 'recruiter']), async (req, res) => {
+  const { candidateIds } = req.body;
+  if (!candidateIds?.length) return res.status(400).json({ error: 'No candidates selected' });
+
+  const candidates = await TalentCandidate.findAll({
+    where: { id: { [Op.in]: candidateIds }, email: { [Op.ne]: '' } }
+  });
+
+  if (!candidates.length) return res.status(400).json({ error: 'No candidates with email found' });
+
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_SERVER,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: false,
+    auth: { user: process.env.SMTP_EMAIL, pass: process.env.SMTP_PASSWORD }
+  });
+
+  const frontendUrl = getFrontendUrl();
+  let sent = 0, failed = 0;
+  const errors = [];
+
+  for (const c of candidates) {
+    try {
+      // Encode candidate data as base64 so the registration page can pre-fill the form
+      const payload = Buffer.from(JSON.stringify({ name: c.name || '', email: c.email || '', phone: c.phone || '' })).toString('base64url');
+      const registerUrl = `${frontendUrl}/candidate-register?invite=${payload}`;
+
+      const html = baseTemplate(`
+        <div style="padding:32px 36px;">
+          <h2 style="color:#1F2937;font-size:20px;font-weight:700;margin:0 0 6px;">You have been personally invited to join ZyncJobs.</h2>
+          <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 20px;">
+            Hi ${c.name || 'there'}, our recruiter reviewed your profile and would like to connect with you for exciting job opportunities. Create your free account to get started — your details are already pre-filled.
+          </p>
+          <div style="text-align:center;margin:0 0 28px;">
+            ${ctaButton('Complete Your Registration', registerUrl)}
+          </div>
+          <p style="color:#6B7280;font-size:12px;text-align:center;">This link is personalised for you. If you did not expect this email, you can safely ignore it.</p>
+        </div>`, 'You have been invited to join ZyncJobs!');
+
+      await transporter.sendMail({
+        from: `"ZyncJobs Careers" <${process.env.SMTP_EMAIL}>`,
+        to: c.email,
+        subject: 'You have been invited to join ZyncJobs — Complete your registration',
+        html
+      });
+      sent++;
+    } catch (err) {
+      failed++;
+      errors.push({ id: c.id, email: c.email, error: err.message });
+    }
+  }
+
+  res.json({ success: true, sent, failed, errors });
+});
+
 // GET /api/admin/talent/processing-status
 router.get('/processing-status', authenticateToken, requireRole(['admin', 'recruiter']), (req, res) => {
   res.json({ ...processingState, progress: processingState.total ? Math.round((processingState.processed / processingState.total) * 100) : 0 });
