@@ -230,6 +230,20 @@ connectDB().then(async () => {
     console.warn('⚠️ ATS model sync warning:', e.message);
   }
 
+  // Sync the submission tracker table before serving tracker requests.
+  try {
+    const { default: TrackerRow } = await import('./models/TrackerRow.js');
+    await TrackerRow.sync({ alter: false });
+    await sequelize.query(`
+      ALTER TABLE tracker_rows
+      ALTER COLUMN created_by TYPE VARCHAR(255)
+      USING created_by::text
+    `);
+    console.log('✅ tracker_rows table synced');
+  } catch (e) {
+    console.warn('⚠️ tracker_rows table sync warning:', e.message);
+  }
+
   // Sync refresh-session table (server-side refresh-token revocation)
   try {
     const { default: RefreshSession } = await import('./models/RefreshSession.js');

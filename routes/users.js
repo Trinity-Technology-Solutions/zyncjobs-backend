@@ -153,6 +153,10 @@ router.post('/register', registrationGuard, [
     });
     
     if (existingUser) {
+      // Block re-registration if this is a pending admin/recruiter invite
+      if (!existingUser.isActive && existingUser.inviteToken) {
+        return res.status(400).json({ error: 'This email has a pending admin invitation. Please check your email and use the invitation link to activate your account.' });
+      }
       // If account was previously deleted (isActive=false or status='deleted'), allow re-registration
       if (!existingUser.isActive || existingUser.status === 'deleted') {
         // Remove FK-referenced rows first so User.destroy() doesn't violate foreign key constraints
@@ -526,6 +530,18 @@ router.post('/login', loginLimiter, async (req, res) => {
     console.log('🔐 User active:', user.isActive);
     console.log('🔐 User status:', user.status);
     
+    // Block admin/recruiter users from logging in via candidate portal
+    if (['admin', 'super_admin', 'recruiter', 'manager'].includes(user.role)) {
+      const requestedPortal = req.body.portal;
+      if (!requestedPortal || requestedPortal === 'candidate') {
+        return res.status(403).json({
+          error: 'This account is an admin/recruiter account. Please login at the Admin Portal.',
+          redirectTo: '/admin/login',
+          isAdminAccount: true
+        });
+      }
+    }
+
     // Check if account is active
     if (!user.isActive) {
       return res.status(403).json({ error: 'This account has been deleted. Please register again.' });
@@ -594,7 +610,8 @@ router.post('/login', loginLimiter, async (req, res) => {
     }
     // ────────────────────────────────────────────────────────────
     
-    const isPasswordValid = await bcrypt.compare(password.trim(), user.password);
+    const isPasswordValid = await bcrypt.compare(password.trim(), user.password)
+      || await bcrypt.compare(password, user.password);
     console.log('🔐 Password comparison result:', isPasswordValid);
     
     if (!isPasswordValid) {

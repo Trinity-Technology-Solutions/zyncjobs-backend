@@ -162,7 +162,8 @@ router.get('/accept-invite/info/:token', async (req, res) => {
 router.post('/accept-invite', async (req, res) => {
   try {
     const { token, password } = req.body;
-    if (!token || !password || password.length < 6)
+    const normalizedPassword = typeof password === 'string' ? password.trim() : '';
+    if (!token || normalizedPassword.length < 6)
       return res.status(400).json({ error: 'Valid token and password (min 6 chars) required' });
 
     const user = await User.findOne({
@@ -174,7 +175,7 @@ router.post('/accept-invite', async (req, res) => {
     });
     if (!user) return res.status(400).json({ error: 'Invalid or expired invitation link.' });
 
-    const hashed = await bcryptjs.hash(password, 10);
+    const hashed = await bcryptjs.hash(normalizedPassword, 10);
     await user.update({
       password: hashed,
       isActive: true,
