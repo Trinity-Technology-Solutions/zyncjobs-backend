@@ -201,6 +201,25 @@ const applyIndexes = async () => {
     console.warn('⚠️  gdpr_consents table warning:', e.message);
   }
 
+  // Add recruiter to users role enum if missing
+  try {
+    await sequelize.query(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_enum
+          JOIN pg_type ON pg_enum.enumtypid = pg_type.oid
+          WHERE pg_type.typname = 'enum_users_role'
+          AND pg_enum.enumlabel = 'recruiter'
+        ) THEN
+          ALTER TYPE "enum_users_role" ADD VALUE 'recruiter';
+        END IF;
+      END $$;
+    `);
+    console.log('✅ users.role enum updated with recruiter');
+  } catch (e) {
+    console.warn('⚠️  users.role enum warning:', e.message);
+  }
+
   // Add pending_admin to verificationStatus enum if missing
   try {
     await sequelize.query(`

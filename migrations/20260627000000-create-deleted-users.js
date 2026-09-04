@@ -32,9 +32,24 @@ export async function up(queryInterface, Sequelize) {
     updatedAt: { type: Sequelize.DATE, allowNull: false }
   });
 
-  await queryInterface.addIndex('deleted_users', ['email']);
-  await queryInterface.addIndex('deleted_users', ['originalUserId']);
-  await queryInterface.addIndex('deleted_users', ['deletedAt']);
+  try {
+    await queryInterface.addIndex('deleted_users', ['email']);
+  } catch (e) {
+    if (!e.message.includes('already exists')) throw e;
+    console.log('Index deleted_users.email already exists, skipping');
+  }
+  try {
+    await queryInterface.addIndex('deleted_users', ['originalUserId']);
+  } catch (e) {
+    if (!e.message.includes('already exists')) throw e;
+    console.log('Index deleted_users.originalUserId already exists, skipping');
+  }
+  try {
+    await queryInterface.addIndex('deleted_users', ['deletedAt']);
+  } catch (e) {
+    if (!e.message.includes('already exists')) throw e;
+    console.log('Index deleted_users.deletedAt already exists, skipping');
+  }
 }
 
 export async function down(queryInterface) {
