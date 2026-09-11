@@ -380,10 +380,9 @@ export class JobAlertService {
     const where = { candidateId };
     if (status) {
       where.status = status;
-    } else {
-      // Default: never return dismissed notifications
-      where.status = { [Op.ne]: 'dismissed' };
     }
+    // No default status filter — return all statuses (unread, read, dismissed)
+    // so the frontend Dismissed tab can display persisted dismissed notifications.
 
     const { count, rows } = await JobAlertNotification.findAndCountAll({
       where,

@@ -39,8 +39,10 @@ const sanitizeObject = (obj) => {
 const toArray = (v) => {
   if (Array.isArray(v)) return v;
   if (typeof v === 'string') {
-    try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; }
+    try { const p = JSON.parse(v); return Array.isArray(p) ? p : (p && typeof p === 'object' ? [p] : []); } catch { return []; }
   }
+  // Plain object (e.g. educationCollege sent directly as an object from the frontend)
+  if (v && typeof v === 'object') return [v];
   return [];
 };
 

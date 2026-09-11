@@ -187,9 +187,19 @@ router.get('/:identifier', async (req, res) => {
       const data = profile.toJSON();
       // Parse JSON-stringified fields back to objects
       const jsonFields = ['employment','projects','internships','languages','awards','clubsCommittees','competitiveExams','academicAchievements','certifications','careerPreferences','educationCollege','educationClass12','educationClass10'];
+      const singleObjectFields = new Set(['educationCollege','educationClass12','educationClass10']);
       jsonFields.forEach(f => {
         if (data[f] && typeof data[f] === 'string') {
-          try { data[f] = JSON.parse(data[f]); } catch { /* leave as-is */ }
+          try {
+            const parsed = JSON.parse(data[f]);
+            // These fields are stored as single objects but the validator wraps them in an array;
+            // unwrap so the frontend always receives a plain object.
+            if (singleObjectFields.has(f) && Array.isArray(parsed)) {
+              data[f] = parsed[0] ?? null;
+            } else {
+              data[f] = parsed;
+            }
+          } catch { /* leave as-is */ }
         }
       });
       res.json({ ...data, resumeUrl });
