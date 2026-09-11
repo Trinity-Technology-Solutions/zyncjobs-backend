@@ -1152,6 +1152,16 @@ router.get('/', authenticateToken, async (req, res) => {
           },
           jobTitle: job ? (job.jobTitle || job.title) : 'Unknown Position',
           jobCode: job ? formatJobCode(job.positionId, job.company) : '',
+          jobId: job ? {
+            _id: job.id,
+            id: job.id,
+            jobTitle: job.jobTitle || job.title,
+            jobCode: formatJobCode(job.positionId, job.company),
+            positionId: job.positionId,
+            company: job.company,
+            location: job.location,
+            skills: job.skills || []
+          } : app.jobId,
           aiAnalysis: aiAnalysis || { skillsScore: 50, experienceScore: 50, overallScore: 50, reasons: [], feedback: '' },
           aiScore: aiAnalysis?.overallScore ?? app.aiScore ?? null
         };
@@ -1177,10 +1187,21 @@ router.get('/', authenticateToken, async (req, res) => {
           ]
         }
       });
+      const jobCode = job ? formatJobCode(job.positionId, job.company) : '';
       return {
         ...app.toJSON(),
         jobTitle: job ? (job.jobTitle || job.title) : 'Unknown Position',
-        jobCode: job ? formatJobCode(job.positionId, job.company) : ''
+        jobCode,
+        jobId: job ? {
+          _id: job.id,
+          id: job.id,
+          jobTitle: job.jobTitle || job.title,
+          jobCode,
+          positionId: job.positionId,
+          company: job.company,
+          location: job.location,
+          skills: job.skills || []
+        } : null
       };
     }));
 

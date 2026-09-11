@@ -356,6 +356,8 @@ class PDFTextExtractor {
     return text
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
+      // Convert tabs to newlines so DOCX table cells become separate lines
+      .replace(/\t+/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }

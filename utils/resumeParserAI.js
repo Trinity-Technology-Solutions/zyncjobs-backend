@@ -46,6 +46,9 @@ const TECH_KEYWORDS = [
   'CI/CD', 'Microservices', 'RabbitMQ', 'Elasticsearch', 'Cassandra', 'Oracle', 'SQLite', 'Firebase', 'Tailwind',
   'Bootstrap', 'Redux', 'Next.js', 'NextJS', 'Vite', 'Webpack', 'Babel', 'Jest', 'Cypress', 'Playwright', 'Mocha',
   'Chai', 'Postman', 'Swagger', 'OAuth', 'JWT', 'WebSockets', 'Socket.io', 'Three.js', 'D3.js', 'Chart.js',
+  'Manual Testing', 'Functional Testing', 'Regression Testing', 'API Testing', 'Automation Testing',
+  'Smoke Testing', 'Sanity Testing', 'UAT', 'Integration Testing', 'Performance Testing', 'Load Testing',
+  'Test Cases', 'Test Planning', 'Defect Tracking', 'Quality Assurance', 'SDLC', 'STLC', 'Bugzilla', 'JMeter',
   'Unity', 'Unreal', 'Blender', 'Photoshop', 'Illustrator', 'Figma', 'Adobe XD', 'UI/UX', 'User Experience',
   'User Research', 'Wireframing', 'Prototyping', 'Usability Testing', 'Git Bash', 'Shell Scripting', 'Bash',
   'Powershell', 'SAP', 'Salesforce', 'Workday', 'ServiceNow', 'Tableau Desktop', 'Alteryx', 'Snowflake', 'Databricks',
@@ -75,7 +78,8 @@ export class ResumeParserAI {
     if (/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.test(t)) return null;
     if (/\d{3,}/.test(t)) return null; // dates / years / phone → not a heading
     const allCaps = t === t.toUpperCase() && t.length > 2;
-    const titleCase = /^[A-Z][a-z]+(\s[A-Z][a-z]+){1,5}$/.test(t) || /^[A-Z][a-z]+(\s(and|&)\s[A-Z][a-z]+)+$/.test(t);
+    // Fix: {0,5} instead of {1,5} so single-word headings like "Skills", "Education" match
+    const titleCase = /^[A-Z][a-z]+(\s[A-Z][a-z]+){0,5}$/.test(t) || /^[A-Z][a-z]+(\s(and|&)\s[A-Z][a-z]+)+$/.test(t);
     if (!allCaps && !titleCase) return null;
     for (const h of SECTION_HEADINGS) {
       if (h.re.test(t)) return h.name;
