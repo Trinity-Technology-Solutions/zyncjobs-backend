@@ -156,9 +156,11 @@ async function getAiScore(candidate, job) {
 // ── Core rejection logic ─────────────────────────────────────────────────────
 export const runAutoRejection = async (application, job, dryRun = false) => {
   try {
-    let settings = await AiRejectionSetting.findOne({ where: { jobId: job.id, employerEmail: job.employerEmail } });
-    if (!settings) settings = await AiRejectionSetting.findOne({ where: { jobId: null, employerEmail: job.employerEmail } });
+    const employerEmail = job.employerEmail || job.postedBy || job.postedByEmail || '';
+    let settings = await AiRejectionSetting.findOne({ where: { jobId: String(job.id), employerEmail } });
+    if (!settings) settings = await AiRejectionSetting.findOne({ where: { jobId: null, employerEmail } });
     if (!settings || !settings.autoReject) return { rejected: false, reason: 'no_settings' };
+    console.log(`🤖 runAutoRejection triggered | appId=${application.id} | jobId=${job.id} | employer=${employerEmail} | dryRun=${dryRun}`);
 
     const candidate = await getCandidateData(application);
 
@@ -240,14 +242,14 @@ router.post('/:jobId?', async (req, res) => {
     if (!employerEmail) return res.status(400).json({ error: 'employerEmail required' });
 
     const [settings] = await AiRejectionSetting.upsert({
-      employerEmail, jobId: jobId || null,
+      employerEmail, jobId: jobId ? String(jobId) : null,
       autoReject, minSkillsMatch, minExperienceMatch,
       minOverallScore, sendFeedback, useAiAnalysis, rejectReasons
     }, { returning: true });
 
     let autoRejectedCount = 0;
     if (autoReject) {
-      const jobs = await Job.findAll({ where: jobId ? { id: jobId } : { employerEmail } });
+      const jobs = await Job.findAll({ where: jobId ? { id: jobId } : { [Op.or]: [{ employerEmail }, { postedBy: employerEmail }, { postedByEmail: employerEmail }] } });
       for (const j of jobs) {
         const pending = await Application.findAll({ where: { jobId: j.id, status: 'pending' } });
         for (const app of pending) {

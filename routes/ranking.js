@@ -32,7 +32,12 @@ router.post('/hybrid-score', async (req, res) => {
     const data = await aiClient.rankingHybridScore(candidate, job);
     res.json(data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // AI service unavailable — return 503 so frontend falls back to local scoring
+    const isConnErr = error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.message?.includes('connect');
+    res.status(isConnErr ? 503 : 500).json({
+      error: isConnErr ? 'AI service unavailable' : error.message,
+      fallback: true
+    });
   }
 });
 

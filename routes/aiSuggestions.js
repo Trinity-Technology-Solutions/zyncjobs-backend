@@ -124,6 +124,11 @@ router.post('/job-description', async (req, res) => {
       if (desc) {
         desc = desc.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1');
         desc = desc.replace(/^#{1,6}\s*(.*)$/gm, '$1').replace(/\n{3,}/g, '\n\n').trim();
+        // Strip markdown horizontal rules (--- or *** or ___)
+        desc = desc.replace(/^[-*_]{3,}\s*$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+        // Strip incomplete trailing sentences cut mid-word (ends without . ! ?)
+        const lastPunct = Math.max(desc.lastIndexOf('.'), desc.lastIndexOf('!'), desc.lastIndexOf('?'));
+        if (lastPunct > desc.length - 60 && lastPunct > 0) desc = desc.slice(0, lastPunct + 1).trim();
         // Fix "How to Apply" section to always route through ZyncJobs
         const applySection = `How to Apply\n\nInterested candidates should click the Apply button on this ZyncJobs job posting and submit their application online. Applications are only accepted through ZyncJobs.`;
         if (/how\s*to\s*apply/i.test(desc)) {

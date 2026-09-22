@@ -206,7 +206,15 @@ export class AIClient {
   }
 
   async rankingHybridScore(candidate, job) {
-    return await execute('hybrid score candidate for job', 'employer', { candidate, job });
+    // Short timeout — if AI service is down, fail fast so frontend uses local scoring
+    const token = await getServiceToken().catch(() => { throw Object.assign(new Error('AI service unavailable'), { code: 'ECONNREFUSED' }); });
+    const { data } = await axios.post(
+      `${GATEWAY_URL}/ai/execute`,
+      { query: 'hybrid score candidate for job', user_role: 'employer', context: { candidate, job } },
+      { headers: { Authorization: `Bearer ${token}` }, timeout: 8000 }
+    );
+    if (!data.success) throw new Error(data.error || 'AI service returned failure');
+    return data.result || {};
   }
 
   async rankingRank(candidates, job) {

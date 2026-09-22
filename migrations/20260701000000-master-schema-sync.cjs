@@ -371,6 +371,12 @@ module.exports = {
         candidateId: { type: S.STRING,  allowNull: false },
         skillId:     { type: S.INTEGER, allowNull: false },
       },
+
+      credentialing: {
+        checklistItems: { type: S.JSONB,      allowNull: true },
+        taxRate:        { type: S.FLOAT,      allowNull: true, defaultValue: 0 },
+        currency:       { type: S.STRING(10), allowNull: true, defaultValue: 'INR' },
+      },
     };
 
     let added = 0;
