@@ -4,9 +4,16 @@ import { generateJobOgImage } from '../services/ogImageGenerator.js';
 
 const router = express.Router();
 
+// FRONTEND_URL may be comma-separated (e.g. "https://qa.zyncjobs.com,http://localhost:5173")
+// Always use the first (primary) URL for OG tags
+function getPrimaryFrontendUrl() {
+  const raw = process.env.FRONTEND_URL || 'http://localhost:5173';
+  return raw.split(',')[0].trim();
+}
+
 function getOgImage(job, req) {
   const userAgent = (req.headers['user-agent'] || '').toLowerCase();
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const frontendUrl = getPrimaryFrontendUrl();
   const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
 
   // WhatsApp crawler detection — WhatsApp prefers site favicon/icon over 1200x630 canvas
@@ -46,15 +53,88 @@ router.get('/og/job-image', async (req, res) => {
   }
 });
 
-// GET /jobs/:slug - SEO slug OG tags
+// GET /jobs/:slug - Serve OG meta tags for social crawlers, redirect humans to frontend
 router.get('/jobs/:slug', async (req, res) => {
   try {
-    const job = await Job.findOne({ where: { slug: req.params.slug } });
-    if (!job) return res.redirect(`${process.env.FRONTEND_URL}/job-listings`);
-    const jobUrl = `${process.env.FRONTEND_URL}/jobs/${job.slug}`;
-    res.redirect(301, jobUrl);
+    const { slug } = req.params;
+    const frontendUrl = getPrimaryFrontendUrl();
+    const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+
+    // Try slug first, then UUID id
+    let job = await Job.findOne({ where: { slug } });
+    if (!job) job = await Job.findByPk(slug);
+    if (!job) job = await Job.findOne({ where: { positionId: slug } });
+
+    if (!job) return res.redirect(`${frontendUrl}/job-listings`);
+
+    const jobUrl = `${frontendUrl}/jobs/${job.slug || job.id}`;
+    const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+    const isCrawler = /facebookexternalhit|facebot|linkedinbot|twitterbot|whatsapp|telegrambot|slackbot|discordbot|applebot|googlebot|bingbot|yandex|duckduckbot/.test(userAgent);
+
+    // Regular users — redirect to React SPA (nginx already handles this, but keep as safety net)
+    if (!isCrawler) return res.redirect(302, jobUrl);
+
+    // Social crawlers — return full HTML with OG meta tags
+    const jobTitle = job.jobTitle || job.title || 'Job Opportunity';
+    const company = job.company || 'ZyncJobs';
+    const location = job.location || '';
+    const jobType = Array.isArray(job.jobType) ? job.jobType.join(', ') : (job.jobType || '');
+    const experience = job.experienceRange || job.experienceLevel || '';
+    const skills = Array.isArray(job.skills) && job.skills.length > 0 ? job.skills.slice(0, 4).join(', ') : '';
+
+    const descParts = [
+      location ? `📍 ${location}` : null,
+      jobType ? `⏰ ${jobType}` : null,
+      experience ? `🎯 ${experience}` : null,
+      skills ? `🔧 ${skills}` : null,
+    ].filter(Boolean);
+    const description = descParts.length
+      ? descParts.join(' • ')
+      : (job.description || `Job opportunity at ${company}`).replace(/<[^>]*>/g, '').substring(0, 160);
+
+    const ogImage = getOgImage(job, req);
+    const pageTitle = `${jobTitle} at ${company} | ZyncJobs`;
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>${pageTitle}</title>
+  <meta name="description" content="${description}">
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ZyncJobs">
+  <meta property="og:url" content="${jobUrl}">
+  <meta property="og:title" content="${pageTitle}">
+  <meta property="og:description" content="${description}">
+  <meta property="og:image" content="${ogImage}">
+  <meta property="og:image:secure_url" content="${ogImage}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:alt" content="${pageTitle}">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="${jobUrl}">
+  <meta name="twitter:title" content="${pageTitle}">
+  <meta name="twitter:description" content="${description}">
+  <meta name="twitter:image" content="${ogImage}">
+  <link rel="canonical" href="${jobUrl}">
+  <meta http-equiv="refresh" content="0;url=${jobUrl}">
+</head>
+<body>
+  <h1>${pageTitle}</h1>
+  <p>${description}</p>
+  <a href="${jobUrl}">View Job on ZyncJobs</a>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(html);
   } catch (error) {
-    res.redirect(`${process.env.FRONTEND_URL}/job-listings`);
+    console.error('OG /jobs/:slug error:', error);
+    res.redirect(`${getPrimaryFrontendUrl()}/job-listings`);
   }
 });
 
@@ -77,7 +157,7 @@ router.get('/job-detail', async (req, res) => {
       return res.status(404).send('Job not found');
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = getPrimaryFrontendUrl();
     const siteIconUrl = `${frontendUrl}/favicon_io/android-chrome-512x512.png`;
     const jobTitle = `${job.jobTitle} at ${job.company}`;
     const jobType = Array.isArray(job.jobType) ? job.jobType.join(', ') : (job.jobType || '');
@@ -94,9 +174,10 @@ router.get('/job-detail', async (req, res) => {
 
     const ogImage = getOgImage(job, req);
     const jobUrl = job.slug
-      ? `${process.env.FRONTEND_URL}/jobs/${job.slug}`
-      : `${process.env.FRONTEND_URL}/job-detail?id=${job.id}`;
+      ? `${getPrimaryFrontendUrl()}/jobs/${job.slug}`
+      : `${getPrimaryFrontendUrl()}/job-detail?id=${job.id}`;
     const redirectUrl = jobUrl;
+    const pageTitle = `${jobTitle} | ZyncJobs`;
 
     const html = `
 <!DOCTYPE html>
@@ -104,7 +185,7 @@ router.get('/job-detail', async (req, res) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${jobTitle} | ZyncJobs</title>
+    <title>${pageTitle}</title>
     
     <!-- Site Favicon & Icons -->
     <link rel="icon" type="image/x-icon" href="${frontendUrl}/favicon_io/favicon.ico">
@@ -112,41 +193,36 @@ router.get('/job-detail', async (req, res) => {
     
     <!-- Open Graph / Facebook / LinkedIn -->
     <meta property="og:type" content="website">
+    <meta property="og:site_name" content="ZyncJobs">
     <meta property="og:url" content="${jobUrl}">
-    <meta property="og:title" content="${jobTitle}">
+    <meta property="og:title" content="${pageTitle}">
     <meta property="og:description" content="${description}">
     <meta property="og:image" content="${ogImage}">
+    <meta property="og:image:secure_url" content="${ogImage}">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:type" content="image/png">
-    <meta property="og:site_name" content="ZyncJobs">
+    <meta property="og:image:alt" content="${pageTitle}">
     
     <!-- Twitter Card -->
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="${jobUrl}">
-    <meta property="twitter:title" content="${jobTitle}">
-    <meta property="twitter:description" content="${description}">
-    <meta property="twitter:image" content="${ogImage}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="${jobUrl}">
+    <meta name="twitter:title" content="${pageTitle}">
+    <meta name="twitter:description" content="${description}">
+    <meta name="twitter:image" content="${ogImage}">
     
     <!-- Additional meta tags -->
     <meta name="description" content="${description}">
-    <meta name="keywords" content="${job.skills?.join(', ') || ''}, ${job.jobTitle}, ${job.company}, ${job.location}">
+    <link rel="canonical" href="${jobUrl}">
     
     <!-- Redirect to frontend -->
-    <script>
-        window.location.href = "${redirectUrl}";
-    </script>
-    
-    <!-- Fallback for non-JS -->
+    <script>window.location.href = "${redirectUrl}";</script>
     <meta http-equiv="refresh" content="0; url=${redirectUrl}">
 </head>
 <body>
-    <div style="text-align: center; padding: 50px; font-family: Arial, sans-serif;">
-        <h1>${jobTitle}</h1>
-        <p>${description}</p>
-        <p>Redirecting to job details...</p>
-        <a href="${jobUrl}">Click here if not redirected automatically</a>
-    </div>
+    <h1>${pageTitle}</h1>
+    <p>${description}</p>
+    <a href="${jobUrl}">View Job on ZyncJobs</a>
 </body>
 </html>`;
 
