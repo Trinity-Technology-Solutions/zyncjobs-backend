@@ -10,7 +10,6 @@ const Skill = sequelize.define('Skill', {
   name: {
     type: DataTypes.STRING,
     allowNull: false,
-    unique: true,
     comment: 'Canonical skill name, e.g. Java, React, PostgreSQL'
   },
   normalizedName: {
@@ -22,6 +21,7 @@ const Skill = sequelize.define('Skill', {
   tableName: 'skills',
   timestamps: true,
   indexes: [
+    { unique: true, fields: ['name'] },
     { fields: ['normalizedName'] }
   ]
 });
