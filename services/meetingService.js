@@ -209,13 +209,17 @@ class MeetingService {
         });
         const meetLink = response.data.conferenceData?.entryPoints?.find(ep => ep.entryPointType === 'video')?.uri;
         const meetingId = response.data.conferenceData?.conferenceId;
+        // Host link = Google Calendar event URL (employer opens this to start/manage meeting)
+        // Candidate link = bare meet.google.com link (joins as participant, waits in lobby)
+        const hostLink = `https://calendar.google.com/calendar/event?eid=${Buffer.from(response.data.id).toString('base64')}`;
         return {
           success: true,
           meeting: {
             platform: 'googlemeet',
             meetingId: meetingId || response.data.id,
             meetLink: meetLink || response.data.hangoutLink,
-            join_url: meetLink || response.data.hangoutLink,
+            join_url: meetLink || response.data.hangoutLink,   // candidate gets this
+            host_url: hostLink,                                 // employer gets this
             eventId: response.data.id,
             eventData: response.data
           }
@@ -240,8 +244,6 @@ class MeetingService {
         }
       }
 
-      // Real meet.google.com links REQUIRE a connected Google account — a random
-      // meet.google.com/xxx URL would be fake and unusable, so we never fabricate one.
       if (!accessToken) {
         console.warn('No Google OAuth token available for employer:', meetingData.employerId);
         return {
@@ -251,17 +253,12 @@ class MeetingService {
         };
       }
 
-      // Create OAuth2 client
       const oauth2Client = new google.auth.OAuth2(
         this.googleMeetConfig.clientId,
         this.googleMeetConfig.clientSecret,
         this.googleMeetConfig.redirectUri
       );
-
-      oauth2Client.setCredentials({
-        access_token: accessToken,
-        refresh_token: refreshToken
-      });
+      oauth2Client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
 
       const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
       const response = await calendar.events.insert({
@@ -272,6 +269,7 @@ class MeetingService {
 
       const meetLink = response.data.conferenceData?.entryPoints?.find(ep => ep.entryPointType === 'video')?.uri;
       const meetingId = response.data.conferenceData?.conferenceId;
+      const hostLink = `https://calendar.google.com/calendar/event?eid=${Buffer.from(response.data.id).toString('base64')}`;
 
       return {
         success: true,
@@ -279,15 +277,14 @@ class MeetingService {
           platform: 'googlemeet',
           meetingId: meetingId || response.data.id,
           meetLink: meetLink || response.data.hangoutLink,
-          join_url: meetLink || response.data.hangoutLink,
+          join_url: meetLink || response.data.hangoutLink,   // candidate gets this
+          host_url: hostLink,                                 // employer gets this
           eventId: response.data.id,
           eventData: response.data
         }
       };
     } catch (error) {
       console.error('Error creating Google Meet:', error?.message || error);
-      // Never fabricate a fake meet link or a Jitsi fallback — the employer asked for
-      // a real Google Meet. Surface the error so the frontend can guide re-connection.
       const needsConnect = /unauthor|invalid_grant|invalid token|token.*expired|auth|domain.*delegat|insufficient/i.test(error?.message || String(error));
       return {
         success: false,

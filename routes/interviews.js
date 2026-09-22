@@ -336,6 +336,7 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
 
     // Step 1: Generate meeting link
     let meetingLink = '';
+    let hostMeetingLink = '';
     if (type === 'video' && platform === 'zoom') {
       const result = await meetingService.createZoomMeeting({
         topic: 'Interview Meeting',
@@ -343,7 +344,10 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
         duration: duration || 60,
         description: notes || 'Interview meeting scheduled via ZyncJobs'
       });
-      if (result.success) meetingLink = result.meeting.join_url;
+      if (result.success) {
+        meetingLink = result.meeting.join_url;
+        hostMeetingLink = result.meeting.start_url || result.meeting.join_url;
+      }
     } else if (type === 'video' && platform === 'googlemeet') {
       const result = await meetingService.createGoogleMeet({
         topic: 'Interview Meeting',
@@ -351,7 +355,10 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
         duration: duration || 60,
         description: notes || 'Interview meeting scheduled via ZyncJobs'
       });
-      if (result.success) meetingLink = result.meeting.join_url;
+      if (result.success) {
+        meetingLink = result.meeting.join_url;   // candidate join link
+        hostMeetingLink = result.meeting.host_url || result.meeting.join_url; // employer host link
+      }
       console.log('📅 Google Meet link generated:', meetingLink, result.fallback ? '(fallback)' : '(real)');
     }
 
@@ -378,14 +385,15 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
       scheduledDate,
       duration: duration || 60,
       type: type || 'video',
-      meetingLink,   // real link saved here
+      meetingLink,          // candidate join link
+      hostMeetingLink: hostMeetingLink || meetingLink,  // employer host link
       notes,
       responseToken: generateResponseToken(),
       tokenExpiry: newTokenExpiry(),
       employerConfirmed: true
     });
 
-    console.log('✅ Interview saved with meetingLink:', meetingLink);
+    console.log('✅ Interview saved with meetingLink:', meetingLink, '| hostLink:', hostMeetingLink);
 
     try {
       await NotificationService.createInterviewNotification(interview);
@@ -394,6 +402,7 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
     }
 
     if (candidate && candidate.email) {
+      // Candidate gets the join link (participant — must wait in lobby)
       await sendInterviewScheduledEmail(
         candidate.email,
         candidate.name || candidateEmail,
@@ -405,7 +414,7 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
       );
     }
 
-    res.json({ success: true, message: 'Interview scheduled successfully', interview, meetingLink });
+    res.json({ success: true, message: 'Interview scheduled successfully', interview, meetingLink, hostMeetingLink: hostMeetingLink || meetingLink });
   } catch (error) {
     console.error('Create interview with meeting error:', error);
     res.status(500).json({ success: false, error: error.message });

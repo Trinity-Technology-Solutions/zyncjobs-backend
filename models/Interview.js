@@ -34,6 +34,11 @@ const Interview = sequelize.define('Interview', {
     defaultValue: 'scheduled'
   },
   meetingLink: DataTypes.STRING,
+  hostMeetingLink: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Host/organizer link (employer only) — Calendar event URL for Google Meet, start_url for Zoom'
+  },
   location: DataTypes.STRING,
   notes: DataTypes.TEXT,
   candidateConfirmed: {
