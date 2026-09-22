@@ -52,26 +52,14 @@ export async function generateJobOgImage(job) {
   const experience = job.experienceRange || job.experienceLevel || '';
   const skills = Array.isArray(job.skills) && job.skills.length > 0 ? job.skills.slice(0, 4).join(' • ') : '';
 
-  // Company logo URL resolution
-  let logoUrl = null;
-  if (job.companyLogo && job.companyLogo.startsWith('http')) {
-    logoUrl = job.companyLogo;
-  } else if (company.toLowerCase().includes('trinity')) {
-    const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
-    logoUrl = `${backendUrl}/images/trinity-logo.webp`;
-  }
-
-  let logoBuffer = await fetchImageBuffer(logoUrl);
-
-  // If no logo buffer, check local fallback
-  if (!logoBuffer) {
-    const defaultLogoPath = path.join(__dirname, '../public/images/zyncjobs-logo.png');
-    if (fs.existsSync(defaultLogoPath)) {
-      try {
-        logoBuffer = fs.readFileSync(defaultLogoPath);
-      } catch (e) {
-        logoBuffer = null;
-      }
+  // Always use ZyncJobs logo for social sharing
+  let logoBuffer = null;
+  const zyncjobsLogoPath = path.join(__dirname, '../public/images/zyncjobs-logo.png');
+  if (fs.existsSync(zyncjobsLogoPath)) {
+    try {
+      logoBuffer = fs.readFileSync(zyncjobsLogoPath);
+    } catch (e) {
+      logoBuffer = null;
     }
   }
 
