@@ -1,6 +1,12 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import Job from '../models/Job.js';
 import { generateJobOgImage } from '../services/ogImageGenerator.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
@@ -53,28 +59,41 @@ router.get('/og/job-image', async (req, res) => {
   }
 });
 
-// GET /jobs/:slug - Serve OG meta tags for social crawlers, redirect humans to frontend
+// GET /jobs/:slug - Serve OG meta tags for social crawlers, serve React SPA for regular users
 router.get('/jobs/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
     const frontendUrl = getPrimaryFrontendUrl();
     const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+    const isCrawler = /facebookexternalhit|facebot|linkedinbot|twitterbot|whatsapp|telegrambot|slackbot|discordbot|applebot|googlebot|bingbot|yandex|duckduckbot/.test(userAgent);
 
-    // Try slug first, then UUID id
+    // Regular users — serve the React SPA index.html directly
+    // (nginx proxies /jobs/* to us, so we must serve the SPA ourselves)
+    if (!isCrawler) {
+      const frontendRoot = req.headers['x-frontend-root'] || '/var/www/zyncjobs-frontend/dist';
+      const indexPath = path.join(frontendRoot, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        return res.sendFile(indexPath);
+      }
+      // Fallback: redirect to frontend if index.html not found
+      return res.redirect(302, `${frontendUrl}/jobs/${slug}`);
+    }
+
+    // Social crawlers — look up job and return OG HTML
     let job = await Job.findOne({ where: { slug } });
     if (!job) job = await Job.findByPk(slug);
     if (!job) job = await Job.findOne({ where: { positionId: slug } });
 
-    if (!job) return res.redirect(`${frontendUrl}/job-listings`);
+    if (!job) {
+      // Job not found — serve SPA so user sees the 404 page
+      const frontendRoot = req.headers['x-frontend-root'] || '/var/www/zyncjobs-frontend/dist';
+      const indexPath = path.join(frontendRoot, 'index.html');
+      if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
+      return res.redirect(`${frontendUrl}/job-listings`);
+    }
 
     const jobUrl = `${frontendUrl}/jobs/${job.slug || job.id}`;
-    const userAgent = (req.headers['user-agent'] || '').toLowerCase();
-    const isCrawler = /facebookexternalhit|facebot|linkedinbot|twitterbot|whatsapp|telegrambot|slackbot|discordbot|applebot|googlebot|bingbot|yandex|duckduckbot/.test(userAgent);
-
-    // Regular users — redirect to React SPA (nginx already handles this, but keep as safety net)
-    if (!isCrawler) return res.redirect(302, jobUrl);
-
-    // Social crawlers — return full HTML with OG meta tags
     const jobTitle = job.jobTitle || job.title || 'Job Opportunity';
     const company = job.company || 'ZyncJobs';
     const location = job.location || '';
@@ -120,7 +139,6 @@ router.get('/jobs/:slug', async (req, res) => {
   <meta name="twitter:description" content="${description}">
   <meta name="twitter:image" content="${ogImage}">
   <link rel="canonical" href="${jobUrl}">
-  <meta http-equiv="refresh" content="0;url=${jobUrl}">
 </head>
 <body>
   <h1>${pageTitle}</h1>
