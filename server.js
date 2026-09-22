@@ -140,6 +140,7 @@ const ALLOWED_ORIGINS = [
   'https://www.zyncjobs.com',
   'https://zyncjobs.com',
   'https://qa.zyncjobs.com',
+  'https://qaapi.zyncjobs.com',
   'https://trinitetech.com',
   'https://www.trinitetech.com',
   'http://localhost',

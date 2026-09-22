@@ -198,7 +198,7 @@ export class JobAlertService {
     await Promise.all(
       [...byCandidate.entries()].map(async ([candidateId, notifs]) => {
         try {
-          const user = await User.findByPk(candidateId, { attributes: ['email', 'firstName', 'name'] });
+          const user = await User.findByPk(candidateId, { attributes: ['email', 'name'] });
           if (!user?.email) return;
 
           const jobPayload = [{
@@ -255,7 +255,7 @@ export class JobAlertService {
     await Promise.all(
       [...byCandidate.entries()].map(async ([candidateId, notifs]) => {
         try {
-          const user = await User.findByPk(candidateId, { attributes: ['email', 'firstName', 'name'] });
+          const user = await User.findByPk(candidateId, { attributes: ['email', 'name'] });
           if (!user?.email) return;
 
           const jobs = notifs.map(n => ({
@@ -270,7 +270,7 @@ export class JobAlertService {
 
           const result = await sendJobAlertEmail(
             user.email,
-            user.firstName || user.name || 'there',
+            user.name || 'there',
             jobs
           );
 
@@ -332,7 +332,7 @@ export class JobAlertService {
     await Promise.all(
       [...byCandidate.entries()].map(async ([candidateId, notifs]) => {
         try {
-          const user = await User.findByPk(candidateId, { attributes: ['email', 'firstName', 'name'] });
+          const user = await User.findByPk(candidateId, { attributes: ['email', 'name'] });
           if (!user?.email) return;
 
           const jobs = notifs.map(n => ({
@@ -347,7 +347,7 @@ export class JobAlertService {
 
           const result = await sendJobAlertEmail(
             user.email,
-            user.firstName || user.name || 'there',
+            user.name || 'there',
             jobs
           );
 
