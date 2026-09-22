@@ -21,74 +21,103 @@ const joinPage = (title, subtitle, message = '') => `
   </div>
 </body></html>`;
 
-// GET /api/meetings/interview/:id/join
-// Single source of truth for joining a scheduled interview. The meeting URL is only
-// handed out (via 302 redirect) while now ∈ [scheduledDate, scheduledDate + duration].
-// Every request — direct URL, refresh, new tab, shared link, bookmark — is re-validated.
+// Shared time-window validation for both candidate join and employer host access
+async function validateInterviewAccess(id, res) {
+  const interview = await Interview.findByPk(id);
+
+  if (!interview) {
+    res.status(404).send(joinPage('Interview Not Found', 'This interview does not exist or is no longer available.'));
+    return null;
+  }
+
+  const startTime = new Date(interview.scheduledDate);
+  if (Number.isNaN(startTime.getTime())) {
+    res.status(500).send(joinPage('Invalid Schedule', 'This interview does not have a valid schedule.'));
+    return null;
+  }
+
+  const durationMinutes = Number(interview.duration) > 0 ? Number(interview.duration) : 60;
+  const endTime = new Date(startTime.getTime() + durationMinutes * MINUTE_MS);
+  const now = new Date();
+
+  console.log('📡 Interview access attempted', {
+    interviewId: interview.id,
+    status: interview.status,
+    start: startTime.toISOString(),
+    end: endTime.toISOString(),
+    now: now.toISOString()
+  });
+
+  if (interview.status === 'cancelled' || interview.status === 'rejected') {
+    res.status(410).send(joinPage('Interview Unavailable', 'This interview is no longer available.'));
+    return null;
+  }
+
+  if (now < startTime) {
+    const availableDate = startTime.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const availableTime = startTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    res.status(403).send(joinPage(
+      'Interview Not Started',
+      'This interview has not started yet.',
+      `It becomes available on ${availableDate} at ${availableTime}.`
+    ));
+    return null;
+  }
+
+  if (now > endTime) {
+    // Persist terminal state atomically — only transitions once
+    await Interview.update(
+      { status: 'completed' },
+      { where: { id: interview.id, status: { [Op.ne]: 'completed' } } }
+    );
+    console.log('⏰ Interview link expired:', interview.id);
+    const endedDate = endTime.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const endedTime = endTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    res.status(410).send(joinPage(
+      'Interview Link Expired',
+      'This interview has ended and the meeting link is no longer valid.',
+      `The interview was scheduled to end on ${endedDate} at ${endedTime}.`
+    ));
+    return null;
+  }
+
+  return interview; // valid — within time window
+}
+
+// GET /api/meetings/interview/:id/join — Candidate join link (participant role)
 router.get('/interview/:id/join', async (req, res) => {
   try {
-    const { id } = req.params;
-    const interview = await Interview.findByPk(id);
-
-    if (!interview) {
-      return res.status(404).send(joinPage('Interview Not Found', 'This interview does not exist or is no longer available.'));
-    }
-
-    // Times are compared as absolute JS Date instants (UTC-safe); never using frontend values.
-    const startTime = new Date(interview.scheduledDate);
-    if (Number.isNaN(startTime.getTime())) {
-      console.error('Invalid interview schedule:', interview.id);
-      return res.status(500).send(joinPage('Invalid Schedule', 'This interview does not have a valid schedule.'));
-    }
-
-    const durationMinutes = Number(interview.duration) > 0 ? Number(interview.duration) : 60;
-    const endTime = new Date(startTime.getTime() + durationMinutes * MINUTE_MS);
-    const now = new Date();
-
-    console.log('📡 Interview join attempted', {
-      interviewId: interview.id,
-      status: interview.status,
-      start: startTime.toISOString(),
-      end: endTime.toISOString(),
-      now: now.toISOString()
-    });
-
-    // Reuse the existing status enum — no duplicate state management.
-    // Terminal states can never be re-opened, even if a link is shared or bookmarked.
-    if (interview.status === 'cancelled' || interview.status === 'rejected') {
-      console.log('🕒 Interview unavailable:', interview.id, interview.status);
-      return res.status(410).send(joinPage('Interview Unavailable', 'This interview is no longer available.'));
-    }
-
-    if (now < startTime) {
-      const availableDate = startTime.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-      const availableTime = startTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-      console.log('🕒 Interview not started:', interview.id);
-      return res.status(403).send(joinPage(
-        'Interview Not Started',
-        'This interview has not started yet.',
-        `It becomes available on ${availableDate} at ${availableTime}.`
-      ));
-    }
-
-    if (now > endTime) {
-      // Persist the terminal state once (atomic guard) so an expired link stays expired.
-      await Interview.update(
-        { status: 'completed' },
-        { where: { id: interview.id, status: { [Op.ne]: 'completed' } } }
-      );
-      console.log('⏰ Interview link expired:', interview.id);
-      return res.status(410).send(joinPage('Interview Link Expired', 'This interview link has expired.'));
-    }
+    const interview = await validateInterviewAccess(req.params.id, res);
+    if (!interview) return;
 
     if (!interview.meetingLink) {
       return res.status(404).send(joinPage('No Meeting Link', 'No meeting link is available for this interview.'));
     }
 
-    console.log('✅ Interview access granted:', interview.id);
+    console.log('✅ Candidate join granted:', interview.id);
     return res.redirect(302, interview.meetingLink);
   } catch (error) {
     console.error('Interview join error:', error);
+    res.status(500).send(joinPage('Something Went Wrong', error.message));
+  }
+});
+
+// GET /api/meetings/interview/:id/host — Employer host link (enforces same time-window expiry)
+router.get('/interview/:id/host', async (req, res) => {
+  try {
+    const interview = await validateInterviewAccess(req.params.id, res);
+    if (!interview) return;
+
+    // Use dedicated host link if available, fall back to join link
+    const hostLink = interview.hostMeetingLink || interview.meetingLink;
+    if (!hostLink) {
+      return res.status(404).send(joinPage('No Meeting Link', 'No meeting link is available for this interview.'));
+    }
+
+    console.log('✅ Employer host access granted:', interview.id);
+    return res.redirect(302, hostLink);
+  } catch (error) {
+    console.error('Interview host access error:', error);
     res.status(500).send(joinPage('Something Went Wrong', error.message));
   }
 });

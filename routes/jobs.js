@@ -1070,6 +1070,11 @@ router.post('/', authenticateToken, maxJobsGuard, [
       postedByName: user?.name || user?.fullName || jobData.postedByName || resolvedEmployerEmail.split('@')[0],
       assignedTo: jobData.assignedTo || null,
       companyId,
+      locationType: jobData.locationType || null,
+      nationalityRestriction: jobData.nationalityRestriction || null,
+      urgentNote: jobData.urgentNote || null,
+      goodToHaveSkills: normalizeArray(jobData.goodToHaveSkills),
+      companyTagline: jobData.companyTagline || jobData.tagline || null,
       refreshCount: 0,
       originalPostedAt: new Date()
     };
@@ -1215,7 +1220,8 @@ router.put('/:id', async (req, res) => {
     const allowed = ['jobTitle', 'location', 'jobType', 'workSetting', 'description',
       'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
       'payRate', 'payType', 'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
-      'applicationDeadline', 'isActive', 'status', 'jobHeaderImage', 'assignedTo', 'postedByName'];
+      'applicationDeadline', 'isActive', 'status', 'jobHeaderImage', 'assignedTo', 'postedByName',
+      'locationType', 'nationalityRestriction', 'urgentNote', 'goodToHaveSkills', 'companyTagline'];
 
     const updates = {};
     for (const key of allowed) {
@@ -1252,6 +1258,7 @@ router.put('/:id', async (req, res) => {
     }
     if (updates.skills !== undefined) updates.skills = normalizeArray(updates.skills);
     if (updates.languages !== undefined) updates.languages = normalizeArray(updates.languages);
+    if (updates.goodToHaveSkills !== undefined) updates.goodToHaveSkills = normalizeArray(updates.goodToHaveSkills);
     if (updates.country) updates.country = updates.country.trim();
 
     await job.update(updates);

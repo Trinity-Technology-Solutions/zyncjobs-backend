@@ -108,6 +108,7 @@ router.get('/', async (req, res) => {
 
 // Helper to format interview data with job details
 async function formatInterviews(interviews) {
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
   return Promise.all(interviews.map(async (interview) => {
     let job = null;
     if (interview.jobId) {
@@ -124,7 +125,10 @@ async function formatInterviews(interviews) {
       duration: interview.duration,
       type: interview.type,
       status: interview.status,
-      meetingLink: interview.meetingLink,
+      // Employer always uses the /host endpoint — enforces expiry server-side
+      meetingLink: interview.meetingLink ? `${backendUrl}/api/meetings/interview/${interview.id}/host` : null,
+      // Raw candidate join link (for display/copy only — also gated by /join endpoint)
+      candidateJoinLink: interview.meetingLink ? `${backendUrl}/api/meetings/interview/${interview.id}/join` : null,
       location: interview.location,
       notes: interview.notes,
       createdAt: interview.createdAt
@@ -189,6 +193,7 @@ router.get('/candidate/:email', async (req, res) => {
     const formatted = await Promise.all(interviews.map(async (iv) => {
       let job = null;
       if (iv.jobId) job = await Job.findByPk(iv.jobId);
+      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
       return {
         _id: iv.id,
         jobId: {
@@ -202,7 +207,8 @@ router.get('/candidate/:email', async (req, res) => {
         interviewDate: iv.scheduledDate,
         interviewTime: new Date(iv.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         interviewType: iv.type,
-        meetingLink: iv.meetingLink,
+        // Candidate always uses the /join endpoint — enforces expiry + participant role
+        meetingLink: iv.meetingLink ? `${backendUrl}/api/meetings/interview/${iv.id}/join` : null,
         location: iv.location,
         interviewerName: iv.interviewer || null,
         status: iv.status,

@@ -161,6 +161,27 @@ const Job = sequelize.define('Job', {
     type: DataTypes.DATE,
     allowNull: true,
     comment: 'Original posting date (before any refreshes)'
+  },
+  locationType: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'e.g. In person, Remote, Hybrid'
+  },
+  nationalityRestriction: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  urgentNote: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  goodToHaveSkills: {
+    type: DataTypes.ARRAY(DataTypes.STRING),
+    defaultValue: []
+  },
+  companyTagline: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   tableName: 'jobs',
