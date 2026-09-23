@@ -247,11 +247,11 @@ class NotificationService {
             candMessage = `Your application for ${job?.jobTitle || 'the position'} at ${job?.company || ''} is being reviewed`;
             break;
           case 'shortlisted':
-            candTitle = '🎉 You have been Shortlisted!';
+            candTitle = 'You have been Shortlisted!';
             candMessage = `Congratulations! You have been shortlisted for ${job?.jobTitle || 'the position'} at ${job?.company || ''}`;
             break;
           case 'hired':
-            candTitle = '🎊 Job Offer!';
+            candTitle = 'Job Offer!';
             candMessage = `Amazing news! You have been selected for ${job?.jobTitle || 'the position'} at ${job?.company || ''}`;
             break;
           case 'rejected':
