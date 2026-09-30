@@ -193,6 +193,18 @@ const User = sequelize.define('User', {
   lastSuccessfulLogin: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  extraRoles: {
+    type: DataTypes.ARRAY(DataTypes.STRING),
+    defaultValue: [],
+    allowNull: true,
+    comment: 'Additional roles e.g. employer who also has recruiter access'
+  },
+  permissions: {
+    type: DataTypes.ARRAY(DataTypes.STRING),
+    defaultValue: [],
+    allowNull: true,
+    comment: 'Explicit permission grants e.g. recruiter_portal_access'
   }
 }, {
   tableName: 'users',

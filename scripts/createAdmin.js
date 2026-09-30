@@ -7,8 +7,7 @@ import User from '../models/User.js';
 
 const DEFAULT_ADMIN_EMAILS = [
   'admin@zyncjobs.com',
-  'antony@trinitetech.com',
-  'muthees@trinitetech.com'
+  'antony@trinitetech.com'
 ];
 
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@1234';

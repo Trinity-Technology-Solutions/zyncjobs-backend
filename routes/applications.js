@@ -1,5 +1,7 @@
 import express from 'express';
-import { ZipArchive } from 'archiver';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const archiver = require('archiver');
 import { body, validationResult } from 'express-validator';
 import { Op } from 'sequelize';
 import Application from '../models/Application.js';
@@ -765,7 +767,7 @@ router.get('/job/:jobId/bulk-download-resumes', async (req, res) => {
     const { default: pathModule } = await import('path');
     const { existsSync } = await import('fs');
 
-    const archive = new ZipArchive({ zlib: { level: 6 } });
+    const archive = archiver('zip', { zlib: { level: 6 } });
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${jobTitle}_resumes.zip"`);

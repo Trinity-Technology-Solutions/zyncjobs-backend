@@ -101,7 +101,9 @@ export const authenticateToken = async (req, res, next) => {
 export const requireRole = (roles) => {
   return (req, res, next) => {
     const userRole = req.user?.role || req.user?.userType;
-    if (!req.user || !roles.includes(userRole)) {
+    const extraRoles = req.user?.extraRoles || [];
+    const hasRole = roles.includes(userRole) || extraRoles.some(r => roles.includes(r));
+    if (!req.user || !hasRole) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
     next();

@@ -368,6 +368,34 @@ router.put('/:id/reset-password', ...superAdminGuard, async (req, res) => {
   }
 });
 
+// PUT /api/admin/users/:id/permissions
+router.put('/:id/permissions', ...adminGuard, async (req, res) => {
+  try {
+    const { permissions } = req.body;
+    if (!Array.isArray(permissions))
+      return res.status(400).json({ error: 'permissions must be an array' });
+
+    const validPermissions = [
+      'recruiter_portal_access',
+      'talent_pool_view',
+      'candidate_search',
+      'submission_tracker'
+    ];
+    const invalid = permissions.filter(p => !validPermissions.includes(p));
+    if (invalid.length)
+      return res.status(400).json({ error: `Invalid permissions: ${invalid.join(', ')}` });
+
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await user.update({ permissions });
+    await logAdminAction(req, 'update', user.email, `Permissions updated: ${permissions.join(', ') || 'none'}`, req.params.id);
+    res.json({ message: 'Permissions updated', permissions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // PUT /api/admin/users/:id/ban
 router.put('/:id/ban', ...adminGuard, async (req, res) => {
   try {
@@ -418,23 +446,34 @@ router.delete('/:id', ...adminGuard, async (req, res) => {
     const target = await User.findByPk(req.params.id);
     if (!target) return res.status(404).json({ error: 'User not found' });
 
-    // Log the action before deletion
     await logAdminAction(req, 'delete', target.email, `Deleted ${target.role} account`, req.params.id);
-    
-    // Delete user preferences first
-    await UserPreferences.destroy({ where: { userId: req.params.id } });
-    
-    // Actually delete the user from database
-    await User.destroy({ where: { id: req.params.id } });
-    
-    console.log(`✅ User deleted successfully: ${target.email} (${target.role})`);
-    res.json({ 
-      success: true,
-      message: `${target.role === 'admin' || target.role === 'super_admin' ? 'Admin user' : 'User'} deleted successfully` 
-    });
+
+    // Clean up all FK-referenced rows before deleting the user
+    const safeDestroy = async (modelPath, condition) => {
+      try {
+        const Model = (await import(modelPath)).default;
+        await Model.destroy({ where: condition });
+      } catch (e) {
+        console.warn(`⚠️ Cleanup skipped for ${modelPath}:`, e.message);
+      }
+    };
+
+    const uid = req.params.id;
+    const email = target.email;
+    await safeDestroy('../models/UserPreferences.js', { userId: uid });
+    await safeDestroy('../models/RefreshSession.js',  { userId: uid });
+    await safeDestroy('../models/GdprConsent.js',     { userId: uid });
+    await safeDestroy('../models/PasswordReset.js',   { [Op.or]: [{ userId: uid }, { email }] });
+    await safeDestroy('../models/Notification.js',    { userId: uid });
+    await safeDestroy('../models/AuditLog.js',        { userId: uid });
+
+    await User.destroy({ where: { id: uid } });
+
+    console.log(`✅ Admin user deleted: ${email} (${target.role})`);
+    res.json({ success: true, message: 'Admin user deleted successfully' });
   } catch (error) {
     console.error('Delete user error:', error);
-    res.status(500).json({ error: 'Failed to delete user' });
+    res.status(500).json({ error: error.message || 'Failed to delete user' });
   }
 });
 

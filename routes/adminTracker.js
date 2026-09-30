@@ -75,9 +75,90 @@ function extractResumeFields(text, parsed = {}) {
 // GET /api/admin/tracker/rows
 router.get('/rows', authenticateToken, requireRole(ROLES), async (req, res) => {
   try {
-    const rows = await TrackerRow.findAll({ order: [['sno', 'ASC']] });
+    const isRecruiter = req.user.role === 'recruiter';
+    const where = isRecruiter ? { createdBy: req.user.id } : {};
+    const rows = await TrackerRow.findAll({ where, order: [['sno', 'ASC']] });
     res.json(rows);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Build WHERE clause helper
+function buildWhere({ isRecruiter, userId, from, to }) {
+  const conditions = [];
+  if (isRecruiter) conditions.push(`created_by = '${userId}'`);
+  if (from) conditions.push(`date >= '${from}'`);
+  if (to) conditions.push(`date <= '${to}'`);
+  return conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+}
+
+// GET /api/admin/tracker/analytics
+router.get('/analytics', authenticateToken, requireRole(ROLES), async (req, res) => {
+  try {
+    const { sequelize: sq } = await import('../config/postgresql.js');
+    const isRecruiter = req.user.role === 'recruiter';
+    const { from, to } = req.query;
+    const whereClause = buildWhere({ isRecruiter, userId: req.user.id, from, to });
+    const today = new Date().toISOString().slice(0, 10);
+
+    const [statusBreakdown] = await sq.query(
+      `SELECT status, COUNT(*) as count FROM tracker_rows ${whereClause} GROUP BY status ORDER BY count DESC`
+    );
+    const [recruiterStats] = await sq.query(
+      `SELECT recruiter_name as name, COUNT(*) as total,
+        SUM(CASE WHEN status='Shortlisted' THEN 1 ELSE 0 END) as shortlisted,
+        SUM(CASE WHEN status='Submitted' THEN 1 ELSE 0 END) as submitted,
+        SUM(CASE WHEN status='Rejected' THEN 1 ELSE 0 END) as rejected,
+        SUM(CASE WHEN status='Feedback' THEN 1 ELSE 0 END) as feedback,
+        SUM(CASE WHEN status='Duplicate' THEN 1 ELSE 0 END) as duplicate,
+        SUM(CASE WHEN status='Screening' THEN 1 ELSE 0 END) as screening,
+        SUM(CASE WHEN status='Not Relevant' THEN 1 ELSE 0 END) as not_relevant,
+        SUM(CASE WHEN date='${today}' THEN 1 ELSE 0 END) as today_count
+       FROM tracker_rows ${whereClause} GROUP BY recruiter_name ORDER BY total DESC`
+    );
+    const [dailyTrend] = await sq.query(
+      `SELECT date, COUNT(*) as count FROM tracker_rows ${whereClause} GROUP BY date ORDER BY date DESC LIMIT 30`
+    );
+    const [totals] = await sq.query(
+      `SELECT COUNT(*) as total,
+        SUM(CASE WHEN status='Shortlisted' THEN 1 ELSE 0 END) as shortlisted,
+        SUM(CASE WHEN status='Submitted' THEN 1 ELSE 0 END) as submitted,
+        SUM(CASE WHEN status='Rejected' THEN 1 ELSE 0 END) as rejected,
+        SUM(CASE WHEN status='Feedback' THEN 1 ELSE 0 END) as feedback,
+        SUM(CASE WHEN status='Duplicate' THEN 1 ELSE 0 END) as duplicate,
+        SUM(CASE WHEN status='Screening' THEN 1 ELSE 0 END) as screening,
+        SUM(CASE WHEN status='Not Relevant' THEN 1 ELSE 0 END) as not_relevant,
+        COUNT(DISTINCT candidate_name) as unique_candidates,
+        COUNT(DISTINCT recruiter_name) as recruiters
+       FROM tracker_rows ${whereClause}`
+    );
+
+    res.json({ totals: totals[0], statusBreakdown, recruiterStats, dailyTrend: dailyTrend.reverse() });
+  } catch (err) {
+    console.error('[TRACKER] analytics error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/tracker/analytics/recruiter/:name
+router.get('/analytics/recruiter/:name', authenticateToken, requireRole(ROLES), async (req, res) => {
+  try {
+    const { sequelize: sq } = await import('../config/postgresql.js');
+    const { from, to } = req.query;
+    const name = req.params.name;
+    const conditions = [`recruiter_name = '${name.replace(/'/g, "''")}'`];
+    if (from) conditions.push(`date >= '${from}'`);
+    if (to) conditions.push(`date <= '${to}'`);
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+    const [rows] = await sq.query(
+      `SELECT sub_id, candidate_name, job_role, company, status, date, source
+       FROM tracker_rows ${whereClause} ORDER BY date DESC, sno DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[TRACKER] recruiter drill-down error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -91,9 +172,13 @@ router.post('/rows', authenticateToken, requireRole(ROLES), async (req, res) => 
     if (!payload.date) {
       payload.date = new Date().toISOString().slice(0, 10);
     }
+    if (!payload.submittedDate) payload.submittedDate = null;
+    if (!payload.interviewDate) payload.interviewDate = null;
 
     // Always auto-generate subId — never trust client-supplied value
     payload.subId = await generateSubIdSafe();
+    // Always set recruiterName from logged-in user — never trust client
+    payload.recruiterName = req.user.name || payload.recruiterName || '';
 
     const row = await TrackerRow.create({
       ...payload,
@@ -114,6 +199,8 @@ router.put('/rows/:id', authenticateToken, requireRole(ROLES), async (req, res) 
     if (!row) return res.status(404).json({ error: 'Row not found' });
     // Prevent overwriting the auto-generated subId
     const { subId: _ignored, ...safeBody } = req.body;
+    if ('submittedDate' in safeBody && !safeBody.submittedDate) safeBody.submittedDate = null;
+    if ('interviewDate' in safeBody && !safeBody.interviewDate) safeBody.interviewDate = null;
     await row.update(safeBody);
     res.json(row);
   } catch (err) {

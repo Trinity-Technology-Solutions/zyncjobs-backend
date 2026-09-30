@@ -823,7 +823,8 @@ router.post('/login', loginLimiter, async (req, res) => {
       teamRole: teamMemberData?.teamRole || null,
       ownerEmail: teamMemberData?.ownerEmail || null,
       isFirstLogin: user.isFirstLogin || false,
-      permissions: teamMemberData?.permissions || null,
+      permissions: teamMemberData?.permissions || user.permissions || [],
+      extraRoles: Array.isArray(user.extraRoles) ? user.extraRoles : [],
       plan: user.plan || 'free',
       ...(passwordExpiresIn !== null && { passwordExpiresIn, shouldChangePassword: true }),
       ...profileData
