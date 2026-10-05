@@ -371,9 +371,15 @@ router.put('/:id/reset-password', ...superAdminGuard, async (req, res) => {
 // PUT /api/admin/users/:id/permissions
 router.put('/:id/permissions', ...adminGuard, async (req, res) => {
   try {
-    const { permissions } = req.body;
-    if (!Array.isArray(permissions))
-      return res.status(400).json({ error: 'permissions must be an array' });
+    let { permissions } = req.body;
+    // normalize: accept object format { recruiter_portal_access: true } or array
+    if (!Array.isArray(permissions)) {
+      if (permissions && typeof permissions === 'object') {
+        permissions = Object.keys(permissions).filter(k => permissions[k] === true || permissions[k] === 1 || permissions[k] === 'true');
+      } else {
+        return res.status(400).json({ error: 'permissions must be an array' });
+      }
+    }
 
     const validPermissions = [
       'recruiter_portal_access',
