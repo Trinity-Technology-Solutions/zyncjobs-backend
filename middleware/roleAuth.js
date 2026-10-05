@@ -121,6 +121,14 @@ export const requireRole = (allowedRoles) => {
     // super_admin has access to everything
     if (userRole === 'super_admin') return next();
 
+    // Allow employer with recruiter_portal_access if 'recruiter' is in the required roles
+    const permissions = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+    const hasRecruiterAccess = allowedRoles.includes('recruiter') && permissions.includes('recruiter_portal_access');
+    if (hasRecruiterAccess && userRole === 'employer') {
+      req.user.role = 'recruiter';
+      return next();
+    }
+
     if (!allowedRoles.includes(userRole)) {
       return res.status(403).json({
         error: 'Access denied. Insufficient permissions.',
