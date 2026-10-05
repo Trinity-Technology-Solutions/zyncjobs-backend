@@ -145,6 +145,19 @@ function sanitizeArray(arr, fieldType) {
 
 // Build the create payload from a parse result + file metadata
 let candidateIdCounter = 0;
+async function getNextCandidateId() {
+  const last = await TalentCandidate.findOne({
+    order: [['addedDate', 'DESC']],
+    attributes: ['candidateId']
+  });
+  if (last?.candidateId) {
+    const num = parseInt(last.candidateId.replace('ZC-', ''), 10);
+    if (!isNaN(num)) candidateIdCounter = num;
+  }
+  candidateIdCounter++;
+  return `ZC-${String(candidateIdCounter).padStart(6, '0')}`;
+}
+
 function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) {
   const skillsArray = sanitizeArray(Array.isArray(parsed.skills) ? parsed.skills : [], 'jobTitle');
   const workExps = sanitizeArray(Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [], 'jobTitle');
@@ -174,8 +187,7 @@ function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) 
   
   const ok = !!(name || email);
 
-  candidateIdCounter++;
-  const candidateId = `ZC-${String(candidateIdCounter).padStart(6, '0')}`;
+  const candidateId = `ZC-PENDING`;
 
   return {
     id: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -354,6 +366,7 @@ router.post('/upload', authenticateToken, requireRole(['admin', 'recruiter']), u
       const parsed = await resumeParser.parseResumeToProfile(text);
       parsed.rawText = text;
       const record = candidateRecordFromParsed(parsed, { fileName, fileUrl: s3Url, fileSize: size });
+      record.candidateId = await getNextCandidateId();
       const candidate = await TalentCandidate.create(record);
       await saveCandidateSkills(candidate.id, parsed.skills);
       processingState.processed++;
@@ -380,6 +393,7 @@ router.post('/upload', authenticateToken, requireRole(['admin', 'recruiter']), u
       const parsed = await resumeParser.parseResumeToProfile(text);
       parsed.rawText = text;
       const record = candidateRecordFromParsed(parsed, { fileName: file.originalname, fileUrl, fileSize: file.size });
+      record.candidateId = await getNextCandidateId();
       const candidate = await TalentCandidate.create(record);
       await saveCandidateSkills(candidate.id, parsed.skills);
       processingState.processed++;
