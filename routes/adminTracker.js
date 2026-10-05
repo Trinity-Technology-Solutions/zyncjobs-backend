@@ -38,19 +38,10 @@ function firstValue(...values) {
   return values.find(value => typeof value === 'string' && value.trim())?.trim() || '';
 }
 
-// Detect source from resume text — checks all major job portals
-function detectSource(text) {
-  if (/linkedin\.com\/in\//i.test(text))       return 'LinkedIn';
-  if (/naukri\.com/i.test(text))               return 'Naukri';
-  if (/indeed\.com/i.test(text))               return 'Indeed';
-  if (/monster\.com/i.test(text))              return 'Monster';
-  if (/shine\.com/i.test(text))                return 'Shine';
-  if (/timesjobs\.com/i.test(text))            return 'TimesJobs';
-  if (/ziprecruiter\.com/i.test(text))         return 'ZipRecruiter';
-  if (/glassdoor\.com/i.test(text))            return 'Glassdoor';
-  if (/foundit\.in|monster\.in/i.test(text))   return 'Foundit';
-  if (/hirist\.com/i.test(text))               return 'Hirist';
-  if (/internshala\.com/i.test(text))          return 'Internshala';
+// Source detection removed — recruiter should manually select source
+// (resume PDFs often contain linkedin.com URLs in contact section which
+//  does not mean the candidate was sourced from LinkedIn)
+function detectSource(_text) {
   return '';
 }
 
