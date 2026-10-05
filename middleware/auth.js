@@ -102,10 +102,15 @@ export const requireRole = (roles) => {
   return (req, res, next) => {
     const userRole = req.user?.role || req.user?.userType;
     const extraRoles = req.user?.extraRoles || [];
-    const hasRole = roles.includes(userRole) || extraRoles.some(r => roles.includes(r));
+    const permissions = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
+    // Allow employer with recruiter_portal_access if 'recruiter' is in the required roles
+    const hasRecruiterAccess = roles.includes('recruiter') && permissions.includes('recruiter_portal_access');
+    const hasRole = roles.includes(userRole) || extraRoles.some(r => roles.includes(r)) || hasRecruiterAccess;
     if (!req.user || !hasRole) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
+    // Normalize role for downstream use (e.g. isRecruiter checks)
+    if (hasRecruiterAccess && userRole === 'employer') req.user.role = 'recruiter';
     next();
   };
 };
