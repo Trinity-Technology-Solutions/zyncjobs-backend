@@ -25,6 +25,7 @@ const TrackerRow = sequelize.define('TrackerRow', {
   submittedDate: { type: DataTypes.DATEONLY, allowNull: true, field: 'submitted_date' },
   interviewDate: { type: DataTypes.DATEONLY, allowNull: true, field: 'interview_date' },
   status: { type: DataTypes.STRING, defaultValue: '' },
+  talentCandidateId: { type: DataTypes.STRING, allowNull: true, field: 'talent_candidate_id' },
   resumeFile: { type: DataTypes.STRING, defaultValue: '', field: 'resume_file' },
   createdBy: { type: DataTypes.STRING, allowNull: true, field: 'created_by' },
 }, {

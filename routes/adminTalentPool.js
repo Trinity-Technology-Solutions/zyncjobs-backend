@@ -8,6 +8,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import nodemailer from 'nodemailer';
 import TalentCandidate from '../models/TalentCandidate.js';
+import TrackerRow from '../models/TrackerRow.js';
 import Skill from '../models/Skill.js';
 import CandidateSkill from '../models/CandidateSkill.js';
 import '../models/associations.js';
@@ -569,7 +570,7 @@ router.delete('/candidates/:id', authenticateToken, requireRole(['admin', 'recru
     // Delete from S3 only if no other candidate shares the same file
     if (candidate.resumePath) {
       try {
-        const sharedCount = await TalentCandidate.count({ where: { resumePath: candidate.resumePath } });
+        const sharedCount = await TalentCandidate.count({ where: { resumePath: candidate.resumePath } }) + await TrackerRow.count({ where: { resumeFile: candidate.resumePath } });
         if (sharedCount <= 1) await deleteResumeFromS3(candidate.resumePath);
       } catch (s3Err) {
         console.warn('[TALENT DELETE] S3 cleanup failed (continuing):', s3Err.message);
