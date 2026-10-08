@@ -29,7 +29,7 @@
     "db:migrate:undo": "npx sequelize-cli db:migrate:undo",
     "db:migrate:status": "npx sequelize-cli db:migrate:status",
     "db:migrate:create": "npx sequelize-cli migration:generate --name",
-    "test:tracker": "node --experimental-vm-modules --test test/trackerTransfer.test.mjs test/trackerValidation.test.mjs"
+    "test:tracker": "node --experimental-vm-modules --test test/trackerTransfer.test.mjs test/trackerValidation.test.mjs test/resumeFieldValidation.test.mjs"
   },
   "keywords": [
     "job-portal",

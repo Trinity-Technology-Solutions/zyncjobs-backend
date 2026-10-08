@@ -7,6 +7,7 @@ import { sameSubmission, validateDetails } from '../services/trackerSubmissionVa
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import pdfTextExtractor from '../services/pdfTextExtractor.js';
 import aiClient from '../services/aiClient.js';
+import { validateResumeFields, validateTrackerFields } from '../services/resumeFieldValidation.js';
 import { getResumeStreamFromS3 } from '../services/s3Service.js';
 
 const router = express.Router();
@@ -49,21 +50,8 @@ function detectSource(_text) {
 }
 
 function extractResumeFields(text, parsed = {}) {
-  const personalInfo = parsed.personalInfo || parsed.personal_info || parsed.contact || {};
-  const email = firstValue(parsed.email, parsed.emailAddress, personalInfo.email, personalInfo.emailAddress)
-    || text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0] || '';
-  const phone = firstValue(parsed.phone, parsed.phoneNumber, parsed.mobile, personalInfo.phone, personalInfo.phoneNumber, personalInfo.mobile)
-    || text.match(/(?:\+?\d[\d\s().-]{7,}\d)/)?.[0]?.replace(/\s+/g, ' ').trim() || '';
-  const name = firstValue(parsed.name, parsed.fullName, personalInfo.name, personalInfo.fullName)
-    || text.split(/\r?\n/).map(line => line.trim()).find(line => line && line.length <= 80 && !line.includes('@') && !/^(resume|curriculum vitae|cv|phone|mobile|email|linkedin)\b/i.test(line)) || '';
-  const role = firstValue(parsed.title, parsed.jobTitle, parsed.currentRole, parsed.current_role, parsed.profession, personalInfo.title, personalInfo.jobTitle, personalInfo.currentRole)
-    || text.match(/(?:current\s+role|job\s+title|professional\s+title|designation)\s*[:\-]\s*([^\n]+)/i)?.[1]?.trim() || '';
-  const skills = Array.isArray(parsed.skills) ? parsed.skills.filter(Boolean).join(', ') : firstValue(parsed.skills, personalInfo.skills);
-  const skillSection = text.match(/(?:skills|technical skills|key skills)\s*[:\-]?\s*([^\n]+(?:\n(?!\s*(?:experience|education|projects|certifications|work history)\b)[^\n]+){0,2})/i)?.[1]
-    ?.replace(/\s+/g, ' ').trim() || '';
-  const source = detectSource(text);
-
-  return { name, email, phone, skillRole: role || skills || skillSection, source };
+  const valid = validateResumeFields(parsed, text);
+  return { name: valid.name, email: valid.email, phone: valid.phone, skillRole: valid.title, source: '' };
 }
 
 // Download the original resume using the tracker-owned reference and authorization.
@@ -232,6 +220,8 @@ router.post('/rows/from-talent-pool', authenticateToken, requireRole(ROLES), asy
 router.post('/rows', authenticateToken, requireRole(ROLES), async (req, res) => {
   try {
     if (req.body.resumeFile || req.body.talentCandidateId) return res.status(400).json({ error: 'Use validated resume upload or Talent Pool transfer to attach a resume.' });
+    const fieldError = validateTrackerFields(req.body);
+    if (fieldError) return res.status(400).json({ error: fieldError });
     const row = await trackerWrite(async transaction => {
       const payload = { ...req.body, createdBy: req.user.id };
       delete payload.id; delete payload.talentCandidateId;
@@ -258,6 +248,9 @@ router.put('/rows/:id', authenticateToken, requireRole(ROLES), async (req, res) 
         }
       }
       const { id, subId, createdBy, talentCandidateId, recruiterName, submittedDate, ...safeBody } = req.body;
+      const changedFields = Object.fromEntries(Object.entries(safeBody).filter(([key, value]) => String(value ?? '') !== String(row[key] ?? '')));
+      const fieldError = validateTrackerFields(changedFields);
+      if (fieldError) { const error = new Error(fieldError); error.status = 400; throw error; }
       if ('interviewDate' in safeBody && !safeBody.interviewDate) safeBody.interviewDate = null;
       await assertUnique({ ...row.toJSON(), ...safeBody }, transaction, row.id);
       return row.update(safeBody, { transaction });

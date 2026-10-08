@@ -1,5 +1,6 @@
 // AI Gateway Client — Calls ZyncJobs AI Service (FastAPI on port 8001)
 import axios from 'axios';
+import { validateResumeFields } from './resumeFieldValidation.js';
 
 const GATEWAY_URL = process.env.AI_GATEWAY_URL || 'http://localhost:8001';
 const AI_JWT_SECRET = process.env.AI_JWT_SECRET || 'dev-secret-change-in-production';
@@ -52,11 +53,11 @@ export class AIClient {
 
   async parseResume(resumeText, extraInstructions = '') {
     const content = extraInstructions ? `${resumeText}\n\n${extraInstructions}` : resumeText;
-    return await execute('parse resume', 'candidate', {}, content, 'text');
+    return validateResumeFields(await execute('parse resume', 'candidate', {}, content, 'text'), resumeText);
   }
 
   async hybridParseResume(resumeText) {
-    return await execute('parse resume', 'candidate', {}, resumeText, 'text');
+    return validateResumeFields(await execute('parse resume', 'candidate', {}, resumeText, 'text'), resumeText);
   }
 
   async atsScore(resumeText, jobDescription = '') {

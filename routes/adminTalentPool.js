@@ -8,6 +8,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { requireRole } from '../middleware/roleAuth.js';
 import nodemailer from 'nodemailer';
 import TalentCandidate from '../models/TalentCandidate.js';
+import { cleanResumeField, validateResumeFields } from '../services/resumeFieldValidation.js';
 import TrackerRow from '../models/TrackerRow.js';
 import Skill from '../models/Skill.js';
 import CandidateSkill from '../models/CandidateSkill.js';
@@ -63,59 +64,7 @@ async function saveCandidateSkills(candidateId, skillsArray) {
 
 // Strict field validation — ensures each field only contains its intended data type
 function sanitizeField(value, fieldType) {
-  if (!value || typeof value !== 'string') return '';
-  const v = value.trim();
-  
-  switch (fieldType) {
-    case 'name':
-      // Only letters, spaces, dots, hyphens - no digits, @, +, job title keywords
-      if (/[\d@+]/.test(v)) return '';
-      if (/\b(developer|engineer|manager|analyst|intern|architect|consultant|director|lead|senior|junior|hr|ceo|cto|founder|student|fresher|software|full.?stack|front.?end|back.?end|data|devops|cloud|mobile|web|recruiter|designer|tester|qa|admin|executive|specialist|associate|coordinator|officer|president|vice|head|principal|staff|trainee)\b/i.test(v)) return '';
-      if (!/^[A-Za-z][A-Za-z.'\-\s]{1,50}$/.test(v)) return '';
-      if (v.split(/\s+/).length > 4) return ''; // Max 4 words
-      return v.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-    
-    case 'email':
-      if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(v)) return '';
-      return v.toLowerCase();
-    
-    case 'phone':
-      // Only digits, +, -, spaces, parentheses - no letters
-      if (/[a-zA-Z]/.test(v)) return '';
-      const digits = v.replace(/\D/g, '');
-      if (digits.length < 10 || digits.length > 15) return '';
-      // Reject years/date ranges
-      if (/^(19|20)\d{2}/.test(digits)) return '';
-      return v;
-    
-    case 'jobTitle':
-      // Should contain role keywords, not names or contact info
-      if (/[@+]/.test(v)) return '';
-      if (/^\d+$/.test(v)) return '';
-      if (v.split(/\s+/).length > 6) return '';
-      return v;
-    
-    case 'location':
-      // City names only - no emails, phones, job titles
-      if (/[@+]/.test(v)) return '';
-      if (/\b(developer|engineer|manager|analyst|intern|hr|ceo|cto)\b/i.test(v)) return '';
-      if (v.length > 50) return '';
-      return v;
-    
-    case 'company':
-      // Company names - no emails, phones
-      if (/[@+]/.test(v)) return '';
-      if (v.length > 100) return '';
-      return v;
-    
-    case 'summary':
-      // Max 2000 chars, no contact info
-      if (v.length > 2000) return v.substring(0, 2000);
-      return v;
-    
-    default:
-      return v;
-  }
+  return cleanResumeField(value, fieldType);
 }
 
 function sanitizeArray(arr, fieldType) {
@@ -128,8 +77,8 @@ function sanitizeArray(arr, fieldType) {
         for (const [key, val] of Object.entries(item)) {
           if (key === 'jobTitle' || key === 'title') sanitized[key] = sanitizeField(String(val || ''), 'jobTitle');
           else if (key === 'company' || key === 'school') sanitized[key] = sanitizeField(String(val || ''), 'company');
-          else if (key === 'degree') sanitized[key] = sanitizeField(String(val || ''), 'jobTitle'); // degree like jobTitle
-          else if (key === 'name') sanitized[key] = sanitizeField(String(val || ''), 'jobTitle'); // project name
+          else if (key === 'degree') sanitized[key] = sanitizeField(val, 'degree'); // Degree label, never a job title
+          else if (key === 'name') sanitized[key] = sanitizeField(val, 'label'); // Project/certificate label
           else if (key === 'descriptions' && Array.isArray(val)) sanitized[key] = val.map(d => sanitizeField(String(d || ''), 'summary'));
           else sanitized[key] = String(val || '');
         }
@@ -160,7 +109,8 @@ async function getNextCandidateId() {
 }
 
 function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) {
-  const skillsArray = sanitizeArray(Array.isArray(parsed.skills) ? parsed.skills : [], 'jobTitle');
+  parsed = validateResumeFields(parsed, parsed.rawText || '');
+  const skillsArray = sanitizeArray(Array.isArray(parsed.skills) ? parsed.skills : [], 'label');
   const workExps = sanitizeArray(Array.isArray(parsed.workExperiences) ? parsed.workExperiences : [], 'jobTitle');
   const internships = sanitizeArray(Array.isArray(parsed.internships) ? parsed.internships : [], 'jobTitle');
   const educations = sanitizeArray(Array.isArray(parsed.educations) ? parsed.educations : [], 'jobTitle');
@@ -179,12 +129,12 @@ function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) 
   const phone = sanitizeField(parsed.phone || '', 'phone');
   const jobTitle = sanitizeField(parsed.title || '', 'jobTitle');
   const location = sanitizeField(parsed.location || '', 'location');
-  const country = parsed.country || (location ? 'India' : '');
+  const country = sanitizeField(parsed.country || '', 'country');
   const summary = sanitizeField(parsed.summary || '', 'summary');
-  const tools = sanitizeArray(Array.isArray(parsed.tools) ? parsed.tools : [], 'jobTitle').join(', ');
-  const softSkills = sanitizeArray(Array.isArray(parsed.softSkills) ? parsed.softSkills : [], 'jobTitle').join(', ');
-  const languages = sanitizeArray(Array.isArray(parsed.languages) ? parsed.languages : [], 'jobTitle').join(', ');
-  const awards = sanitizeArray(Array.isArray(parsed.awards) ? parsed.awards : [], 'jobTitle');
+  const tools = sanitizeArray(Array.isArray(parsed.tools) ? parsed.tools : [], 'label').join(', ');
+  const softSkills = sanitizeArray(Array.isArray(parsed.softSkills) ? parsed.softSkills : [], 'label').join(', ');
+  const languages = sanitizeArray(Array.isArray(parsed.languages) ? parsed.languages : [], 'label').join(', ');
+  const awards = sanitizeArray(Array.isArray(parsed.awards) ? parsed.awards : [], 'label');
   
   const ok = !!(name || email);
 
@@ -196,7 +146,7 @@ function candidateRecordFromParsed(parsed, { fileName, fileUrl, fileSize = 0 }) 
     name,
     email,
     phone,
-    dob: sanitizeField(parsed.dob || '', 'phone'), // DOB similar to phone (digits only)
+    dob: sanitizeField(parsed.dob || '', 'dob'), // DOB similar to phone (digits only)
     skills: skillsArray.join(', '),
     experience: workExps.length ? `${workExps.length} role(s)` : '',
     totalExperience,
@@ -905,15 +855,15 @@ router.post('/candidates/:id/retry', authenticateToken, requireRole(['admin', 'r
       : '';
 
     const updates = {
-      name: parsed.name || candidate.name || '',
-      email: parsed.email || candidate.email || '',
-      phone: parsed.phone || candidate.phone || '',
-      dob: parsed.dob || candidate.dob || '',
+      name: parsed.name || '',
+      email: parsed.email || '',
+      phone: parsed.phone || '',
+      dob: parsed.dob || '',
       skills: Array.isArray(parsed.skills) ? parsed.skills.join(', ') : (candidate.skills || ''),
       experience: workExps.length ? `${workExps.length} role(s)` : (candidate.experience || ''),
-      totalExperience: totalExperience ?? candidate.totalExperience,
-      currentCompany: currentCompany || candidate.currentCompany || '',
-      jobTitle: parsed.title || candidate.jobTitle || '',
+      totalExperience: totalExperience ?? null,
+      currentCompany: currentCompany || '',
+      jobTitle: parsed.title || '',
       summary: parsed.summary || '',
       location: parsed.location || '',
       workExperiences: JSON.stringify(workExps),

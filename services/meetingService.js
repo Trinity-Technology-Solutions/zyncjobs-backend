@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { google } from 'googleapis';
+import { QueryTypes } from 'sequelize';
 import { sequelize } from '../config/postgresql.js';
 import crypto from 'crypto';
 
@@ -14,7 +15,7 @@ class MeetingService {
     this.googleMeetConfig = {
       clientId: process.env.GOOGLE_MEET_CLIENT_ID,
       clientSecret: process.env.GOOGLE_MEET_CLIENT_SECRET,
-      redirectUri: process.env.GOOGLE_MEET_REDIRECT_URI || `${process.env.BACKEND_URL}/api/auth/google/meet/callback`
+      redirectUri: process.env.GOOGLE_MEET_REDIRECT_URI || `${(process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '')}/api/meetings/google-meet/callback`
     };
   }
 
@@ -194,6 +195,18 @@ class MeetingService {
     return this.createMeetEvent(event, meetingData);
   }
 
+  async awaitConference(calendar, data) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const link = data.conferenceData?.entryPoints?.find(point => point.entryPointType === 'video')?.uri || data.hangoutLink;
+      if (link && /^https:\/\/meet\.google\.com\//.test(link)) return data;
+      if (data.conferenceData?.createRequest?.status?.statusCode === 'failure') throw new Error('Google could not create a conference. Check that Google Meet is enabled for this account.');
+      if (!data.id) break;
+      await new Promise(resolve => setTimeout(resolve, 700));
+      data = (await calendar.events.get({ calendarId: 'primary', eventId: data.id })).data;
+    }
+    throw new Error('Google conference is still pending. Please retry in a moment.');
+  }
+
   async createMeetEvent(event, meetingData) {
     try {
       // --- PRODUCTION PATH (preferred): service account impersonation ---
@@ -207,6 +220,7 @@ class MeetingService {
           resource: event,
           conferenceDataVersion: 1
         });
+        response.data = await this.awaitConference(calendar, response.data);
         const meetLink = response.data.conferenceData?.entryPoints?.find(ep => ep.entryPointType === 'video')?.uri;
         const meetingId = response.data.conferenceData?.conferenceId;
         // Host link = Google Calendar event URL (employer opens this to start/manage meeting)
@@ -235,7 +249,7 @@ class MeetingService {
         const [account] = await sequelize.query(
           `SELECT id, "googleMeetAccessToken", "googleMeetRefreshToken" FROM users
            WHERE (id::text = $1 OR "employerId" = $2 OR email = $3) AND "googleMeetAccessToken" IS NOT NULL LIMIT 1`,
-          { bind: [meetingData.employerId, meetingData.employerId, meetingData.employerId], type: sequelize.QueryTypes.SELECT }
+          { bind: [meetingData.employerId, meetingData.employerId, meetingData.employerId], type: QueryTypes.SELECT }
         );
         if (account) {
           accessToken = account.googleMeetAccessToken;
@@ -267,6 +281,7 @@ class MeetingService {
         conferenceDataVersion: 1
       });
 
+      response.data = await this.awaitConference(calendar, response.data);
       const meetLink = response.data.conferenceData?.entryPoints?.find(ep => ep.entryPointType === 'video')?.uri;
       const meetingId = response.data.conferenceData?.conferenceId;
       const hostLink = `https://calendar.google.com/calendar/event?eid=${Buffer.from(response.data.id).toString('base64')}`;

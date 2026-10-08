@@ -1,5 +1,6 @@
 import aiClient from '../services/aiClient.js';
 import crypto from 'crypto';
+import { validateResumeFields } from '../services/resumeFieldValidation.js';
 
 // In-memory cache: hash → { result, expires }
 const parseCache = new Map();
@@ -118,8 +119,7 @@ export class ResumeParserAI {
 
   // ── AI call ───────────────────────────────────────────────────
   async callAIAgent(resumeText) {
-    const labeled = this.sectionLabelText(resumeText);
-    const result = await aiClient.parseResume(labeled);
+    const result = await aiClient.parseResume(resumeText);
     if (result && typeof result === 'object') {
       return JSON.stringify(result);
     }
@@ -200,7 +200,7 @@ export class ResumeParserAI {
 
     if (!content) {
       console.error('[RESUME_AI] All AI providers failed — using fallback');
-      return this.getFallbackParsing(resumeText);
+      return { ...validateResumeFields(this.getFallbackParsing(resumeText), resumeText), parserWarnings: ['AI parsing was unavailable. Some detailed resume sections may need review.'] };
     }
 
     let result = this.parseAIResponse(content, resumeText, preExtracted);
@@ -222,6 +222,7 @@ export class ResumeParserAI {
       } catch { /* keep first pass */ }
     }
 
+    result = validateResumeFields(result, resumeText);
     parseCache.set(cacheKey, { result, expires: Date.now() + CACHE_TTL });
     return result;
   }
@@ -362,6 +363,7 @@ export class ResumeParserAI {
           ? parsed.educations.filter(e => e && !isSentence(e.school) && !isSentence(e.degree) && (e.school || e.degree))
           : [],
         projects: (Array.isArray(parsed.projects) ? parsed.projects : []).map(pr => ({
+          ...pr,
           name: String(pr?.name || pr?.projectName || pr?.title || '').trim(),
           description: String(pr?.description || (Array.isArray(pr?.descriptions) ? pr.descriptions.join(' ') : '') || '').trim(),
         })),
@@ -369,6 +371,7 @@ export class ResumeParserAI {
         languages,
         awards,
         competitions: Array.isArray(parsed.competitions) ? parsed.competitions : [],
+        parserWarnings: Array.isArray(parsed.parserWarnings) ? parsed.parserWarnings : [],
       };
     } catch (error) {
       console.error('[RESUME_AI] Failed to parse AI JSON response:', error.message);

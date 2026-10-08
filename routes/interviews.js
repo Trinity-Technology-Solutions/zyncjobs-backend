@@ -121,7 +121,8 @@ async function formatInterviews(interviews) {
       jobTitle: job?.jobTitle || job?.title || 'N/A',
       company: job?.company || 'N/A',
       date: interview.scheduledDate,
-      time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      scheduledDate: interview.scheduledDate,
+      time: new Date(interview.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' }),
       duration: interview.duration,
       type: interview.type,
       status: interview.status,
@@ -205,7 +206,7 @@ router.get('/candidate/:email', async (req, res) => {
         candidateEmail: iv.candidateEmail,
         candidateName: iv.candidateName,
         interviewDate: iv.scheduledDate,
-        interviewTime: new Date(iv.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        interviewTime: new Date(iv.scheduledDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' }),
         interviewType: iv.type,
         // Candidate always uses the /join endpoint — enforces expiry + participant role
         meetingLink: iv.meetingLink ? `${backendUrl}/api/meetings/interview/${iv.id}/join` : null,
@@ -234,7 +235,17 @@ router.post('/schedule', blockViewer, async (req, res) => {
 
     console.log('📅 Schedule request:', { candidateEmail, employerId, bodyEmployerEmail });
 
-    let finalCandidateId = candidateId;
+    if (typeof scheduledDate !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(scheduledDate)) return res.status(400).json({ success: false, error: 'Interview time must include a timezone. Refresh the scheduling form and retry.' });
+    const parsedSchedule = new Date(scheduledDate);
+    if (!scheduledDate || !Number.isFinite(parsedSchedule.getTime()) || parsedSchedule.getTime() <= Date.now()) return res.status(400).json({ success: false, error: 'Select a valid future interview date and time.' });
+    if (!candidateEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidateEmail)) return res.status(400).json({ success: false, error: 'A valid candidate email is required.' });
+    if (!['phone', 'video', 'in-person'].includes(type || 'video')) return res.status(400).json({ success: false, error: 'Invalid interview type.' });
+    if ((type || 'video') === 'video') {
+      try { const url = new URL(meetingLink); if (url.protocol !== 'https:') throw new Error(); }
+      catch { return res.status(400).json({ success: false, error: 'Generate or paste a valid HTTPS meeting link.' }); }
+    }
+    const isUuid = value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '');
+    let finalCandidateId = isUuid(candidateId) ? candidateId : null;
     if (!finalCandidateId && candidateEmail) {
       const candidate = await User.findOne({ where: { email: candidateEmail }, attributes: ['id', 'email', 'name'] });
       if (candidate) {
@@ -243,9 +254,9 @@ router.post('/schedule', blockViewer, async (req, res) => {
       }
     }
 
-    let finalEmployerId = employerId;
-    if (employerId && employerId.includes('@')) {
-      const employer = await User.findOne({ where: { email: employerId }, attributes: ['id', 'email', 'name', 'companyName'] });
+    let finalEmployerId = isUuid(employerId) ? employerId : null;
+    if (employerId && !isUuid(employerId)) {
+      const employer = await User.findOne({ where: employerId.includes('@') ? { email: employerId } : { employerId }, attributes: ['id', 'email', 'name', 'companyName'] });
       if (employer) {
         finalEmployerId = employer.id;
         console.log('✅ Found employer:', finalEmployerId);
@@ -271,6 +282,8 @@ router.post('/schedule', blockViewer, async (req, res) => {
         if (emp?.email) resolvedEmployerEmail = emp.email;
       } catch { /* ignore */ }
     }
+
+    if (!finalEmployerId) return res.status(400).json({ success: false, error: 'Employer account could not be resolved. Sign in again and retry.' });
 
     const interview = await Interview.create({
       jobId: job?.id || jobId,

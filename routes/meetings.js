@@ -1,5 +1,4 @@
 import express from 'express';
-import { Op } from 'sequelize';
 import { meetingService } from '../services/meetingService.js';
 import User from '../models/User.js';
 import Interview from '../models/Interview.js';
@@ -12,17 +11,19 @@ const MINUTE_MS = 60 * 1000;
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v || '');
 
 // Friendly page shown for user-facing join errors (mirrors the project's interview response pages)
-const joinPage = (title, subtitle, message = '') => `
-<html><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
+const joinPage = (title, subtitle, message = '', refreshSeconds = 0) => `
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${refreshSeconds ? `<meta http-equiv="refresh" content="${refreshSeconds}">` : ''}</head><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
   <div style="background:white;padding:40px;border-radius:16px;text-align:center;max-width:480px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
     <h1 style="color:#1F2937;margin:0 0 8px;">${title}</h1>
     <p style="color:#4B5563;margin:0 0 4px;line-height:1.6;">${subtitle}</p>
+    ${refreshSeconds ? '<p style="color:#64748b;font-size:13px;">This page checks automatically every 15 seconds and opens the meeting when access is available.</p>' : ''}
     ${message ? `<p style="color:#6B7280;font-size:14px;margin:16px 0 0;">${message}</p>` : ''}
   </div>
 </body></html>`;
 
 // Shared time-window validation for both candidate join and employer host access
 async function validateInterviewAccess(id, res) {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   const interview = await Interview.findByPk(id);
 
   if (!interview) {
@@ -38,46 +39,24 @@ async function validateInterviewAccess(id, res) {
 
   const durationMinutes = Number(interview.duration) > 0 ? Number(interview.duration) : 60;
   const endTime = new Date(startTime.getTime() + durationMinutes * MINUTE_MS);
+  const opensAt = new Date(startTime.getTime() - 10 * MINUTE_MS);
+  const closesAt = new Date(endTime.getTime() + 15 * MINUTE_MS);
   const now = new Date();
-
-  console.log('📡 Interview access attempted', {
-    interviewId: interview.id,
-    status: interview.status,
-    start: startTime.toISOString(),
-    end: endTime.toISOString(),
-    now: now.toISOString()
-  });
-
-  if (interview.status === 'cancelled' || interview.status === 'rejected') {
-    res.status(410).send(joinPage('Interview Unavailable', 'This interview is no longer available.'));
+  const timeZone = process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata';
+  const display = value => value.toLocaleString('en-IN', { timeZone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  if (['cancelled', 'rejected', 'completed'].includes(interview.status)) {
+    res.status(410).send(joinPage('Interview Unavailable', 'This interview has been cancelled, declined or marked completed.'));
     return null;
   }
-
-  if (now < startTime) {
-    const availableDate = startTime.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const availableTime = startTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-    res.status(403).send(joinPage(
-      'Interview Not Started',
-      'This interview has not started yet.',
-      `It becomes available on ${availableDate} at ${availableTime}.`
-    ));
+  if (now < opensAt) {
+    res.status(403).send(joinPage('Interview Not Started', 'The meeting opens 10 minutes before the scheduled interview.', `Scheduled: ${display(startTime)}. Access opens: ${display(opensAt)}. Server time: ${display(now)}.`, 15));
     return null;
   }
-
-  if (now > endTime) {
-    // Persist terminal state atomically — only transitions once
-    await Interview.update(
-      { status: 'completed' },
-      { where: { id: interview.id, status: { [Op.ne]: 'completed' } } }
-    );
-    console.log('⏰ Interview link expired:', interview.id);
-    const endedDate = endTime.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const endedTime = endTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-    res.status(410).send(joinPage(
-      'Interview Link Expired',
-      'This interview has ended and the meeting link is no longer valid.',
-      `The interview was scheduled to end on ${endedDate} at ${endedTime}.`
-    ));
+  if (now > closesAt) {
+    // An elapsed time window does not prove an interview was completed.
+    res.status(410).send(joinPage('Interview Link Expired', 'The scheduled meeting window has ended. Contact the recruiter to reschedule.', `Scheduled end: ${display(endTime)}. Access closed: ${display(closesAt)}.`));
     return null;
   }
 
@@ -138,7 +117,15 @@ router.get('/google-meet/connect', (req, res) => {
 router.get('/google-meet/callback', async (req, res) => {
   try {
     const { code, state: employerId } = req.query;
-    if (!code) return res.status(400).send('Missing code');
+    if (req.query.error || !code) {
+      const messages = {
+        access_denied: 'Google Calendar permission was not granted. Reconnect and allow Calendar access; your Google Workspace administrator may need to approve the app.',
+        admin_policy_enforced: 'Your Google Workspace policy blocked this connection. Contact your Workspace administrator.',
+        invalid_scope: 'The Google Calendar permission configuration is invalid. Contact ZyncJobs support.',
+      };
+      const message = messages[req.query.error] || 'Google did not return an authorization code. Start again using Connect Google Account; do not open the callback URL directly.';
+      return res.status(400).send(joinPage('Google Connection Failed', message));
+    }
     const tokens = await meetingService.getGoogleMeetTokens(code);
 
     // The state can be a user UUID (owner/team member), an employerId string, or an
@@ -151,10 +138,10 @@ router.get('/google-meet/callback', async (req, res) => {
 
     await user.update({
       googleMeetAccessToken: tokens.access_token,
-      googleMeetRefreshToken: tokens.refresh_token || null
+      googleMeetRefreshToken: tokens.refresh_token || user.googleMeetRefreshToken || null
     });
     console.log('✅ Google Meet tokens saved for user:', user.id);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL?.split(',')[0]?.trim() || 'http://localhost:5173';
     res.redirect(`${frontendUrl}/dashboard?googleMeetConnected=true`);
   } catch (error) {
     console.error('Google Meet callback error:', error.message);

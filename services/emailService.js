@@ -773,8 +773,8 @@ export const sendInterviewScheduledEmail = async (candidateEmail, candidateName,
     const name = candidateName || 'there';
     const interviewDate = new Date(scheduledDate);
     const typeLabel = type === 'video' ? 'Video Call' : type === 'phone' ? 'Phone Call' : 'In Person';
-    const displayDate = interviewDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const displayTime = interviewDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const displayDate = interviewDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' });
+    const displayTime = interviewDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' });
 
     const BACKEND_URL = (process.env.BACKEND_URL || 'http://localhost:5000').split(',')[0].trim();
     const interviewId = encodeURIComponent(interviewDetails.id || '');
@@ -858,8 +858,8 @@ export const sendInterviewAcceptedEmail = async (employerEmail, companyName, can
   try {
     const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = candidateName || 'A candidate';
-    const date = interviewDate ? new Date(interviewDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'the scheduled date';
-    const time = interviewDate ? new Date(interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'the scheduled time';
+    const date = interviewDate ? new Date(interviewDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' }) : 'the scheduled date';
+    const time = interviewDate ? new Date(interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' }) : 'the scheduled time';
 
     const content = `
       <div style="background:linear-gradient(135deg,#059669 0%,#10B981 100%);padding:36px 40px;text-align:center;">
@@ -907,8 +907,8 @@ export const sendInterviewRejectedEmail = async (employerEmail, companyName, can
   try {
     const { baseTemplate, ctaButton, infoBox, divider, getFrontendUrl } = await import('./emailTemplates.js');
     const name = candidateName || 'A candidate';
-    const date = interviewDate ? new Date(interviewDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'the scheduled date';
-    const time = interviewDate ? new Date(interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'the scheduled time';
+    const date = interviewDate ? new Date(interviewDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' }) : 'the scheduled date';
+    const time = interviewDate ? new Date(interviewDate).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' }) : 'the scheduled time';
 
     const content = `
       <div style="background:linear-gradient(135deg,#DC2626 0%,#F97316 100%);padding:36px 40px;text-align:center;">
@@ -975,8 +975,8 @@ export const sendInterviewCancelledEmail = async (candidateEmail, candidateName,
 
         ${infoBox(`
           <table cellpadding="0" cellspacing="0" width="100%">
-            <tr><td style="padding:6px 0;width:120px;"><span style="color:#6B7280;font-size:13px;">Date</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${interviewDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</strong></td></tr>
-            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Time</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${interviewDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</strong></td></tr>
+            <tr><td style="padding:6px 0;width:120px;"><span style="color:#6B7280;font-size:13px;">Date</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${interviewDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' })}</strong></td></tr>
+            <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Time</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${interviewDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short', timeZone: process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata' })}</strong></td></tr>
             <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Duration</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${duration || 60} minutes</strong></td></tr>
             <tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Type</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${typeLabel}</strong></td></tr>
             ${location ? `<tr><td style="padding:6px 0;"><span style="color:#6B7280;font-size:13px;">Location</span></td><td style="padding:6px 0;"><strong style="color:#1F2937;font-size:14px;">${location}</strong></td></tr>` : ''}

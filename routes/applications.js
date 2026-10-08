@@ -1218,6 +1218,23 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Candidate-owned application history; do not invent dates for unrecorded status changes.
+router.get('/:id/timeline', authenticateToken, async (req, res) => {
+  try {
+    const application = await Application.findByPk(req.params.id);
+    if (!application) return res.status(404).json({ error: 'Application not found' });
+    const viewer = req.user.email ? req.user : await User.findByPk(req.user.id);
+    const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
+    if (!isAdmin && String(viewer?.email || '').toLowerCase() !== String(application.candidateEmail || '').toLowerCase()) return res.status(403).json({ error: 'Access denied' });
+    let events = Array.isArray(application.timeline) ? application.timeline : [];
+    if (!isAdmin) events = events.filter(event => event.status !== 'ai_rejected');
+    if (!events.some(event => ['applied', 'pending'].includes(event.status)) && application.createdAt) {
+      events = [{ status: 'applied', date: new Date(application.createdAt).toISOString(), note: 'Application submitted', updatedBy: application.candidateName || '' }, ...events];
+    }
+    res.json(events.map(event => ({ ...event, status: event.status === 'pending' ? 'applied' : event.status })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+  } catch { res.status(500).json({ error: 'Unable to load application history' }); }
+});
+
 // PUT /api/applications/:id/withdraw - Withdraw application
 router.put('/:id/withdraw', blockViewer, async (req, res) => {
   try {
@@ -1228,7 +1245,8 @@ router.put('/:id/withdraw', blockViewer, async (req, res) => {
     await application.update({
       status: 'withdrawn',
       withdrawnAt: new Date(),
-      withdrawalReason: reason || ''
+      withdrawalReason: reason || '',
+      timeline: [...(Array.isArray(application.timeline) ? application.timeline : []), { status: 'withdrawn', date: new Date().toISOString(), note: reason || '', updatedBy: application.candidateName || 'Candidate' }]
     });
 
     res.json({ message: 'Application withdrawn successfully', application });

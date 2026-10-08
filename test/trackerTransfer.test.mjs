@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import * as validation from '../services/trackerSubmissionValidation.js';
+import * as resumeValidation from '../services/resumeFieldValidation.js';
 
 const require = createRequire(new URL('../package.json', import.meta.url));
 const express = require('express');
@@ -38,12 +39,13 @@ const multer = Object.assign(() => ({ single: () => (req, _res, next) => { if (r
 const dependencies = {
   express: { default: express }, multer: { default: multer },
   '../models/TrackerRow.js': { default: TrackerRow }, '../models/TalentCandidate.js': { default: TalentCandidate },
+  '../services/resumeFieldValidation.js': resumeValidation,
   '../config/postgresql.js': { sequelize }, '../services/trackerSubmissionValidation.js': validation,
   '../middleware/auth.js': {
     authenticateToken(req, _res, next) { req.user = { id: 'admin-1', name: 'Admin', role: 'admin' }; next(); },
     requireRole: () => (_req, _res, next) => next(),
   },
-  '../services/pdfTextExtractor.js': { default: { async extractTextFromBuffer(_buffer, name) { if (name === 'corrupted.docx') throw new Error('Cannot find end of central directory'); if (name === 'blank.pdf') return ''; if (name === 'unrelated.pdf') return 'Invoice payment receipt for office equipment. '.repeat(5); return 'Candidate Resume Education Skills Experience Projects person@example.com 9876543210 '.repeat(4); } } },
+  '../services/pdfTextExtractor.js': { default: { async extractTextFromBuffer(_buffer, name) { if (name === 'corrupted.docx') throw new Error('Cannot find end of central directory'); if (name === 'blank.pdf') return ''; if (name === 'unrelated.pdf') return 'Invoice payment receipt for office equipment. '.repeat(5); return 'Valid Candidate Resume Education Skills Experience Projects person@example.com 9876543210 '.repeat(4); } } },
   '../services/aiClient.js': { default: { async parseResume() { return { name: 'Valid Candidate', email: 'person@example.com', phone: '9876543210' }; } } },
   '../services/s3Service.js': { getResumeStreamFromS3: async () => { throw new Error('Not needed in transfer tests'); } },
   sequelize: { Op: { like: 'like', in: 'in' } },
