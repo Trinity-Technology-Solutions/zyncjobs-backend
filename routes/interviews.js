@@ -6,6 +6,7 @@ import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Job from '../models/Job.js';
 import { meetingService } from '../services/meetingService.js';
+import { sequelize } from '../config/postgresql.js';
 
 const isSupportedMeetingUrl = (value, { host = false } = {}) => {
   try {
@@ -279,13 +280,17 @@ router.post('/schedule', blockViewer, async (req, res) => {
       }
     }
 
-    let job;
-    if (applicationId) {
-      const application = await Application.findByPk(applicationId);
-      if (application) {
-        job = await Job.findByPk(application.jobId);
-      }
+    let application = applicationId ? await Application.findByPk(applicationId) : null;
+    if (applicationId && !application) return res.status(404).json({ success: false, error: 'Application not found. Refresh the applications list and try again.' });
+    if (application && application.candidateEmail?.toLowerCase() !== candidateEmail.toLowerCase()) {
+      return res.status(409).json({ success: false, error: 'The selected application no longer matches this candidate. Refresh and try again.' });
     }
+    if (application && ['rejected', 'withdrawn', 'hired'].includes(application.status)) {
+      return res.status(409).json({ success: false, error: `Cannot schedule an interview for an application marked ${application.status}.` });
+    }
+
+    let job;
+    if (application) job = await Job.findByPk(application.jobId);
     if (!job && jobId) {
       job = await Job.findByPk(jobId);
     }
@@ -301,27 +306,87 @@ router.post('/schedule', blockViewer, async (req, res) => {
 
     if (!finalEmployerId) return res.status(400).json({ success: false, error: 'Employer account could not be resolved. Sign in again and retry.' });
 
-    const interview = await Interview.create({
-      jobId: job?.id || jobId,
-      candidateId: finalCandidateId,
-      employerId: finalEmployerId,
-      candidateEmail: candidateEmail,
-      candidateName: candidateName,
-      employerEmail: resolvedEmployerEmail,
-      applicationId: applicationId || null,
-      scheduledDate,
-      duration: duration || 60,
-      type: type || 'video',
-      meetingLink,
-      hostMeetingLink: hostMeetingLink || meetingLink,
-      location,
-      notes,
-      round: round || null,
-      interviewer: interviewer || null,
-      responseToken: generateResponseToken(),
-      tokenExpiry: newTokenExpiry(),
-      employerConfirmed: true
-    });
+    const transaction = await sequelize.transaction();
+    let interview;
+    try {
+      if (applicationId) {
+        application = await Application.findByPk(applicationId, { transaction, lock: transaction.LOCK.UPDATE });
+        if (!application) throw Object.assign(new Error('Application not found. Refresh the applications list and try again.'), { statusCode: 404 });
+      }
+
+      // Guard against duplicate rounds across duplicate application/resume rows.
+      if (round && job?.id) {
+        await sequelize.query('SELECT pg_advisory_xact_lock(hashtext($1))', {
+          bind: [`${job.id}:${candidateEmail.toLowerCase()}:${round}`],
+          transaction
+        });
+        const existingRound = await Interview.findOne({
+          where: {
+            jobId: job.id,
+            candidateEmail: { [Op.iLike]: candidateEmail },
+            round,
+            status: { [Op.in]: ['scheduled', 'confirmed', 'accepted', 'rescheduled', 'completed'] }
+          },
+          transaction,
+          lock: transaction.LOCK.UPDATE
+        });
+        if (existingRound) throw Object.assign(new Error(`${round} round is already scheduled for this candidate and job.`), { statusCode: 409 });
+      }
+
+      interview = await Interview.create({
+        jobId: job?.id || jobId,
+        candidateId: finalCandidateId,
+        employerId: finalEmployerId,
+        candidateEmail: candidateEmail,
+        candidateName: candidateName,
+        employerEmail: resolvedEmployerEmail,
+        applicationId: applicationId || null,
+        scheduledDate,
+        duration: duration || 60,
+        type: type || 'video',
+        meetingLink,
+        hostMeetingLink: hostMeetingLink || meetingLink,
+        location,
+        notes,
+        round: round || null,
+        interviewer: interviewer || null,
+        responseToken: generateResponseToken(),
+        tokenExpiry: newTokenExpiry(),
+        employerConfirmed: true
+      }, { transaction });
+
+      if (application) {
+        // Sync active duplicates for this candidate/job while preserving rejected,
+        // withdrawn, and hired records.
+        const relatedApplications = await Application.findAll({
+          where: {
+            jobId: application.jobId,
+            candidateEmail: { [Op.iLike]: application.candidateEmail },
+            status: { [Op.in]: ['pending', 'applied', 'reviewed', 'shortlisted', 'interviewed'] }
+          },
+          transaction,
+          lock: transaction.LOCK.UPDATE
+        });
+        for (const relatedApplication of relatedApplications) {
+          const timeline = Array.isArray(relatedApplication.timeline) ? relatedApplication.timeline : [];
+          await relatedApplication.update({
+            status: 'interviewed',
+            timeline: [...timeline, {
+              status: 'interviewed',
+              date: new Date().toISOString(),
+              note: `${round || 'Interview'} round scheduled.`,
+              updatedBy: resolvedEmployerEmail || 'Employer',
+              interviewId: interview.id
+            }]
+          }, { transaction });
+        }
+      }
+      await transaction.commit();
+    } catch (transactionError) {
+      await transaction.rollback();
+      if (transactionError.statusCode) return res.status(transactionError.statusCode).json({ success: false, error: transactionError.message });
+      throw transactionError;
+    }
 
     console.log('✅ Interview saved:', interview.id);
 

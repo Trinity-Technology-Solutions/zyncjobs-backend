@@ -5,6 +5,7 @@ const archiver = require('archiver');
 import { body, validationResult } from 'express-validator';
 import { Op } from 'sequelize';
 import Application from '../models/Application.js';
+import Interview from '../models/Interview.js';
 import Job from '../models/Job.js';
 import User from '../models/User.js';
 import Resume from '../models/Resume.js';
@@ -440,9 +441,50 @@ router.get('/job/:jobId', authenticateToken, async (req, res) => {
     }
 
     const applications = await Application.findAll({
-      where: { jobId },
+      where: { jobId: job.id },
       order: [['createdAt', 'DESC']]
     });
+
+    // Repair legacy application rows that were left pending/applied even though an
+    // interview already exists. Also reconcile duplicate resume rows for the same
+    // candidate and job, while preserving terminal application decisions.
+    const candidateEmails = [...new Set(applications.map(app => app.candidateEmail?.toLowerCase()).filter(Boolean))];
+    if (candidateEmails.length) {
+      const interviewEmailFilters = candidateEmails.map(email => ({ candidateEmail: { [Op.iLike]: email } }));
+      const existingInterviews = await Interview.findAll({
+        where: {
+          jobId: job.id,
+          status: { [Op.in]: ['scheduled', 'confirmed', 'accepted', 'rescheduled', 'completed'] },
+          [Op.or]: interviewEmailFilters
+        },
+        order: [['scheduledDate', 'DESC']]
+      });
+      const latestInterviewByEmail = new Map();
+      for (const interview of existingInterviews) {
+        const email = interview.candidateEmail?.toLowerCase();
+        if (email && !latestInterviewByEmail.has(email)) latestInterviewByEmail.set(email, interview);
+      }
+
+      for (const application of applications) {
+        const email = application.candidateEmail?.toLowerCase();
+        const matchingInterview = email ? latestInterviewByEmail.get(email) : null;
+        if (!matchingInterview || ['rejected', 'withdrawn', 'hired'].includes(application.status)) continue;
+        const timeline = Array.isArray(application.timeline) ? application.timeline : [];
+        const alreadyRecorded = timeline.some(item => item?.interviewId === matchingInterview.id);
+        if (application.status !== 'interviewed' || !alreadyRecorded) {
+          await application.update({
+            status: 'interviewed',
+            timeline: alreadyRecorded ? timeline : [...timeline, {
+              status: 'interviewed',
+              date: matchingInterview.createdAt?.toISOString?.() || new Date().toISOString(),
+              note: `${matchingInterview.round || 'Interview'} round scheduled.`,
+              updatedBy: 'Interview scheduling',
+              interviewId: matchingInterview.id
+            }]
+          });
+        }
+      }
+    }
     const jobTitle = job ? (job.jobTitle || job.title) : 'Unknown Position';
     const jobCode = job ? formatJobCode(job.positionId, job.company) : '';
 
