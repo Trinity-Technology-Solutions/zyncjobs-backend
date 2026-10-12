@@ -6,6 +6,22 @@ import Application from '../models/Application.js';
 import User from '../models/User.js';
 import Job from '../models/Job.js';
 import { meetingService } from '../services/meetingService.js';
+
+const isSupportedMeetingUrl = (value, { host = false } = {}) => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return false;
+    const domain = url.hostname.toLowerCase();
+    const googleMeet = domain === 'meet.google.com' || domain === 'hangouts.google.com';
+    const googleCalendarHost = host && domain === 'calendar.google.com';
+    const zoom = domain === 'zoom.us' || domain.endsWith('.zoom.us')
+      || domain === 'zoom.com' || domain.endsWith('.zoom.com')
+      || domain === 'zoomgov.com' || domain.endsWith('.zoomgov.com');
+    return googleMeet || googleCalendarHost || zoom;
+  } catch {
+    return false;
+  }
+};
 import { sendInterviewScheduledEmail, sendInterviewAcceptedEmail, sendInterviewRejectedEmail, sendInterviewCancelledEmail } from '../services/emailService.js';
 import NotificationService from '../services/notificationService.js';
 import TeamMember from '../models/TeamMember.js';
@@ -231,7 +247,7 @@ router.get('/candidate/:email', async (req, res) => {
 // POST /api/interviews/schedule - Schedule new interview
 router.post('/schedule', blockViewer, async (req, res) => {
   try {
-    const { applicationId, candidateId, candidateEmail, candidateName, employerId, employerEmail: bodyEmployerEmail, jobId, scheduledDate, duration, type, meetingLink, location, notes, round, interviewer } = req.body;
+    const { applicationId, candidateId, candidateEmail, candidateName, employerId, employerEmail: bodyEmployerEmail, jobId, scheduledDate, duration, type, meetingLink, hostMeetingLink, location, notes, round, interviewer } = req.body;
 
     console.log('📅 Schedule request:', { candidateEmail, employerId, bodyEmployerEmail });
 
@@ -241,8 +257,8 @@ router.post('/schedule', blockViewer, async (req, res) => {
     if (!candidateEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidateEmail)) return res.status(400).json({ success: false, error: 'A valid candidate email is required.' });
     if (!['phone', 'video', 'in-person'].includes(type || 'video')) return res.status(400).json({ success: false, error: 'Invalid interview type.' });
     if ((type || 'video') === 'video') {
-      try { const url = new URL(meetingLink); if (url.protocol !== 'https:') throw new Error(); }
-      catch { return res.status(400).json({ success: false, error: 'Generate or paste a valid HTTPS meeting link.' }); }
+      if (!isSupportedMeetingUrl(meetingLink)) return res.status(400).json({ success: false, error: 'Use a valid Zoom or Google Meet link.' });
+      if (hostMeetingLink && !isSupportedMeetingUrl(hostMeetingLink, { host: true })) return res.status(400).json({ success: false, error: 'The meeting host link is invalid.' });
     }
     const isUuid = value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '');
     let finalCandidateId = isUuid(candidateId) ? candidateId : null;
@@ -297,6 +313,7 @@ router.post('/schedule', blockViewer, async (req, res) => {
       duration: duration || 60,
       type: type || 'video',
       meetingLink,
+      hostMeetingLink: hostMeetingLink || meetingLink,
       location,
       notes,
       round: round || null,
@@ -363,10 +380,11 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
         duration: duration || 60,
         description: notes || 'Interview meeting scheduled via ZyncJobs'
       });
-      if (result.success) {
-        meetingLink = result.meeting.join_url;
-        hostMeetingLink = result.meeting.start_url || result.meeting.join_url;
+      if (!result.success || !isSupportedMeetingUrl(result.meeting?.join_url) || !isSupportedMeetingUrl(result.meeting?.start_url || result.meeting?.join_url, { host: true })) {
+        return res.status(502).json({ success: false, error: result.error || 'Zoom did not return valid meeting links.' });
       }
+      meetingLink = result.meeting.join_url;
+      hostMeetingLink = result.meeting.start_url || result.meeting.join_url;
     } else if (type === 'video' && platform === 'googlemeet') {
       const result = await meetingService.createGoogleMeet({
         topic: 'Interview Meeting',
@@ -374,10 +392,11 @@ router.post('/create-with-meeting', blockViewer, async (req, res) => {
         duration: duration || 60,
         description: notes || 'Interview meeting scheduled via ZyncJobs'
       });
-      if (result.success) {
-        meetingLink = result.meeting.join_url;   // candidate join link
-        hostMeetingLink = result.meeting.host_url || result.meeting.join_url; // employer host link
+      if (!result.success || !isSupportedMeetingUrl(result.meeting?.join_url) || !isSupportedMeetingUrl(result.meeting?.host_url || result.meeting?.join_url, { host: true })) {
+        return res.status(502).json({ success: false, error: result.error || 'Google Meet did not return valid meeting links.' });
       }
+      meetingLink = result.meeting.join_url;   // candidate join link
+      hostMeetingLink = result.meeting.host_url || result.meeting.join_url; // employer host link
       console.log('📅 Google Meet link generated:', meetingLink, result.fallback ? '(fallback)' : '(real)');
     }
 

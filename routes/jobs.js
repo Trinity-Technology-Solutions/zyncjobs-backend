@@ -1043,7 +1043,7 @@ router.post('/', authenticateToken, maxJobsGuard, [
     const jobCreateData = {
       jobTitle: jobData.jobTitle,
       company: jobData.company,
-      companyLogo: user?.companyLogo || null,
+      companyLogo: jobData.companyLogo || user?.companyLogo || null,
       jobHeaderImage: jobData.jobHeaderImage || getJobHeaderImage(jobData.jobTitle, jobData.skills || []),
       location: jobData.location,
       jobType: jobData.jobType, // This should be a string now
@@ -1074,6 +1074,7 @@ router.post('/', authenticateToken, maxJobsGuard, [
       nationalityRestriction: jobData.nationalityRestriction || null,
       urgentNote: jobData.urgentNote || null,
       goodToHaveSkills: normalizeArray(jobData.goodToHaveSkills),
+      postingDetails: jobData.postingDetails && typeof jobData.postingDetails === 'object' ? jobData.postingDetails : {},
       companyTagline: jobData.companyTagline || jobData.tagline || null,
       refreshCount: 0,
       originalPostedAt: new Date()
@@ -1217,11 +1218,11 @@ router.put('/:id', async (req, res) => {
     const job = await Job.findByPk(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
 
-    const allowed = ['jobTitle', 'location', 'jobType', 'workSetting', 'description',
+    const allowed = ['jobTitle', 'company', 'companyLogo', 'location', 'jobType', 'workSetting', 'description',
       'requirements', 'responsibilities', 'skills', 'salaryMin', 'salaryMax', 'currency',
       'payRate', 'payType', 'experienceLevel', 'jobCategory', 'experienceRange', 'languages', 'country',
-      'applicationDeadline', 'isActive', 'status', 'jobHeaderImage', 'assignedTo', 'postedByName',
-      'locationType', 'nationalityRestriction', 'urgentNote', 'goodToHaveSkills', 'companyTagline'];
+      'applicationDeadline', 'isActive', 'status', 'jobHeaderImage', 'assignedTo', 'postedByName', 'companyId',
+      'locationType', 'nationalityRestriction', 'urgentNote', 'goodToHaveSkills', 'companyTagline', 'postingDetails'];
 
     const updates = {};
     for (const key of allowed) {

@@ -10,6 +10,21 @@ const MINUTE_MS = 60 * 1000;
 // Only UUIDs are valid when comparing against the users.id column
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v || '');
 
+const isSupportedMeetingUrl = (value, { host = false } = {}) => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:') return false;
+    const domain = url.hostname.toLowerCase();
+    return domain === 'meet.google.com' || domain === 'hangouts.google.com'
+      || (host && domain === 'calendar.google.com')
+      || domain === 'zoom.us' || domain.endsWith('.zoom.us')
+      || domain === 'zoom.com' || domain.endsWith('.zoom.com')
+      || domain === 'zoomgov.com' || domain.endsWith('.zoomgov.com');
+  } catch {
+    return false;
+  }
+};
+
 // Friendly page shown for user-facing join errors (mirrors the project's interview response pages)
 const joinPage = (title, subtitle, message = '', refreshSeconds = 0) => `
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${refreshSeconds ? `<meta http-equiv="refresh" content="${refreshSeconds}">` : ''}</head><body style="font-family:sans-serif;background:#E9EBF0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
@@ -73,6 +88,10 @@ router.get('/interview/:id/join', async (req, res) => {
       return res.status(404).send(joinPage('No Meeting Link', 'No meeting link is available for this interview.'));
     }
 
+    if (!isSupportedMeetingUrl(interview.meetingLink)) {
+      return res.status(410).send(joinPage('Invalid Meeting Link', 'This interview has an unsupported meeting link. Contact the recruiter to update it.'));
+    }
+
     console.log('✅ Candidate join granted:', interview.id);
     return res.redirect(302, interview.meetingLink);
   } catch (error) {
@@ -91,6 +110,9 @@ router.get('/interview/:id/host', async (req, res) => {
     const hostLink = interview.hostMeetingLink || interview.meetingLink;
     if (!hostLink) {
       return res.status(404).send(joinPage('No Meeting Link', 'No meeting link is available for this interview.'));
+    }
+    if (!isSupportedMeetingUrl(hostLink, { host: true })) {
+      return res.status(410).send(joinPage('Invalid Meeting Link', 'This interview has an unsupported host link. Contact the recruiter to update it.'));
     }
 
     console.log('✅ Employer host access granted:', interview.id);

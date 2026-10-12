@@ -863,7 +863,11 @@ router.post('/login', loginLimiter, async (req, res) => {
 // POST /api/users/refresh - Refresh access token with rotation
 router.post('/refresh', async (req, res) => {
   try {
-    const oldRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
+    // Prefer the token explicitly supplied by this client session. The cookie
+    // is shared across tabs, while the body token is tied to this tab's login;
+    // choosing a stale cookie here can silently switch employer sessions to a
+    // different account (for example, a candidate logged in in another tab).
+    const oldRefreshToken = req.body.refreshToken || req.cookies.refreshToken;
 
     if (!oldRefreshToken) {
       return res.status(401).json({ error: 'Refresh token required' });
@@ -897,10 +901,7 @@ router.post('/refresh', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
-    res.json({ 
-      accessToken: newAccessToken
-      // newRefreshToken sent via httpOnly cookie only
-    });
+    res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
   } catch (error) {
     res.status(403).json({ error: 'Invalid or expired refresh token' });
   }

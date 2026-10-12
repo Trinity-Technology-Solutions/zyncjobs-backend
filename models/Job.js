@@ -179,6 +179,11 @@ const Job = sequelize.define('Job', {
     type: DataTypes.ARRAY(DataTypes.STRING),
     defaultValue: []
   },
+  postingDetails: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    defaultValue: {}
+  },
   companyTagline: {
     type: DataTypes.STRING,
     allowNull: true
