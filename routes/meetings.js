@@ -2,6 +2,7 @@ import express from 'express';
 import { meetingService } from '../services/meetingService.js';
 import User from '../models/User.js';
 import Interview from '../models/Interview.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -55,7 +56,6 @@ async function validateInterviewAccess(id, res) {
   const durationMinutes = Number(interview.duration) > 0 ? Number(interview.duration) : 60;
   const endTime = new Date(startTime.getTime() + durationMinutes * MINUTE_MS);
   const opensAt = new Date(startTime.getTime() - 10 * MINUTE_MS);
-  const closesAt = new Date(endTime.getTime() + 15 * MINUTE_MS);
   const now = new Date();
   const timeZone = process.env.INTERVIEW_TIME_ZONE || 'Asia/Kolkata';
   const display = value => value.toLocaleString('en-IN', { timeZone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
@@ -69,9 +69,9 @@ async function validateInterviewAccess(id, res) {
     res.status(403).send(joinPage('Interview Not Started', 'The meeting opens 10 minutes before the scheduled interview.', `Scheduled: ${display(startTime)}. Access opens: ${display(opensAt)}. Server time: ${display(now)}.`, 15));
     return null;
   }
-  if (now > closesAt) {
+  if (now >= endTime) {
     // An elapsed time window does not prove an interview was completed.
-    res.status(410).send(joinPage('Interview Link Expired', 'The scheduled meeting window has ended. Contact the recruiter to reschedule.', `Scheduled end: ${display(endTime)}. Access closed: ${display(closesAt)}.`));
+    res.status(410).send(joinPage('Interview Link Expired', 'The scheduled meeting window has ended. Contact the recruiter to reschedule.', `Scheduled end: ${display(endTime)}.`));
     return null;
   }
 
@@ -171,19 +171,14 @@ router.get('/google-meet/callback', async (req, res) => {
   }
 });
 
-// GET /api/meetings/google-meet/status - Check if employer has connected Google
-// (or if the production service account path is active — then it's always ready)
-router.get('/google-meet/status', async (req, res) => {
+// GET /api/meetings/google-meet/status - Check the signed-in HR account's Google access
+router.get('/google-meet/status', authenticateToken, requireRole(['employer', 'recruiter', 'admin']), async (req, res) => {
   try {
-    const { employerId } = req.query;
-    if (meetingService.isServiceAccountConfigured()) {
+    const employerId = req.user.id;
+    if (meetingService.isServiceAccountConfigured() && meetingService.resolveImpersonateEmail(req.user.email)) {
       return res.json({ connected: true, mode: 'service-account' });
     }
-    if (!employerId) return res.json({ connected: false, mode: 'oauth' });
-    let user = null;
-    if (isUuid(employerId)) user = await User.findOne({ where: { id: employerId }, attributes: ['googleMeetAccessToken'] });
-    if (!user) user = await User.findOne({ where: { employerId }, attributes: ['googleMeetAccessToken'] });
-    if (!user && employerId.includes('@')) user = await User.findOne({ where: { email: employerId }, attributes: ['googleMeetAccessToken'] });
+    const user = await User.findByPk(employerId, { attributes: ['googleMeetAccessToken'] });
     res.json({ connected: !!(user?.googleMeetAccessToken), mode: 'oauth' });
   } catch {
     res.json({ connected: false, mode: 'oauth' });
@@ -191,9 +186,9 @@ router.get('/google-meet/status', async (req, res) => {
 });
 
 // Create meeting (supports both Zoom and Google Meet)
-router.post('/create', async (req, res) => {
+router.post('/create', authenticateToken, requireRole(['employer', 'recruiter', 'admin']), async (req, res) => {
   try {
-    const { platform, topic, start_time, duration, description, employerId, employerEmail, candidateEmail } = req.body;
+    const { platform, topic, start_time, duration, description } = req.body;
     
     if (!platform) {
       return res.status(400).json({ 
@@ -208,9 +203,10 @@ router.post('/create', async (req, res) => {
       start_time,
       duration: duration || 60,
       description: description || 'Interview meeting',
-      employerId,
-      employerEmail,
-      candidateEmail
+      // Google Meet ownership must follow the authenticated HR account. Do not
+      // trust a browser-supplied email or user ID to choose the space owner.
+      employerId: req.user.id,
+      employerEmail: req.user.email
     });
     
     // Always return JSON response

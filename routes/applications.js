@@ -62,9 +62,15 @@ async function resolveTeamOwnerEmail(email) {
 
 // Collects the owner email plus all active team member emails.
 async function collectTeamEmails(ownerEmail) {
-  const allEmails = [ownerEmail.toLowerCase()];
+  const normalizedOwnerEmail = ownerEmail.toLowerCase();
+  const ownerRecord = await TeamMember.findOne({
+    where: { memberEmail: { [Op.iLike]: normalizedOwnerEmail }, role: 'Owner' },
+    attributes: ['employerId', 'memberEmail']
+  });
+  const teamIds = [...new Set([normalizedOwnerEmail, ownerRecord?.employerId].filter(Boolean))];
+  const allEmails = [normalizedOwnerEmail];
   const teamMembers = await TeamMember.findAll({
-    where: { employerId: ownerEmail, status: 'active' },
+    where: { employerId: { [Op.in]: teamIds }, status: 'active' },
     attributes: ['memberEmail']
   });
   teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
@@ -280,17 +286,11 @@ router.get('/employer/:employerEmail', async (req, res) => {
         if (ownerRecord?.memberEmail) ownerEmail = ownerRecord.memberEmail.toLowerCase();
       }
     }
-    const allEmails = [ownerEmail];
-    const teamMembers = await TeamMember.findAll({
-      where: { employerId: ownerEmail, status: 'active' },
-      attributes: ['memberEmail']
-    });
-    teamMembers.forEach(m => allEmails.push(m.memberEmail.toLowerCase()));
-    const uniqueEmails = [...new Set(allEmails)];
+    const uniqueEmails = await collectTeamEmails(ownerEmail);
     
     const applications = await Application.findAll({ 
       where: {
-        employerEmail: { [Op.in]: uniqueEmails }
+        [Op.or]: uniqueEmails.map(email => ({ employerEmail: { [Op.iLike]: email } }))
       },
       order: [['createdAt', 'DESC']]
     });
@@ -1098,10 +1098,25 @@ router.get('/', authenticateToken, async (req, res) => {
       }
     }
 
-    // Company-wide scope: applications for all jobs posted by the caller's team
+    // Company-wide scope: include applications linked to the team's jobs as well
+    // as rows carrying a team email. Older application rows can have a stale or
+    // missing employerEmail even though their jobId still identifies ownership.
     const companyEmails = await collectTeamEmails(callerOwnerEmail);
-
-    const where = { employerEmail: { [Op.in]: companyEmails } };
+    const companyJobConditions = companyEmails.flatMap(email => ([
+      { employerEmail: { [Op.iLike]: email } },
+      { postedBy: { [Op.iLike]: email } },
+      { postedByEmail: { [Op.iLike]: email } }
+    ]));
+    const companyJobs = await Job.findAll({
+      where: { [Op.or]: companyJobConditions },
+      attributes: ['id', 'positionId'],
+      raw: true
+    });
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const companyJobIds = [...new Set(companyJobs.map(job => job.id).filter(id => uuidPattern.test(id || '')))];
+    const applicationScope = companyEmails.map(email => ({ employerEmail: { [Op.iLike]: email } }));
+    if (companyJobIds.length) applicationScope.push({ jobId: { [Op.in]: companyJobIds } });
+    const where = { [Op.or]: applicationScope };
 
     if (status) where.status = status;
     if (jobId) where.jobId = jobId;

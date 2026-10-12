@@ -58,7 +58,13 @@ class NotificationService {
       const formattedDate = interviewDate.toLocaleDateString();
       const formattedTime = interviewDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
       const interviewMode = interview.type || 'video';
-      const meetingLink = interview.meetingLink ? ` (${interview.meetingLink})` : '';
+      const backendUrl = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
+      const employerMeetingUrl = interview.meetingLink
+        ? `${backendUrl}/api/meetings/interview/${interview.id}/host` : '';
+      const candidateMeetingUrl = interview.meetingLink
+        ? `${backendUrl}/api/meetings/interview/${interview.id}/join` : '';
+      const employerMeetingLink = employerMeetingUrl ? ` (${employerMeetingUrl})` : '';
+      const candidateMeetingLink = candidateMeetingUrl ? ` (${candidateMeetingUrl})` : '';
       const location = interview.location ? ` at ${interview.location}` : '';
 
       // --- Notify EMPLOYER ---
@@ -71,7 +77,7 @@ class NotificationService {
           userId: employer.id,
           type: 'interview',
           title: 'Interview Scheduled',
-          message: `Interview with ${interview.candidateName} for ${job?.jobTitle || 'position'} on ${formattedDate} at ${formattedTime} (${interviewMode})${location}${meetingLink}`,
+          message: `Interview with ${interview.candidateName} for ${job?.jobTitle || 'position'} on ${formattedDate} at ${formattedTime} (${interviewMode})${location}${employerMeetingLink}`,
           link: `/interviews/${interview.id}`
         });
       }
@@ -92,7 +98,7 @@ class NotificationService {
           userId: candidate.id,
           type: 'interview',
           title: 'Interview Scheduled',
-          message: `Your interview for "${job?.jobTitle || job?.title || 'the position'}" at ${job?.company || 'the company'} has been scheduled for ${formattedDate} at ${formattedTime} (${interviewMode})${location}${meetingLink}`,
+          message: `Your interview for "${job?.jobTitle || job?.title || 'the position'}" at ${job?.company || 'the company'} has been scheduled for ${formattedDate} at ${formattedTime} (${interviewMode})${location}${candidateMeetingLink}`,
           link: `/my-applications`
         });
         console.log(`🔔 Candidate interview notification created for ${candidate.email}`);

@@ -650,6 +650,7 @@ router.get('/invite-info/:token', async (req, res) => {
     }
     const responded = interview.candidateResponded || ['accepted', 'rejected', 'confirmed'].includes(interview.status);
     const job = interview.jobId ? await Job.findByPk(interview.jobId) : null;
+    const backendUrl = (process.env.BACKEND_URL || 'http://localhost:5000').replace(/\/$/, '');
     const data = {
       _id: interview.id,
       jobTitle: job?.jobTitle || job?.title || 'Position',
@@ -659,7 +660,9 @@ router.get('/invite-info/:token', async (req, res) => {
       scheduledDate: interview.scheduledDate,
       duration: interview.duration,
       type: interview.type,
-      meetingLink: interview.meetingLink,
+      // Keep invite-page links behind the backend time-window check. Returning
+      // the raw provider URL here would let it bypass the expiry endpoint.
+      meetingLink: interview.meetingLink ? `${backendUrl}/api/meetings/interview/${interview.id}/join` : null,
       location: interview.location,
       notes: interview.notes,
       interviewer: interview.interviewer,

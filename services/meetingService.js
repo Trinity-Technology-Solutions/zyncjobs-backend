@@ -2,7 +2,6 @@ import axios from 'axios';
 import { google } from 'googleapis';
 import { QueryTypes } from 'sequelize';
 import { sequelize } from '../config/postgresql.js';
-import crypto from 'crypto';
 
 class MeetingService {
   constructor() {
@@ -118,7 +117,8 @@ class MeetingService {
   getServiceAccountAuth(impersonateEmail) {
     const scopes = [
       'https://www.googleapis.com/auth/calendar',
-      'https://www.googleapis.com/auth/calendar.events'
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/meetings.space.created'
     ];
     const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
     const saEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -144,30 +144,39 @@ class MeetingService {
   }
 
   isServiceAccountConfigured() {
-    return !!(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE
+    const hasCredentials = !!(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE
       || (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY));
+    return hasCredentials && !!process.env.GOOGLE_WORKSPACE_DOMAIN;
   }
 
-  // Resolve which company account to impersonate. Prefer the employer's own email when it
-  // belongs to the Workspace domain, otherwise fall back to a dedicated meetings account.
+  // The actual employer must own the space. Never create an interview as a shared
+  // service account, because that would make the shared account the host.
   resolveImpersonateEmail(employerEmail) {
-    const fallback = process.env.GOOGLE_MEET_IMPERSONATE_EMAIL;
     const domain = process.env.GOOGLE_WORKSPACE_DOMAIN;
     if (employerEmail && domain && employerEmail.toLowerCase().endsWith(`@${domain.toLowerCase()}`)) {
       return employerEmail;
     }
-    return fallback;
+    return null;
   }
 
-  buildMeetAttendees(meetingData) {
-    const attendees = [];
-    // Only add employer as Calendar attendee — they become the Meet host
-    // Candidate should NOT be a Calendar attendee, or they get host-level join access.
-    // Candidate receives the link via email separately and must be admitted.
-    if (meetingData.employerEmail) {
-      attendees.push({ email: meetingData.employerEmail });
+  async createRestrictedMeetSpace(auth) {
+    const response = await auth.request({
+      url: 'https://meet.googleapis.com/v2/spaces',
+      method: 'POST',
+      data: {
+        config: {
+          // The employer who authenticated/was impersonated owns the space.
+          // Anyone who is not an invited user must knock for the host to admit them.
+          accessType: 'RESTRICTED',
+          moderation: 'ON'
+        }
+      }
+    });
+    const meetingUri = response.data?.meetingUri;
+    if (!meetingUri || !/^https:\/\/meet\.google\.com\//i.test(meetingUri)) {
+      throw new Error('Google Meet did not return a valid restricted meeting link.');
     }
-    return attendees;
+    return response.data;
   }
 
   createGoogleMeet(meetingData) {
@@ -183,59 +192,38 @@ class MeetingService {
       description: meetingData.description || 'Interview scheduled via ZyncJobs',
       start: { dateTime: startTime, timeZone: 'UTC' },
       end: { dateTime: endTime, timeZone: 'UTC' },
-      conferenceData: {
-        createRequest: {
-          requestId: crypto.randomUUID(),
-          conferenceSolutionKey: { type: 'hangoutsMeet' }
-        }
-      },
-      attendees: meetingData.attendees || this.buildMeetAttendees(meetingData)
+      // No candidate is added as a Calendar attendee. Their emailed link is an
+      // uninvited participant link and the restricted Meet space requires admission.
     };
 
     return this.createMeetEvent(event, meetingData);
   }
 
-  async awaitConference(calendar, data) {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const link = data.conferenceData?.entryPoints?.find(point => point.entryPointType === 'video')?.uri || data.hangoutLink;
-      if (link && /^https:\/\/meet\.google\.com\//.test(link)) return data;
-      if (data.conferenceData?.createRequest?.status?.statusCode === 'failure') throw new Error('Google could not create a conference. Check that Google Meet is enabled for this account.');
-      if (!data.id) break;
-      await new Promise(resolve => setTimeout(resolve, 700));
-      data = (await calendar.events.get({ calendarId: 'primary', eventId: data.id })).data;
-    }
-    throw new Error('Google conference is still pending. Please retry in a moment.');
-  }
-
   async createMeetEvent(event, meetingData) {
     try {
-      // --- PRODUCTION PATH (preferred): service account impersonation ---
       const impersonateEmail = this.resolveImpersonateEmail(meetingData.employerEmail);
       const saAuth = impersonateEmail ? this.getServiceAccountAuth(impersonateEmail) : null;
       if (saAuth) {
-        console.log('✅ Creating Google Meet via service account (impersonating:', impersonateEmail + ')');
+        console.log('Creating restricted Google Meet space for employer:', impersonateEmail);
+        const space = await this.createRestrictedMeetSpace(saAuth);
         const calendar = google.calendar({ version: 'v3', auth: saAuth });
-        const response = await calendar.events.insert({
+        const calendarEvent = await calendar.events.insert({
           calendarId: 'primary',
-          resource: event,
-          conferenceDataVersion: 1
+          resource: { ...event, location: space.meetingUri },
+          sendUpdates: 'none'
         });
-        response.data = await this.awaitConference(calendar, response.data);
-        const meetLink = response.data.conferenceData?.entryPoints?.find(ep => ep.entryPointType === 'video')?.uri;
-        const meetingId = response.data.conferenceData?.conferenceId;
-        // Host link = Google Calendar event URL (employer opens this to start/manage meeting)
-        // Candidate link = bare meet.google.com link (joins as participant, waits in lobby)
-        const hostLink = `https://calendar.google.com/calendar/event?eid=${Buffer.from(response.data.id).toString('base64')}`;
         return {
           success: true,
           meeting: {
             platform: 'googlemeet',
-            meetingId: meetingId || response.data.id,
-            meetLink: meetLink || response.data.hangoutLink,
-            join_url: meetLink || response.data.hangoutLink,   // candidate gets this
-            host_url: hostLink,                                 // employer gets this
-            eventId: response.data.id,
-            eventData: response.data
+            meetingId: space.meetingCode || space.name,
+            meetLink: space.meetingUri,
+            join_url: space.meetingUri,
+            host_url: space.meetingUri,
+            eventId: calendarEvent.data.id,
+            eventData: calendarEvent.data,
+            accessType: space.config?.accessType,
+            moderation: space.config?.moderation
           }
         };
       }
@@ -246,11 +234,18 @@ class MeetingService {
 
       // If no tokens passed, use the requesting employer's connected Google account
       if (!accessToken && meetingData.employerId) {
-        const [account] = await sequelize.query(
+        let [account] = await sequelize.query(
           `SELECT id, "googleMeetAccessToken", "googleMeetRefreshToken" FROM users
-           WHERE (id::text = $1 OR "employerId" = $2 OR email = $3) AND "googleMeetAccessToken" IS NOT NULL LIMIT 1`,
-          { bind: [meetingData.employerId, meetingData.employerId, meetingData.employerId], type: QueryTypes.SELECT }
+           WHERE id::text = $1 AND "googleMeetAccessToken" IS NOT NULL LIMIT 1`,
+          { bind: [meetingData.employerId], type: QueryTypes.SELECT }
         );
+        if (!account) {
+          [account] = await sequelize.query(
+            `SELECT id, "googleMeetAccessToken", "googleMeetRefreshToken" FROM users
+             WHERE ("employerId" = $1 OR LOWER(email) = LOWER($1)) AND "googleMeetAccessToken" IS NOT NULL LIMIT 1`,
+            { bind: [meetingData.employerId], type: QueryTypes.SELECT }
+          );
+        }
         if (account) {
           accessToken = account.googleMeetAccessToken;
           refreshToken = account.googleMeetRefreshToken;
@@ -274,28 +269,27 @@ class MeetingService {
       );
       oauth2Client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
 
-      const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-      const response = await calendar.events.insert({
-        calendarId: 'primary',
-        resource: event,
-        conferenceDataVersion: 1
-      });
+      const space = await this.createRestrictedMeetSpace(oauth2Client);
 
-      response.data = await this.awaitConference(calendar, response.data);
-      const meetLink = response.data.conferenceData?.entryPoints?.find(ep => ep.entryPointType === 'video')?.uri;
-      const meetingId = response.data.conferenceData?.conferenceId;
-      const hostLink = `https://calendar.google.com/calendar/event?eid=${Buffer.from(response.data.id).toString('base64')}`;
+      const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+      const calendarEvent = await calendar.events.insert({
+        calendarId: 'primary',
+        resource: { ...event, location: space.meetingUri },
+        sendUpdates: 'none'
+      });
 
       return {
         success: true,
         meeting: {
           platform: 'googlemeet',
-          meetingId: meetingId || response.data.id,
-          meetLink: meetLink || response.data.hangoutLink,
-          join_url: meetLink || response.data.hangoutLink,   // candidate gets this
-          host_url: hostLink,                                 // employer gets this
-          eventId: response.data.id,
-          eventData: response.data
+          meetingId: space.meetingCode || space.name,
+          meetLink: space.meetingUri,
+          join_url: space.meetingUri,
+          host_url: space.meetingUri,
+          eventId: calendarEvent.data.id,
+          eventData: calendarEvent.data,
+          accessType: space.config?.accessType,
+          moderation: space.config?.moderation
         }
       };
     } catch (error) {
@@ -328,7 +322,8 @@ class MeetingService {
 
     const scopes = [
       'https://www.googleapis.com/auth/calendar.events',
-      'https://www.googleapis.com/auth/calendar'
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/meetings.space.created'
     ];
 
     const authUrl = oauth2Client.generateAuthUrl({
