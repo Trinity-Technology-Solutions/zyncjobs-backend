@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import WordExtractor from 'word-extractor';
 import { createWorker } from 'tesseract.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -321,14 +322,11 @@ class PDFTextExtractor {
       console.log('[EXTRACTOR] Extracting DOCX/DOC:', fileName);
       const ext = path.extname(fileName).toLowerCase();
 
-      // Old .doc binary format — mammoth can't handle it, extract raw text from buffer
+      // Old .doc binary format needs an OLE/Word parser; treating it as UTF-8
+      // produces interleaved null bytes and unusable text.
       if (ext === '.doc') {
-        const raw = buffer.toString('latin1');
-        // Extract readable ASCII text from binary .doc
-        const text = raw
-          .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\xFF]/g, ' ')
-          .replace(/\s{3,}/g, '\n')
-          .trim();
+        const extracted = await new WordExtractor().extract(buffer);
+        const text = extracted.getBody().trim();
         if (!text || text.length < 20) throw new Error('Could not extract readable text from .doc file');
         return this.cleanExtractedText(text);
       }

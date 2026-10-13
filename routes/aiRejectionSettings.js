@@ -105,8 +105,8 @@ async function getCandidateData(application) {
         : normalizeSkillList(resumeParsed?.skills);
   const rawYearsExp = profile?.yearsExperience ?? application.yearsExperience ?? application.experience ?? resumeParsed?.yearsExperience;
   const yearsExp = parseFloat(rawYearsExp) || 0;
-  const education = profile?.education || resumeParsed?.education || '';
-  const location = profile?.location || resumeParsed?.location || '';
+  const education = profile?.education || application.education || resumeParsed?.education || '';
+  const location = profile?.location || application.location || resumeParsed?.location || '';
 
   // Build a plain-text resume so the AI scorer always receives real candidate data
   const resumeText = [
@@ -261,10 +261,26 @@ export const runAutoRejection = async (application, job, dryRun = false) => {
 
     const rejectReasons = settings.rejectReasons || {};
     const hasSkillData = candidate.skills.length > 0 && normalizeSkillList(job.skills).length > 0;
+    const requiredEducation = job.education || job.educationLevel || job.minimumEducation ||
+      job.postingDetails?.education || job.postingDetails?.educationLevel || '';
+    const hasEducationData = Boolean(String(candidate.education || '').trim() && String(requiredEducation).trim());
+    const educationMatches = hasEducationData && (
+      String(candidate.education).toLowerCase().includes(String(requiredEducation).toLowerCase()) ||
+      String(requiredEducation).toLowerCase().includes(String(candidate.education).toLowerCase())
+    );
+    const requiredLocation = job.location || job.jobLocation || '';
+    const remoteJob = /remote|anywhere/i.test(`${job.locationType || ''} ${job.workSetting || ''} ${requiredLocation}`);
+    const hasLocationData = Boolean(String(candidate.location || '').trim() && String(requiredLocation).trim()) && !remoteJob;
+    const locationMatches = hasLocationData && (
+      String(candidate.location).toLowerCase().includes(String(requiredLocation).toLowerCase()) ||
+      String(requiredLocation).toLowerCase().includes(String(candidate.location).toLowerCase())
+    );
     const shouldReject =
       (rejectReasons.skillsMismatch && hasSkillData && skillsScore < settings.minSkillsMatch) ||
       (rejectReasons.insufficientExperience && candidate.hasExperienceData && experienceScore < settings.minExperienceMatch) ||
-      (hasSkillData && candidate.hasExperienceData && overallScore < settings.minOverallScore);
+      (hasSkillData && candidate.hasExperienceData && overallScore < settings.minOverallScore) ||
+      (rejectReasons.educationGap && hasEducationData && !educationMatches) ||
+      (rejectReasons.locationMismatch && hasLocationData && !locationMatches);
 
     const scoreBreakdown = { skillsScore, experienceScore, overallScore, reasons: aiReasons, feedback: aiFeedback };
 
@@ -344,12 +360,27 @@ router.post('/:jobId?', async (req, res) => {
     const { jobId } = req.params;
     const { autoReject, minSkillsMatch, minExperienceMatch,
             minOverallScore, sendFeedback, useAiAnalysis, rejectReasons } = req.body;
+    for (const [field, value] of Object.entries({ minSkillsMatch, minExperienceMatch, minOverallScore })) {
+      if (!Number.isInteger(Number(value)) || Number(value) < 0 || Number(value) > 100) {
+        return res.status(400).json({ error: `${field} must be a whole number from 0 to 100` });
+      }
+    }
     const employerEmail = await resolveSettingsOwnerEmail(req.user.email);
     const values = {
       employerEmail,
       jobId: jobId ? String(jobId) : null,
-      autoReject, minSkillsMatch, minExperienceMatch,
-      minOverallScore, sendFeedback, useAiAnalysis, rejectReasons
+      autoReject: Boolean(autoReject),
+      minSkillsMatch: Number(minSkillsMatch),
+      minExperienceMatch: Number(minExperienceMatch),
+      minOverallScore: Number(minOverallScore),
+      sendFeedback: Boolean(sendFeedback),
+      useAiAnalysis: useAiAnalysis === undefined ? true : Boolean(useAiAnalysis),
+      rejectReasons: {
+        skillsMismatch: Boolean(rejectReasons?.skillsMismatch),
+        insufficientExperience: Boolean(rejectReasons?.insufficientExperience),
+        educationGap: Boolean(rejectReasons?.educationGap),
+        locationMismatch: Boolean(rejectReasons?.locationMismatch)
+      }
     };
     let settings = await findEmployerSettings(employerEmail, jobId, [req.user.email]);
     if (settings) await settings.update(values);
