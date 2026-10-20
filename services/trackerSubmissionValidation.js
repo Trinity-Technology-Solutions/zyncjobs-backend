@@ -6,8 +6,8 @@ export function sameSubmission(a, b) {
   return Boolean(
     (a.talentCandidateId && a.talentCandidateId === b.talentCandidateId) ||
     (normalize(a.email) && normalize(a.email) === normalize(b.email)) ||
-    (digits(a.phone).length >= 7 && digits(a.phone) === digits(b.phone)) ||
-    (a.resumeFile && a.resumeFile === b.resumeFile)
+    (digits(a.phone).length >= 7 && digits(a.phone) === digits(b.phone) &&
+      normalize(a.candidateName) && normalize(a.candidateName) === normalize(b.candidateName))
   );
 }
 export function validateDetails(data) {

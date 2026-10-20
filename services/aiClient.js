@@ -51,9 +51,15 @@ export class AIClient {
     };
   }
 
-  async parseResume(resumeText, extraInstructions = '') {
+  async parseResume(resumeText, extraInstructions = '', { requireParsedResult = false } = {}) {
     const content = extraInstructions ? `${resumeText}\n\n${extraInstructions}` : resumeText;
-    return validateResumeFields(await execute('parse resume', 'candidate', {}, content, 'text'), resumeText);
+    const parsed = await execute('parse resume', 'candidate', {}, content, 'text');
+    if (requireParsedResult && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Object.keys(parsed).length || parsed.error || parsed.success === false || parsed.isResume === false || parsed.is_resume === false)) {
+      const error = new Error('Resume could not be parsed into candidate details.');
+      error.status = 422;
+      throw error;
+    }
+    return validateResumeFields(parsed, resumeText);
   }
 
   async hybridParseResume(resumeText) {

@@ -187,6 +187,9 @@ router.post('/rows/from-talent-pool', authenticateToken, requireRole(ROLES), asy
   try {
     const { candidateIds, ...input } = req.body;
     const details = { ...input, recruiterName: String(req.user.name || req.user.email || req.user.id).trim(), submittedDate: new Date().toISOString().slice(0, 10) };
+    for (const key of ['clientName', 'skillRole', 'recruiterName', 'source', 'status']) {
+      if (typeof details[key] === 'string') details[key] = details[key].trim();
+    }
     if (!Array.isArray(candidateIds) || !candidateIds.length || candidateIds.length > 100 || candidateIds.some(id => typeof id !== 'string' || !id)) return res.status(400).json({ error: 'Select between 1 and 100 candidates.' });
     const validation = validateDetails(details);
     if (validation) return res.status(400).json({ error: validation });
@@ -247,7 +250,11 @@ router.put('/rows/:id', authenticateToken, requireRole(ROLES), async (req, res) 
           error.status = 400; throw error;
         }
       }
-      const { id, subId, createdBy, talentCandidateId, recruiterName, submittedDate, ...safeBody } = req.body;
+      if (Object.prototype.hasOwnProperty.call(req.body, 'resumeFile') && req.body.resumeFile !== row.resumeFile) {
+        const error = new Error('The stored resume cannot be replaced through a tracker edit.');
+        error.status = 400; throw error;
+      }
+      const { id, subId, createdBy, talentCandidateId, recruiterName, submittedDate, resumeFile, ...safeBody } = req.body;
       const changedFields = Object.fromEntries(Object.entries(safeBody).filter(([key, value]) => String(value ?? '') !== String(row[key] ?? '')));
       const fieldError = validateTrackerFields(changedFields);
       if (fieldError) { const error = new Error(fieldError); error.status = 400; throw error; }
@@ -296,14 +303,17 @@ async function validatedResume(file) {
   if (!signatureValid) throw invalid('File content does not match its resume format or is corrupted.');
   let text;
   try { text = await pdfTextExtractor.extractTextFromBuffer(buffer, file.originalname); }
-  catch { throw invalid('Unable to extract text. The resume is corrupted or unreadable.'); }
+  catch { throw invalid('Unable to extract text. The resume is corrupted or unreadable. No submission was created.'); }
   if (typeof text !== 'string' || text.trim().length < 100) throw invalid('Resume is empty or does not contain enough readable text.');
   const sections = [/\b(?:experience|employment|work history)\b/i, /\b(?:education|qualification|degree|university)\b/i, /\b(?:skills|technologies|technical expertise)\b/i, /\b(?:projects|certifications|achievements)\b/i];
   if (sections.filter(pattern => pattern.test(text)).length < 2) throw invalid('This document does not contain enough resume information. Upload a candidate resume.');
   let parsed;
-  try { parsed = await aiClient.parseResume(text); }
-  catch { const error = new Error('Resume parsing is unavailable. Please retry; no submission was created.'); error.status = 503; throw error; }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Object.keys(parsed).length || parsed.isResume === false || parsed.is_resume === false) throw invalid('Resume could not be parsed into candidate details.');
+  try { parsed = await aiClient.parseResume(text, '', { requireParsedResult: true }); }
+  catch (cause) {
+    if (cause.status === 422) throw invalid('Resume could not be parsed into candidate details. No submission was created.');
+    const error = new Error('Resume parsing is unavailable. Please retry; no submission was created.'); error.status = 503; throw error;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Object.keys(parsed).length || parsed.error || parsed.success === false || parsed.isResume === false || parsed.is_resume === false) throw invalid('Resume could not be parsed into candidate details.');
   const fields = extractResumeFields(text, parsed);
   if (!fields.name || !/[a-z]/i.test(fields.name) || fields.name.length > 100 || (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email) && fields.phone.replace(/\D/g, '').length < 7)) throw invalid('Resume must contain a candidate name and valid email or contact number.');
   return fields;

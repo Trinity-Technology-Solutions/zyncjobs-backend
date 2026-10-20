@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sameSubmission, validateDetails } from '../services/trackerSubmissionValidation.js';
 
-const row = { talentCandidateId: 'candidate-1', clientName: 'Acme', skillRole: 'JOB-123', email: 'person@example.com', phone: '+91 98765 43210', resumeFile: 's3://original-resume' };
+const row = { candidateName: 'Alex Smith', talentCandidateId: 'candidate-1', clientName: 'Acme', skillRole: 'JOB-123', email: 'person@example.com', phone: '+91 98765 43210', resumeFile: 's3://original-resume' };
 test('duplicate client/job matching normalizes casing and whitespace', () => {
   assert.equal(sameSubmission(row, { ...row, clientName: ' ACME ', skillRole: ' job-123 ', email: 'PERSON@EXAMPLE.COM' }), true);
 });
@@ -14,9 +14,10 @@ test('recognizes a reuploaded candidate by email or normalized phone', () => {
   assert.equal(sameSubmission(row, { ...row, talentCandidateId: 'new-id', resumeFile: 'new-file' }), true);
   assert.equal(sameSubmission(row, { ...row, talentCandidateId: '', email: '', resumeFile: '', phone: '919876543210' }), true);
 });
-test('candidate ID and original resume provide fallback identity', () => {
+test('candidate ID provides fallback identity; a shared filename alone does not', () => {
   assert.equal(sameSubmission({ ...row, email: '', phone: '' }, { ...row, email: '', phone: '', resumeFile: 'another' }), true);
-  assert.equal(sameSubmission({ ...row, email: '', phone: '', talentCandidateId: '' }, { ...row, email: '', phone: '', talentCandidateId: '' }), true);
+  assert.equal(sameSubmission({ ...row, email: '', phone: '', talentCandidateId: '' }, { ...row, email: '', phone: '', talentCandidateId: '' }), false);
+  assert.equal(sameSubmission({ ...row, email: '', talentCandidateId: '' }, { ...row, email: '', talentCandidateId: '', candidateName: 'Different Person' }), false);
 });
 test('different candidates and incomplete blank tracker rows do not collide', () => {
   assert.equal(sameSubmission(row, { ...row, talentCandidateId: 'other', email: 'other@example.com', phone: '', resumeFile: 'other' }), false);

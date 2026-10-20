@@ -45,8 +45,17 @@ const dependencies = {
     authenticateToken(req, _res, next) { req.user = { id: 'admin-1', name: 'Admin', role: 'admin' }; next(); },
     requireRole: () => (_req, _res, next) => next(),
   },
-  '../services/pdfTextExtractor.js': { default: { async extractTextFromBuffer(_buffer, name) { if (name === 'corrupted.docx') throw new Error('Cannot find end of central directory'); if (name === 'blank.pdf') return ''; if (name === 'unrelated.pdf') return 'Invoice payment receipt for office equipment. '.repeat(5); return 'Valid Candidate Resume Education Skills Experience Projects person@example.com 9876543210 '.repeat(4); } } },
-  '../services/aiClient.js': { default: { async parseResume() { return { name: 'Valid Candidate', email: 'person@example.com', phone: '9876543210' }; } } },
+  '../services/pdfTextExtractor.js': { default: { async extractTextFromBuffer(_buffer, name) { if (name === 'corrupted.docx') throw new Error('Cannot find end of central directory'); if (name === 'blank.pdf') return ''; if (name === 'unrelated.pdf') return 'Invoice payment receipt for office equipment. '.repeat(5); return `${name} Valid Candidate Resume Education Skills Experience Projects person@example.com 9876543210 `.repeat(4); } } },
+  '../services/aiClient.js': { default: { async parseResume(text, _instructions, options) {
+    assert.equal(options.requireParsedResult, true);
+    if (text.includes('unavailable.pdf')) throw new Error('Parser unavailable');
+    if (text.includes('empty-result.pdf')) return {};
+    if (text.includes('error-result.pdf')) return { error: 'Parse failed', name: 'Valid Candidate', email: 'person@example.com' };
+    if (text.includes('failed-result.pdf')) return { success: false, name: 'Valid Candidate', email: 'person@example.com' };
+    if (text.includes('non-resume.pdf')) return { isResume: false };
+    if (text.includes('no-identity.pdf')) return { skills: ['Java'] };
+    return { name: 'Valid Candidate', email: 'person@example.com', phone: '9876543210' };
+  } } },
   '../services/s3Service.js': { getResumeStreamFromS3: async () => { throw new Error('Not needed in transfer tests'); } },
   sequelize: { Op: { like: 'like', in: 'in' } },
 };
@@ -77,6 +86,8 @@ test('Talent Pool transfer route and duplicate guards', async t => {
       assert.equal(result.data.created[0].createdBy, 'admin-1');
       assert.equal(result.data.created[0].recruiterName, 'Admin');
       assert.equal(result.data.created[0].submittedDate, new Date().toISOString().slice(0, 10));
+      assert.equal((await request(`/rows/${result.data.created[0].id}`, { recruiterName: 'Changed' }, 'PUT')).status, 400);
+      assert.equal((await request(`/rows/${result.data.created[0].id}`, { submittedDate: '2000-01-01' }, 'PUT')).status, 400);
     });
     await t.test('batch skips an existing or reuploaded candidate and creates valid remaining candidates', async () => {
       const result = await request('/rows/from-talent-pool', { ...details, clientName: ' ACME ', candidateIds: ['same-person', 'two', 'error'] });
@@ -92,6 +103,18 @@ test('Talent Pool transfer route and duplicate guards', async t => {
     await t.test('missing candidates or incomplete details cannot create rows', async () => {
       assert.equal((await request('/rows/from-talent-pool', { ...details, candidateIds: ['missing'] })).status, 404);
       assert.equal((await request('/rows/from-talent-pool', { ...details, candidateIds: ['one'], clientName: '' })).status, 400);
+    });
+    await t.test('transfer validates supplied metadata and dates before creating records', async () => {
+      const count = records.length;
+      for (const change of [{ interviewDate: '2000-01-01' }, { status: 'Invalid' }]) {
+        assert.equal((await request('/rows/from-talent-pool', { ...details, ...change, candidateIds: ['one'] })).status, 400);
+      }
+      assert.equal(records.length, count);
+    });
+    await t.test('stored resume references cannot be overwritten by tracker edits', async () => {
+      const original = records[0].resumeFile;
+      assert.equal((await request(`/rows/${records[0].id}`, { resumeFile: 'forged' }, 'PUT')).status, 400);
+      assert.equal(records[0].resumeFile, original);
     });
     await t.test('manual creation and editing cannot bypass duplicate detection', async () => {
       assert.equal((await request('/rows', { ...details, candidateName: 'Same', email: 'one@example.com' })).status, 409);
@@ -117,7 +140,13 @@ test('Talent Pool transfer route and duplicate guards', async t => {
         { name: 'corrupted.docx', content: 'PK\u0003\u0004broken' },
         { name: 'blank.pdf', content: '%PDF-blank' }, { name: 'unrelated.pdf', content: '%PDF-invoice' },
       ];
-      for (const fixture of fixtures) assert.equal((await request('/upload-resume', { fixture })).status, 422);
+      for (const name of ['empty-result.pdf', 'error-result.pdf', 'failed-result.pdf', 'non-resume.pdf', 'no-identity.pdf']) fixtures.push({ name, content: '%PDF-test' });
+      for (const fixture of fixtures) {
+        assert.equal((await request('/upload-resume', { fixture })).status, 422);
+        assert.equal(records.length, count, `${fixture.name} must not create a record`);
+      }
+      assert.equal((await request('/upload-resume', { fixture: { name: 'unavailable.pdf', content: '%PDF-test' } })).status, 503);
+      assert.equal(records.length, count);
       assert.equal(records.length, count);
       assert.equal((await request('/rows', { resumeFile: 'invalid.pdf' })).status, 400);
       assert.equal(records.length, count);
@@ -125,6 +154,9 @@ test('Talent Pool transfer route and duplicate guards', async t => {
       assert.equal(valid.status, 201); assert.equal(valid.data.candidateName, 'Valid Candidate');
       assert.equal(valid.data.status, 'Submitted');
       assert.equal(valid.data.submittedDate, new Date().toISOString().slice(0, 10));
+      assert.equal(valid.data.recruiterName, 'Admin');
+      assert.equal((await request(`/rows/${valid.data.id}`, { recruiterName: 'Changed' }, 'PUT')).status, 400);
+      assert.equal((await request(`/rows/${valid.data.id}`, { submittedDate: '2000-01-01' }, 'PUT')).status, 400);
       assert.equal(records.length, count + 1);
     });
     await t.test('parallel requests through serialized transactions create only one submission', async () => {
