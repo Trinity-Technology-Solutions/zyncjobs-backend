@@ -86,4 +86,58 @@ router.post('/', async (req, res) => {
   }
 });
 
+
+// POST /api/contact/callback - employer callback requests
+router.post('/callback', async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  const email = String(req.body?.email || '').trim();
+  const phone = String(req.body?.phone || '').trim();
+  const hiringFor = String(req.body?.hiringFor || '').trim();
+  const escapeHtml = (value) => value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+
+  if (!name || !email || !phone || !hiringFor) {
+    return res.status(400).json({ error: 'Name, email, phone, and hiring details are required.' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Enter a valid email address.' });
+  }
+  if (name.length > 120 || email.length > 254 || phone.length > 40 || hiringFor.length > 160) {
+    return res.status(400).json({ error: 'One or more fields are too long.' });
+  }
+
+  try {
+    const safeName = escapeHtml(name);
+    const safeEmail = escapeHtml(email);
+    const safePhone = escapeHtml(phone);
+    const safeHiringFor = escapeHtml(hiringFor);
+    await transporter.sendMail({
+      from: `"ZyncJobs Employer Callback" <${process.env.SMTP_EMAIL}>`,
+      to: process.env.SMTP_EMAIL,
+      replyTo: email,
+      subject: `[Employer Callback] ${name}`,
+      text: `Employer callback request\nName: ${name}\nEmail: ${email}\nPhone: ${phone}\nHiring for: ${hiringFor}`,
+      html: `<h2>Employer callback request</h2><p><strong>Name:</strong> ${safeName}</p><p><strong>Email:</strong> ${safeEmail}</p><p><strong>Phone:</strong> ${safePhone}</p><p><strong>Hiring for:</strong> ${safeHiringFor}</p>`
+    });
+
+    // Acknowledgment is best-effort; the callback is accepted once the team email is delivered.
+    try {
+      await transporter.sendMail({
+        from: `"ZyncJobs Support" <${process.env.SMTP_EMAIL}>`,
+        to: email,
+        subject: 'We received your callback request',
+        text: `Hi ${name}, we received your callback request and our team will contact you soon.`,
+        html: `<p>Hi ${safeName},</p><p>We received your callback request. Our team will contact you soon.</p>`
+      });
+    } catch (replyError) {
+      console.error('Employer callback acknowledgment email failed:', replyError?.code || replyError?.message || 'Unknown mail error');
+    }
+
+    return res.json({ success: true, message: 'Callback request sent successfully.' });
+  } catch (error) {
+    console.error('Employer callback email error:', error?.code || error?.message || 'Unknown mail error');
+    return res.status(500).json({ error: 'Unable to send your callback request. Please try again.' });
+  }
+});
 export default router;

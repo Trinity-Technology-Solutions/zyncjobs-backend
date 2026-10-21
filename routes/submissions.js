@@ -1,4 +1,7 @@
 import express from 'express';
+import crypto from 'node:crypto';
+import { sequelize } from '../config/postgresql.js';
+import '../models/associations.js';
 import { Op } from 'sequelize';
 import TalentCandidate from '../models/TalentCandidate.js';
 import SubmissionBatch from '../models/SubmissionBatch.js';
@@ -26,7 +29,7 @@ function generateSubmissionCSV(candidates, batchId, fields = []) {
   const header = selectedFields.join(',');
   const rows = candidates.map(c => {
     const vals = {};
-    if (selectedFields.includes('Candidate ID')) vals['Candidate ID'] = c.candidate_id;
+    if (selectedFields.includes('Candidate ID')) vals['Candidate ID'] = c.candidateId;
     if (selectedFields.includes('Submission ID')) vals['Submission ID'] = batchId;
     if (selectedFields.includes('Name')) vals['Name'] = c.name;
     if (selectedFields.includes('Email')) vals['Email'] = c.email;
@@ -44,44 +47,50 @@ function generateSubmissionCSV(candidates, batchId, fields = []) {
 // POST /api/submissions/create - Create submission batch from selected candidates
 router.post('/create', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
-    const { candidateIds, clientName, jobTitle, notes } = req.body;
-    if (!candidateIds?.length || !clientName) {
+    const { candidateIds: requestedIds, clientName, jobTitle, notes } = req.body;
+    if (!Array.isArray(requestedIds) || requestedIds.some(id => typeof id !== 'string' || !id.trim())) return res.status(400).json({ error: 'Select valid candidate IDs.' });
+    const candidateIds = [...new Set(requestedIds)];
+    if (!candidateIds.length || typeof clientName !== 'string' || !clientName.trim()) {
       return res.status(400).json({ error: 'candidateIds and clientName required' });
     }
 
     const candidates = await TalentCandidate.findAll({
-      where: { candidate_id: candidateIds },
-      attributes: ['candidate_id', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience']
+      where: { candidateId: candidateIds },
+      attributes: ['candidateId', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience']
     });
 
     if (candidates.length !== candidateIds.length) {
       return res.status(400).json({ error: 'Some candidates not found' });
     }
 
+    const { batch, submissions } = await sequelize.transaction(async transaction => {
     const batch = await SubmissionBatch.create({
-      client_name: clientName,
-      job_title: jobTitle,
-      submitted_by: req.user.id,
-      candidate_count: candidates.length,
+      batchId: `SUB-${new Date().getUTCFullYear()}-${crypto.randomBytes(8).toString('hex')}`,
+      clientName: clientName,
+      jobTitle: jobTitle,
+      submittedBy: req.user.id,
+      candidateCount: candidates.length,
       status: 'Submitted',
       notes
-    });
+    }, { transaction });
 
     const submissions = await CandidateSubmission.bulkCreate(candidates.map(c => ({
-      batch_id: batch.id,
-      candidate_id: c.candidate_id,
-      candidate_name: c.name,
-      candidate_email: c.email,
+      batchId: batch.id,
+      candidateId: c.candidateId,
+      candidateName: c.name,
+      candidateEmail: c.email,
       status: 'submitted'
-    })));
+    })), { transaction });
+    return { batch, submissions };
+    });
 
     res.json({
       batch: {
-        batchId: batch.batch_id,
-        clientName: batch.client_name,
-        jobTitle: batch.job_title,
-        candidateCount: batch.candidate_count,
-        submittedAt: batch.submitted_at
+        batchId: batch.batchId,
+        clientName: batch.clientName,
+        jobTitle: batch.jobTitle,
+        candidateCount: batch.candidateCount,
+        submittedAt: batch.submittedAt
       },
       submissionsCount: submissions.length
     });
@@ -97,29 +106,29 @@ router.post('/generate-csv', authenticateToken, requireRole(['admin', 'recruiter
     const { batchId, fields } = req.body;
     if (!batchId) return res.status(400).json({ error: 'batchId required' });
 
-    const batch = await SubmissionBatch.findOne({ where: { batch_id: batchId } });
+    const batch = await SubmissionBatch.findOne({ where: { batchId: batchId } });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
     const submissions = await CandidateSubmission.findAll({
-      where: { batch_id: batch.id },
+      where: { batchId: batch.id },
       include: [{
         model: TalentCandidate,
         as: 'candidate',
-        attributes: ['candidate_id', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
+        attributes: ['candidateId', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
         required: false
       }]
     });
 
     const candidates = submissions.map(s => s.candidate || {
-      candidate_id: s.candidate_id,
-      name: s.candidate_name,
-      email: s.candidate_email
+      candidateId: s.candidateId,
+      name: s.candidateName,
+      email: s.candidateEmail
     });
 
-    const csv = generateSubmissionCSV(candidates, batch.batch_id, fields);
+    const csv = generateSubmissionCSV(candidates, batch.batchId, fields);
     
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="submission_${batch.batch_id}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="submission_${batch.batchId}.csv"`);
     res.send(csv);
   } catch (err) {
     console.error('[SUBMISSIONS] CSV error:', err);
@@ -132,12 +141,13 @@ router.get('/', authenticateToken, requireRole(['admin', 'recruiter', 'super_adm
   try {
     const { clientName, status, page = 1, limit = 20 } = req.query;
     const where = {};
-    if (clientName) where.client_name = { [Op.iLike]: `%${clientName}%` };
+    if (clientName) where.clientName = { [Op.iLike]: `%${clientName}%` };
     if (status) where.status = status;
 
     const { rows, count } = await SubmissionBatch.findAndCountAll({
+      distinct: true,
       where,
-      order: [['submitted_at', 'DESC']],
+      order: [['submittedAt', 'DESC']],
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit),
       include: [{
@@ -149,12 +159,12 @@ router.get('/', authenticateToken, requireRole(['admin', 'recruiter', 'super_adm
     });
 
     const batches = rows.map(b => ({
-      batchId: b.batch_id,
-      clientName: b.client_name,
-      jobTitle: b.job_title,
-      candidateCount: b.candidate_count,
+      batchId: b.batchId,
+      clientName: b.clientName,
+      jobTitle: b.jobTitle,
+      candidateCount: b.candidateCount,
       status: b.status,
-      submittedAt: b.submitted_at,
+      submittedAt: b.submittedAt,
       shortlistedCount: b.submissions?.filter(s => s.status === 'shortlisted').length || 0,
       rejectedCount: b.submissions?.filter(s => s.status === 'rejected').length || 0
     }));
@@ -169,43 +179,43 @@ router.get('/', authenticateToken, requireRole(['admin', 'recruiter', 'super_adm
 // GET /api/submissions/:batchId - Get batch details with candidates
 router.get('/:batchId', authenticateToken, requireRole(['admin', 'recruiter', 'super_admin']), async (req, res) => {
   try {
-    const batch = await SubmissionBatch.findOne({ where: { batch_id: req.params.batchId } });
+    const batch = await SubmissionBatch.findOne({ where: { batchId: req.params.batchId } });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
     const submissions = await CandidateSubmission.findAll({
-      where: { batch_id: batch.id },
+      where: { batchId: batch.id },
       include: [{
         model: TalentCandidate,
         as: 'candidate',
-        attributes: ['candidate_id', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
+        attributes: ['candidateId', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
         required: false
       }],
-      order: [['submitted_at', 'ASC']]
+      order: [['submittedAt', 'ASC']]
     });
 
     const candidates = submissions.map(s => ({
-      candidateId: s.candidate?.candidate_id || s.candidate_id,
-      name: s.candidate?.name || s.candidate_name,
-      email: s.candidate?.email || s.candidate_email,
+      candidateId: s.candidate?.candidateId || s.candidateId,
+      name: s.candidate?.name || s.candidateName,
+      email: s.candidate?.email || s.candidateEmail,
       phone: s.candidate?.phone,
       location: s.candidate?.location,
       jobTitle: s.candidate?.jobTitle,
       skills: s.candidate?.skills,
       experience: s.candidate?.totalExperience || s.candidate?.experience,
       status: s.status,
-      submittedAt: s.submitted_at,
-      shortlistedAt: s.shortlisted_at,
-      rejectedAt: s.rejected_at
+      submittedAt: s.submittedAt,
+      shortlistedAt: s.shortlistedAt,
+      rejectedAt: s.rejectedAt
     }));
 
     res.json({
       batch: {
-        batchId: batch.batch_id,
-        clientName: batch.client_name,
-        jobTitle: batch.job_title,
-        candidateCount: batch.candidate_count,
+        batchId: batch.batchId,
+        clientName: batch.clientName,
+        jobTitle: batch.jobTitle,
+        candidateCount: batch.candidateCount,
         status: batch.status,
-        submittedAt: batch.submitted_at,
+        submittedAt: batch.submittedAt,
         notes: batch.notes
       },
       candidates
@@ -223,16 +233,16 @@ router.post('/import-shortlist', authenticateToken, requireRole(['admin', 'recru
     if (!csvText) return res.status(400).json({ error: 'csvText required' });
     if (!batchId) return res.status(400).json({ error: 'batchId required' });
 
-    const batch = await SubmissionBatch.findOne({ where: { batch_id: batchId } });
+    const batch = await SubmissionBatch.findOne({ where: { batchId: batchId } });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
     // Get all candidates in this batch with full details
     const submissions = await CandidateSubmission.findAll({
-      where: { batch_id: batch.id },
+      where: { batchId: batch.id },
       include: [{
         model: TalentCandidate,
         as: 'candidate',
-        attributes: ['candidate_id', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
+        attributes: ['candidateId', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
         required: false
       }]
     });
@@ -244,8 +254,8 @@ router.post('/import-shortlist', authenticateToken, requireRole(['admin', 'recru
     const byCandidateId = new Map();
     
     submissions.forEach(s => {
-      const c = s.candidate || { candidate_id: s.candidate_id, name: s.candidate_name, email: s.candidate_email };
-      if (c.candidate_id) byCandidateId.set(c.candidate_id, s);
+      const c = s.candidate || { candidateId: s.candidateId, name: s.candidateName, email: s.candidateEmail };
+      if (c.candidateId) byCandidateId.set(c.candidateId, s);
       if (c.email) byEmail.set(c.email.toLowerCase().trim(), s);
       if (c.phone) byPhone.set(c.phone.replace(/\D/g, '').slice(-10), s);
       if (c.name) byName.set(c.name.toLowerCase().trim(), s);
@@ -320,10 +330,10 @@ router.post('/import-shortlist', authenticateToken, requireRole(['admin', 'recru
       }
 
       if (status === 'shortlisted') {
-        await matched.update({ status: 'shortlisted', shortlisted_at: new Date() });
+        await matched.update({ status: 'shortlisted', shortlistedAt: new Date() });
         shortlisted++;
       } else if (status === 'rejected') {
-        await matched.update({ status: 'rejected', rejected_at: new Date() });
+        await matched.update({ status: 'rejected', rejectedAt: new Date() });
         rejected++;
       } else {
         // If no valid status, count as not found
@@ -344,16 +354,16 @@ router.post('/smart-import', authenticateToken, requireRole(['admin', 'recruiter
     const { batchId, csvText, columnMap } = req.body;
     if (!batchId || !csvText) return res.status(400).json({ error: 'batchId and csvText required' });
 
-    const batch = await SubmissionBatch.findOne({ where: { batch_id: batchId } });
+    const batch = await SubmissionBatch.findOne({ where: { batchId: batchId } });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
     // Get all candidates in this batch with full details
     const submissions = await CandidateSubmission.findAll({
-      where: { batch_id: batch.id },
+      where: { batchId: batch.id },
       include: [{
         model: TalentCandidate,
         as: 'candidate',
-        attributes: ['candidate_id', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
+        attributes: ['candidateId', 'name', 'email', 'phone', 'location', 'jobTitle', 'skills', 'totalExperience', 'experience'],
         required: false
       }]
     });
@@ -364,7 +374,7 @@ router.post('/smart-import', authenticateToken, requireRole(['admin', 'recruiter
     const byName = new Map();
     
     submissions.forEach(s => {
-      const c = s.candidate || { candidate_id: s.candidate_id, name: s.candidate_name, email: s.candidate_email };
+      const c = s.candidate || { candidateId: s.candidateId, name: s.candidateName, email: s.candidateEmail };
       if (c.email) byEmail.set(c.email.toLowerCase().trim(), s);
       if (c.phone) byPhone.set(c.phone.replace(/\D/g, '').slice(-10), s);
       if (c.name) byName.set(c.name.toLowerCase().trim(), s);
@@ -430,9 +440,9 @@ router.post('/smart-import', authenticateToken, requireRole(['admin', 'recruiter
       matches.push({
         clientRow: { clientId, name, email, phone: row[map.phone] || '', status },
         matchedCandidate: matched ? {
-          candidateId: matched.candidate?.candidate_id || matched.candidate_id,
-          name: matched.candidate?.name || matched.candidate_name,
-          email: matched.candidate?.email || matched.candidate_email,
+          candidateId: matched.candidate?.candidateId || matched.candidateId,
+          name: matched.candidate?.name || matched.candidateName,
+          email: matched.candidate?.email || matched.candidateEmail,
           phone: matched.candidate?.phone,
           submissionId: matched.id
         } : null,
@@ -442,7 +452,7 @@ router.post('/smart-import', authenticateToken, requireRole(['admin', 'recruiter
       });
     }
 
-    res.json({ matches, batch: { batchId: batch.batch_id, clientName: batch.client_name } });
+    res.json({ matches, batch: { batchId: batch.batchId, clientName: batch.clientName } });
   } catch (err) {
     console.error('[SUBMISSIONS] Smart import error:', err);
     res.status(500).json({ error: err.message });
@@ -464,10 +474,10 @@ router.post('/confirm-smart-import', authenticateToken, requireRole(['admin', 'r
       if (!submission) { notFound++; continue; }
 
       if (m.clientRow.status.toLowerCase().trim() === 'shortlisted') {
-        await submission.update({ status: 'shortlisted', shortlisted_at: new Date() });
+        await submission.update({ status: 'shortlisted', shortlistedAt: new Date() });
         shortlisted++;
       } else if (m.clientRow.status.toLowerCase().trim() === 'rejected') {
-        await submission.update({ status: 'rejected', rejected_at: new Date() });
+        await submission.update({ status: 'rejected', rejectedAt: new Date() });
         rejected++;
       }
     }
