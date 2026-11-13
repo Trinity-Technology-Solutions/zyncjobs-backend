@@ -61,6 +61,14 @@ async function request(suffix = '', method = 'GET', body, headers = {}) {
 }
 test('submission-linked interviews, scheduling, invitations and lifecycle', async t => {
   try {
+    await t.test('a valid submission without interviews returns an empty successful list', async () => {
+      const empty = await request();
+      assert.equal(empty.status, 200);
+      assert.deepEqual(empty.data, []);
+      const missing = await fetch(base.replace(source.id, 'missing-submission'));
+      assert.equal(missing.status, 404);
+      assert.equal((await missing.json()).error, 'Submission not found.');
+    });
     await t.test('requires authorization and submission ownership', async () => {
       assert.equal((await request('', 'GET', undefined, { 'x-unauthorized': 'yes' })).status, 401);
       assert.equal((await request('', 'POST', details, { 'x-user': 'another-recruiter' })).status, 404);

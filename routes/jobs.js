@@ -339,7 +339,7 @@ router.get('/', async (req, res) => {
   try {
     const { page = 1, limit = 10, location, jobType, search, sort } = req.query;
 
-    const where = { isActive: true, status: 'approved' };
+    const where = { isActive: true, status: 'approved', [Op.and]: [{ [Op.or]: [{ applicationDeadline: null }, { applicationDeadline: { [Op.gte]: new Date() } }] }] };
     if (location) where.location = { [Op.iLike]: `%${location}%` };
     if (jobType) where.jobType = Array.isArray(jobType) ? { [Op.in]: jobType } : jobType;
     if (search) {
@@ -688,7 +688,7 @@ router.get('/search/query', async (req, res) => {
 router.get('/search', async (req, res) => {
   try {
     const { q, location, jobType, limit = 10, page = 1 } = req.query;
-    const where = { isActive: true, status: 'approved' };
+    const where = { isActive: true, status: 'approved', [Op.and]: [{ [Op.or]: [{ applicationDeadline: null }, { applicationDeadline: { [Op.gte]: new Date() } }] }] };
 
     if (q) {
       where[Op.or] = [

@@ -6,16 +6,12 @@ export const advancedJobSearch = async (params = {}) => {
   const { query, location, jobType, workSetting, experienceLevel, salaryMin, salaryMax, skills,
     coordinates, radius, freshness, page = 1, limit = 20 } = params;
 
-  const where = { isActive: true, status: 'approved' };
+  const where = { isActive: true, status: 'approved', [Op.and]: [{ [Op.or]: [{ applicationDeadline: null }, { applicationDeadline: { [Op.gte]: new Date() } }] }] };
 
-  // Freshness filter
-  if (freshness) {
-    const now = new Date();
-    const cutoff = freshness === '24h'
-      ? new Date(now - 24 * 60 * 60 * 1000)
-      : new Date(now - 7 * 24 * 60 * 60 * 1000);
-    where.createdAt = { [Op.gte]: cutoff };
-  }
+  // Empty filter arrays do not restrict public job searches.
+  const freshnessValues = Array.isArray(freshness) ? freshness : freshness ? [freshness] : [];
+  const freshnessDays = freshnessValues.map(value => ({ '24h': 1, '48h': 2, '7d': 7 }[value])).filter(Boolean);
+  if (freshnessDays.length) where.createdAt = { [Op.gte]: new Date(Date.now() - Math.max(...freshnessDays) * 86400000) };
 
   if (query) {
     where[Op.or] = [
@@ -30,7 +26,7 @@ export const advancedJobSearch = async (params = {}) => {
   if (salaryMin) where.salaryMax = { [Op.gte]: salaryMin };
   if (salaryMax) where.salaryMin = { [Op.lte]: salaryMax };
   
-  if (jobType) {
+  if (jobType && (!Array.isArray(jobType) || jobType.length > 0)) {
     if (Array.isArray(jobType)) {
       where.jobType = { [Op.in]: jobType };
     } else {

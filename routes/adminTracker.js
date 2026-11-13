@@ -8,6 +8,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import pdfTextExtractor from '../services/pdfTextExtractor.js';
 import aiClient from '../services/aiClient.js';
 import { validateResumeFields, validateTrackerFields } from '../services/resumeFieldValidation.js';
+import { cleanCandidateLocation, extractTrackerRecruitmentFields, normalizeTrackerRecruitmentFields } from '../services/trackerRecruitmentFields.js';
 import { getResumeStreamFromS3 } from '../services/s3Service.js';
 
 const router = express.Router();
@@ -51,7 +52,12 @@ function detectSource(_text) {
 
 function extractResumeFields(text, parsed = {}) {
   const valid = validateResumeFields(parsed, text);
-  return { name: valid.name, email: valid.email, phone: valid.phone, skillRole: valid.title, source: '' };
+  return { name: valid.name, email: valid.email, phone: valid.phone, skillRole: valid.title, source: '', ...extractTrackerRecruitmentFields(text, valid) };
+}
+
+function parsedCandidateEducation(value) {
+  try { return Array.isArray(value) ? value : JSON.parse(value || '[]'); }
+  catch { return []; }
 }
 
 // Download the original resume using the tracker-owned reference and authorization.
@@ -82,13 +88,23 @@ router.get('/rows', authenticateToken, requireRole(ROLES), async (req, res) => {
   }
 });
 
-// Build WHERE clause helper
-function buildWhere({ isRecruiter, userId, from, to }) {
+const trackerAnalyticsDate = 'COALESCE(submitted_date, date)';
+const normalizedRecruiter = "COALESCE(NULLIF(BTRIM(recruiter_name), ''), '_')";
+
+function validTrackerDate(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    Number.isFinite(new Date(`${value}T00:00:00Z`).getTime());
+}
+
+// Analytics is based on Submitted Date (with legacy Date fallback), not the
+// editable display Date. Bind values rather than interpolating request input.
+function buildAnalyticsScope({ isRecruiter, userId, from, to }) {
   const conditions = [];
-  if (isRecruiter) conditions.push(`created_by = '${userId}'`);
-  if (from) conditions.push(`date >= '${from}'`);
-  if (to) conditions.push(`date <= '${to}'`);
-  return conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const replacements = {};
+  if (isRecruiter) { conditions.push('created_by = :userId'); replacements.userId = String(userId); }
+  if (validTrackerDate(from)) { conditions.push(`${trackerAnalyticsDate} >= :from`); replacements.from = from; }
+  if (validTrackerDate(to)) { conditions.push(`${trackerAnalyticsDate} <= :to`); replacements.to = to; }
+  return { whereClause: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', replacements };
 }
 
 // GET /api/admin/tracker/analytics
@@ -97,14 +113,17 @@ router.get('/analytics', authenticateToken, requireRole(ROLES), async (req, res)
     const { sequelize: sq } = await import('../config/postgresql.js');
     const isRecruiter = req.user.role === 'recruiter';
     const { from, to } = req.query;
-    const whereClause = buildWhere({ isRecruiter, userId: req.user.id, from, to });
+    const { whereClause, replacements } = buildAnalyticsScope({ isRecruiter, userId: req.user.id, from, to });
     const today = new Date().toISOString().slice(0, 10);
 
     const [statusBreakdown] = await sq.query(
-      `SELECT status, COUNT(*) as count FROM tracker_rows ${whereClause} GROUP BY status ORDER BY count DESC`
+      `SELECT COALESCE(NULLIF(BTRIM(status), ''), 'Unspecified') as status, COUNT(*) as count
+       FROM tracker_rows ${whereClause}
+       GROUP BY COALESCE(NULLIF(BTRIM(status), ''), 'Unspecified') ORDER BY count DESC`,
+      { replacements }
     );
     const [recruiterStats] = await sq.query(
-      `SELECT recruiter_name as name, COUNT(*) as total,
+      `SELECT ${normalizedRecruiter} as name, COUNT(*) as total,
         SUM(CASE WHEN status='Shortlisted' THEN 1 ELSE 0 END) as shortlisted,
         SUM(CASE WHEN status='Submitted' THEN 1 ELSE 0 END) as submitted,
         SUM(CASE WHEN status='Rejected' THEN 1 ELSE 0 END) as rejected,
@@ -112,11 +131,15 @@ router.get('/analytics', authenticateToken, requireRole(ROLES), async (req, res)
         SUM(CASE WHEN status='Duplicate' THEN 1 ELSE 0 END) as duplicate,
         SUM(CASE WHEN status='Screening' THEN 1 ELSE 0 END) as screening,
         SUM(CASE WHEN status='Not Relevant' THEN 1 ELSE 0 END) as not_relevant,
-        SUM(CASE WHEN date='${today}' THEN 1 ELSE 0 END) as today_count
-       FROM tracker_rows ${whereClause} GROUP BY recruiter_name ORDER BY total DESC`
+        SUM(CASE WHEN ${trackerAnalyticsDate} = :today THEN 1 ELSE 0 END) as today_count
+       FROM tracker_rows ${whereClause} GROUP BY ${normalizedRecruiter} ORDER BY total DESC`,
+      { replacements: { ...replacements, today } }
     );
     const [dailyTrend] = await sq.query(
-      `SELECT date, COUNT(*) as count FROM tracker_rows ${whereClause} GROUP BY date ORDER BY date DESC LIMIT 30`
+      `SELECT ${trackerAnalyticsDate} as date, COUNT(*) as count
+       FROM tracker_rows ${whereClause}
+       GROUP BY ${trackerAnalyticsDate} ORDER BY ${trackerAnalyticsDate} DESC LIMIT 30`,
+      { replacements }
     );
     const [totals] = await sq.query(
       `SELECT COUNT(*) as total,
@@ -127,9 +150,10 @@ router.get('/analytics', authenticateToken, requireRole(ROLES), async (req, res)
         SUM(CASE WHEN status='Duplicate' THEN 1 ELSE 0 END) as duplicate,
         SUM(CASE WHEN status='Screening' THEN 1 ELSE 0 END) as screening,
         SUM(CASE WHEN status='Not Relevant' THEN 1 ELSE 0 END) as not_relevant,
-        COUNT(DISTINCT candidate_name) as unique_candidates,
-        COUNT(DISTINCT recruiter_name) as recruiters
-       FROM tracker_rows ${whereClause}`
+        COUNT(DISTINCT NULLIF(LOWER(BTRIM(candidate_name)), '')) as unique_candidates,
+        COUNT(DISTINCT NULLIF(BTRIM(recruiter_name), '')) as recruiters
+       FROM tracker_rows ${whereClause}`,
+      { replacements }
     );
 
     res.json({ totals: totals[0], statusBreakdown, recruiterStats, dailyTrend: dailyTrend.reverse() });
@@ -144,15 +168,18 @@ router.get('/analytics/recruiter/:name', authenticateToken, requireRole(ROLES), 
   try {
     const { sequelize: sq } = await import('../config/postgresql.js');
     const { from, to } = req.query;
-    const name = req.params.name;
-    const conditions = [`recruiter_name = '${name.replace(/'/g, "''")}'`];
-    if (from) conditions.push(`date >= '${from}'`);
-    if (to) conditions.push(`date <= '${to}'`);
+    const name = String(req.params.name || '_');
+    const conditions = [`${normalizedRecruiter} = :recruiterName`];
+    const replacements = { recruiterName: name };
+    if (validTrackerDate(from)) { conditions.push(`${trackerAnalyticsDate} >= :from`); replacements.from = from; }
+    if (validTrackerDate(to)) { conditions.push(`${trackerAnalyticsDate} <= :to`); replacements.to = to; }
     const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
     const [rows] = await sq.query(
-      `SELECT sub_id, candidate_name, job_role, company, status, date, source
-       FROM tracker_rows ${whereClause} ORDER BY date DESC, sno DESC`
+      `SELECT sub_id, candidate_name, skill_role, client_name,
+              status, ${trackerAnalyticsDate} as submitted_date, source
+       FROM tracker_rows ${whereClause} ORDER BY ${trackerAnalyticsDate} DESC, sno DESC`,
+      { replacements }
     );
     res.json(rows);
   } catch (err) {
@@ -201,12 +228,18 @@ router.post('/rows/from-talent-pool', authenticateToken, requireRole(ROLES), asy
       let existing = await TrackerRow.findAll({ transaction });
       for (const candidate of candidates) {
         if (candidate.status !== 'Parsed' || !candidate.name || !candidate.resumePath) { invalid.push({ candidateId: candidate.id, name: candidate.name, reason: 'Candidate must be parsed and have a stored resume.' }); continue; }
+        const recruitmentFields = extractTrackerRecruitmentFields(candidate.rawText, {
+          location: candidate.location,
+          educations: parsedCandidateEducation(candidate.educations),
+        });
+        if (!recruitmentFields.location) recruitmentFields.location = cleanCandidateLocation(candidate.location);
         const payload = {
           talentCandidateId: candidate.id, candidateName: candidate.name,
           email: candidate.email, phone: candidate.phone, resumeFile: candidate.resumePath,
+          ...recruitmentFields,
           clientName: details.clientName.trim(), skillRole: details.skillRole.trim(),
           recruiterName: details.recruiterName,
-          source: details.source.trim(), status: details.status,
+          source: details.source.trim(), rate: details.rate?.trim() || '', status: details.status,
           submittedDate: details.submittedDate, interviewDate: details.interviewDate || null,
           date: details.submittedDate, createdBy: req.user.id,
         };
@@ -226,7 +259,7 @@ router.post('/rows', authenticateToken, requireRole(ROLES), async (req, res) => 
     const fieldError = validateTrackerFields(req.body);
     if (fieldError) return res.status(400).json({ error: fieldError });
     const row = await trackerWrite(async transaction => {
-      const payload = { ...req.body, createdBy: req.user.id };
+      const payload = { ...normalizeTrackerRecruitmentFields(req.body), createdBy: req.user.id };
       delete payload.id; delete payload.talentCandidateId;
       payload.date ||= new Date().toISOString().slice(0, 10);
       payload.submittedDate = new Date().toISOString().slice(0, 10); payload.interviewDate ||= null;
@@ -258,9 +291,10 @@ router.put('/rows/:id', authenticateToken, requireRole(ROLES), async (req, res) 
       const changedFields = Object.fromEntries(Object.entries(safeBody).filter(([key, value]) => String(value ?? '') !== String(row[key] ?? '')));
       const fieldError = validateTrackerFields(changedFields);
       if (fieldError) { const error = new Error(fieldError); error.status = 400; throw error; }
-      if ('interviewDate' in safeBody && !safeBody.interviewDate) safeBody.interviewDate = null;
-      await assertUnique({ ...row.toJSON(), ...safeBody }, transaction, row.id);
-      return row.update(safeBody, { transaction });
+      const normalizedBody = normalizeTrackerRecruitmentFields(safeBody);
+      if ('interviewDate' in normalizedBody && !normalizedBody.interviewDate) normalizedBody.interviewDate = null;
+      await assertUnique({ ...row.toJSON(), ...normalizedBody }, transaction, row.id);
+      return row.update(normalizedBody, { transaction });
     });
     res.json(updated);
   } catch (error) { trackerError(res, error); }
@@ -295,11 +329,13 @@ async function validatedResume(file) {
   const invalid = message => { const error = new Error(message); error.status = 422; return error; };
   if (!file || !file.buffer?.length) throw invalid('Upload a non-empty resume.');
   const extension = file.originalname.toLowerCase().split('.').pop();
-  if (!['pdf', 'doc', 'docx'].includes(extension)) throw invalid('Only PDF, DOC and DOCX resumes are supported.');
+  if (!['pdf', 'doc', 'docx', 'png', 'jpg', 'jpeg'].includes(extension)) throw invalid('Only PDF, DOC, DOCX, PNG, JPG and JPEG resumes are supported.');
   const buffer = file.buffer;
   const signatureValid = extension === 'pdf' ? buffer.subarray(0, 1024).includes(Buffer.from('%PDF-')) :
     extension === 'docx' ? buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])) :
-    buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+    extension === 'doc' ? buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) :
+    extension === 'png' ? buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) :
+    buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
   if (!signatureValid) throw invalid('File content does not match its resume format or is corrupted.');
   let text;
   try { text = await pdfTextExtractor.extractTextFromBuffer(buffer, file.originalname); }
@@ -315,7 +351,17 @@ async function validatedResume(file) {
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Object.keys(parsed).length || parsed.error || parsed.success === false || parsed.isResume === false || parsed.is_resume === false) throw invalid('Resume could not be parsed into candidate details.');
   const fields = extractResumeFields(text, parsed);
-  if (!fields.name || !/[a-z]/i.test(fields.name) || fields.name.length > 100 || (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email) && fields.phone.replace(/\D/g, '').length < 7)) throw invalid('Resume must contain a candidate name and valid email or contact number.');
+  const hasEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email);
+  const hasPhone = fields.phone.replace(/\D/g, '').length >= 7;
+  const hasLinkedInProfile = /^https:\/\/www\.linkedin\.com\/in\/[a-z\d_-]+$/i.test(fields.linkedinUrl || '');
+  // LinkedIn profile PDFs often omit direct contact details. A source-backed
+  // personal /in/ profile together with a validated candidate name is a usable
+  // candidate identity; company URLs and URL-only documents remain rejected.
+  const hasName = Boolean(fields.name && /[a-z]/i.test(fields.name) && fields.name.length <= 100);
+  if (!hasName || (!hasEmail && !hasPhone && !hasLinkedInProfile)) {
+    const missing = [!hasName && 'candidate name', !hasEmail && 'email', !hasPhone && 'contact number', !hasLinkedInProfile && 'LinkedIn profile URL'].filter(Boolean).join(', ');
+    throw invalid(`Resume identity could not be verified. Missing or invalid: ${missing}. Include a candidate name and at least one valid email, contact number, or LinkedIn profile URL.`);
+  }
   return fields;
 }
 
@@ -327,6 +373,9 @@ router.post('/upload-resume', authenticateToken, requireRole(ROLES), receiveResu
       const today = new Date().toISOString().slice(0, 10);
       return TrackerRow.create({
         candidateName: fields.name, email: fields.email, phone: fields.phone,
+        location: fields.location, linkedinUrl: fields.linkedinUrl,
+        qualification: fields.qualification, taxTerm: fields.taxTerm, visaStatus: fields.visaStatus,
+        rate: '',
         skillRole: fields.skillRole, resumeFile: req.file.originalname,
         clientName: '', source: '', status: 'Submitted', interviewDate: null,
         date: today, submittedDate: today,

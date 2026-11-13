@@ -6,12 +6,13 @@ import { createRequire } from 'node:module';
 import vm from 'node:vm';
 import * as validation from '../services/trackerSubmissionValidation.js';
 import * as resumeValidation from '../services/resumeFieldValidation.js';
+import * as recruitmentFields from '../services/trackerRecruitmentFields.js';
 
 const require = createRequire(new URL('../package.json', import.meta.url));
 const express = require('express');
 const records = [];
 const candidates = [
-  { id: 'one', name: 'Original Name', email: 'one@example.com', phone: '9876543210', status: 'Parsed', resumePath: 'stored/original.pdf' },
+  { id: 'one', name: 'Original Name', email: 'one@example.com', phone: '9876543210', status: 'Parsed', resumePath: 'stored/original.pdf', location: 'Dallas, TX', educations: JSON.stringify([{ degree: 'Bachelor of Science' }]), rawText: 'Location: Dallas, TX\nLinkedIn: linkedin.com/in/original-name\nEducation: Bachelor of Science\nTax terms: C2C\nVisa status: H-1B' },
   { id: 'same-person', name: 'Original Name', email: 'ONE@example.com', status: 'Parsed', resumePath: 'stored/reupload.pdf' },
   { id: 'two', name: 'Second Person', email: 'two@example.com', status: 'Parsed', resumePath: 'stored/second.pdf' },
   { id: 'error', name: 'Failed Parse', status: 'Error', resumePath: 'stored/error.pdf' },
@@ -40,21 +41,23 @@ const dependencies = {
   express: { default: express }, multer: { default: multer },
   '../models/TrackerRow.js': { default: TrackerRow }, '../models/TalentCandidate.js': { default: TalentCandidate },
   '../services/resumeFieldValidation.js': resumeValidation,
+  '../services/trackerRecruitmentFields.js': recruitmentFields,
   '../config/postgresql.js': { sequelize }, '../services/trackerSubmissionValidation.js': validation,
   '../middleware/auth.js': {
     authenticateToken(req, _res, next) { req.user = { id: 'admin-1', name: 'Admin', role: 'admin' }; next(); },
     requireRole: () => (_req, _res, next) => next(),
   },
-  '../services/pdfTextExtractor.js': { default: { async extractTextFromBuffer(_buffer, name) { if (name === 'corrupted.docx') throw new Error('Cannot find end of central directory'); if (name === 'blank.pdf') return ''; if (name === 'unrelated.pdf') return 'Invoice payment receipt for office equipment. '.repeat(5); return `${name} Valid Candidate Resume Education Skills Experience Projects person@example.com 9876543210 `.repeat(4); } } },
+  '../services/pdfTextExtractor.js': { default: { async extractTextFromBuffer(_buffer, name) { if (name === 'corrupted.docx') throw new Error('Cannot find end of central directory'); if (name === 'blank.pdf') return ''; if (name === 'unrelated.pdf') return 'Invoice payment receipt for office equipment. '.repeat(5); if (name === 'linkedin-only.pdf') return 'LinkedIn Candidate\nLinkedIn: https://www.linkedin.com/in/linkedin-candidate\nProfessional Summary\nExperience\nEducation\nSkills'; if (name === 'hemamalini.pdf') return 'HEMAMALINI.R\nSoftware Test Engineer\nCHENNAI, INDIA 600096\nrhemamalini233 @ gmail . com\n+91 9514416567\nProfessional Summary\nQA Engineer with 5 years of experience\nExperience\nEducation\nSkills'; if (name === 'us-resume.pdf') return 'Valid Candidate\nLocation: Austin, TX\nLinkedIn: linkedin.com/in/valid-candidate\nEducation: Master of Science\nTax terms: W-2\nWork authorization: US Citizen\nSkills: Java\nExperience: Software Engineer\nProjects: Website\nperson@example.com 9876543210'; return `${name} Valid Candidate Resume Education Skills Experience Projects person@example.com 9876543210 `.repeat(4); } } },
   '../services/aiClient.js': { default: { async parseResume(text, _instructions, options) {
     assert.equal(options.requireParsedResult, true);
+    if (text.includes('LinkedIn Candidate')) return { name: 'LinkedIn Candidate' };
     if (text.includes('unavailable.pdf')) throw new Error('Parser unavailable');
     if (text.includes('empty-result.pdf')) return {};
     if (text.includes('error-result.pdf')) return { error: 'Parse failed', name: 'Valid Candidate', email: 'person@example.com' };
     if (text.includes('failed-result.pdf')) return { success: false, name: 'Valid Candidate', email: 'person@example.com' };
     if (text.includes('non-resume.pdf')) return { isResume: false };
     if (text.includes('no-identity.pdf')) return { skills: ['Java'] };
-    return { name: 'Valid Candidate', email: 'person@example.com', phone: '9876543210' };
+    return { name: 'Valid Candidate', email: 'person@example.com', phone: '9876543210', location: text.includes('Austin, TX') ? 'Austin, TX' : '', educations: text.includes('Master of Science') ? [{ degree: 'Master of Science' }] : [] };
   } } },
   '../services/s3Service.js': { getResumeStreamFromS3: async () => { throw new Error('Not needed in transfer tests'); } },
   sequelize: { Op: { like: 'like', in: 'in' } },
@@ -86,6 +89,11 @@ test('Talent Pool transfer route and duplicate guards', async t => {
       assert.equal(result.data.created[0].createdBy, 'admin-1');
       assert.equal(result.data.created[0].recruiterName, 'Admin');
       assert.equal(result.data.created[0].submittedDate, new Date().toISOString().slice(0, 10));
+      assert.equal(result.data.created[0].location, 'Dallas, TX');
+      assert.equal(result.data.created[0].linkedinUrl, 'https://www.linkedin.com/in/original-name');
+      assert.equal(result.data.created[0].qualification, 'UG');
+      assert.equal(result.data.created[0].taxTerm, 'C2C');
+      assert.equal(result.data.created[0].visaStatus, 'H-1B');
       assert.equal((await request(`/rows/${result.data.created[0].id}`, { recruiterName: 'Changed' }, 'PUT')).status, 400);
       assert.equal((await request(`/rows/${result.data.created[0].id}`, { submittedDate: '2000-01-01' }, 'PUT')).status, 400);
     });
@@ -133,6 +141,18 @@ test('Talent Pool transfer route and duplicate guards', async t => {
       assert.equal((await request(`/rows/${row.id}`, { submittedDate: '2000-01-01' }, 'PUT')).status, 400);
       assert.equal((await request(`/rows/${row.id}`, { ...row, status: 'Shortlisted' }, 'PUT')).status, 200);
     });
+    await t.test('manual recruitment fields validate and persist normalized profiles', async () => {
+      const created = await request('/rows', { ...details, skillRole: 'US-JOB', candidateName: 'Jane Candidate', email: 'jane@example.com', location: 'Austin, TX', linkedinUrl: 'linkedin.com/in/jane-candidate/?trk=resume', qualification: 'PG', taxTerm: 'C2C', visaStatus: 'H-1B' });
+      assert.equal(created.status, 201);
+      assert.equal(created.data.linkedinUrl, 'https://www.linkedin.com/in/jane-candidate');
+      assert.equal(created.data.visaStatus, 'H-1B');
+      assert.equal((await request(`/rows/${created.data.id}`, { taxTerm: 'invented' }, 'PUT')).status, 400);
+      assert.equal((await request(`/rows/${created.data.id}`, { linkedinUrl: 'https://linkedin.com.evil.example/in/jane' }, 'PUT')).status, 400);
+      const updated = await request(`/rows/${created.data.id}`, { taxTerm: 'W-2 Contract', visaStatus: 'GC' }, 'PUT');
+      assert.equal(updated.status, 200);
+      assert.equal(updated.data.taxTerm, 'W-2 Contract');
+      assert.equal(updated.data.visaStatus, 'GC');
+    });
     await t.test('invalid uploads never create rows, while valid parsed resumes do', async () => {
       const count = records.length;
       const fixtures = [
@@ -158,6 +178,26 @@ test('Talent Pool transfer route and duplicate guards', async t => {
       assert.equal((await request(`/rows/${valid.data.id}`, { recruiterName: 'Changed' }, 'PUT')).status, 400);
       assert.equal((await request(`/rows/${valid.data.id}`, { submittedDate: '2000-01-01' }, 'PUT')).status, 400);
       assert.equal(records.length, count + 1);
+      const hemamalini = await request('/upload-resume', { fixture: { name: 'hemamalini.pdf', content: '%PDF-valid' } });
+      assert.equal(hemamalini.status, 201);
+      assert.equal(hemamalini.data.candidateName, 'HEMAMALINI.R');
+      assert.equal(hemamalini.data.email, 'rhemamalini233@gmail.com');
+      const linkedInOnly = await request('/upload-resume', { fixture: { name: 'linkedin-only.pdf', content: '%PDF-valid' } });
+      assert.equal(linkedInOnly.status, 201);
+      assert.equal(linkedInOnly.data.candidateName, 'LinkedIn Candidate');
+      assert.equal(linkedInOnly.data.linkedinUrl, 'https://www.linkedin.com/in/linkedin-candidate');
+      const imageResume = await request('/upload-resume', { fixture: { name: 'valid-image.png', content: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x72, 0x65, 0x73, 0x75, 0x6d, 0x65] } });
+      assert.equal(imageResume.status, 201);
+      assert.equal(imageResume.data.candidateName, 'Valid Candidate');
+      const fakeImage = await request('/upload-resume', { fixture: { name: 'renamed-image.png', content: 'not an image' } });
+      assert.equal(fakeImage.status, 422);
+      const usResume = await request('/upload-resume', { fixture: { name: 'us-resume.pdf', content: '%PDF-valid' } });
+      assert.equal(usResume.status, 201);
+      assert.equal(usResume.data.location, 'Austin, TX');
+      assert.equal(usResume.data.linkedinUrl, 'https://www.linkedin.com/in/valid-candidate');
+      assert.equal(usResume.data.qualification, 'PG');
+      assert.equal(usResume.data.taxTerm, 'W-2');
+      assert.equal(usResume.data.visaStatus, 'US Citizen');
     });
     await t.test('parallel requests through serialized transactions create only one submission', async () => {
       const results = await Promise.all([1, 2].map(() => request('/rows/from-talent-pool', { ...details, skillRole: 'CONCURRENT-JOB', candidateIds: ['one'] })));
