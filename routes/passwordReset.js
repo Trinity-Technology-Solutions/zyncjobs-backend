@@ -101,25 +101,34 @@ router.post('/reset-password', async (req, res) => {
     const { token, newPassword } = req.body;
     if (!token || !newPassword) return res.status(400).json({ error: 'Token and password are required' });
 
-    const tokenData = await PasswordReset.findOne({
-      where: { token, used: false, expiresAt: { [Op.gt]: new Date() } }
+    const resetResult = await User.sequelize.transaction(async transaction => {
+      const tokenData = await PasswordReset.findOne({
+        where: { token, used: false, expiresAt: { [Op.gt]: new Date() } },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!tokenData) return { status: 400, error: 'Invalid or expired reset link. Please request a new one.' };
+
+      const user = await User.findOne({
+        where: { email: { [Op.iLike]: tokenData.email } },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!user) return { status: 404, error: 'User not found' };
+
+      await user.update({
+        password: await bcrypt.hash(newPassword, 10),
+        failedLoginAttempts: 0,
+        accountLockedUntil: null,
+        lastPasswordChange: new Date(),
+        mustChangePassword: false,
+      }, { transaction });
+      await tokenData.update({ used: true }, { transaction });
+      return { userType: user.role };
     });
-    if (!tokenData) return res.status(400).json({ error: 'Invalid or expired reset link. Please request a new one.' });
+    if (resetResult.error) return res.status(resetResult.status).json({ error: resetResult.error });
 
-    const user = await User.findOne({ where: { email: { [Op.iLike]: tokenData.email } } });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    user.password = hashedPassword;
-    await user.save();
-    await tokenData.update({ used: true });
-
-    // Verify it actually saved
-    const verify = await User.findOne({ where: { email: { [Op.iLike]: tokenData.email } } });
-    const isMatch = await bcrypt.compare(newPassword, verify.password);
-    console.log('✅ Password reset for:', tokenData.email, '| Verify match:', isMatch);
-
-    res.json({ success: true, message: 'Password reset successful' });
+    res.json({ success: true, message: 'Password reset successful', userType: resetResult.userType });
   } catch (error) {
     console.error('reset-password error:', error.message);
     res.status(500).json({ error: 'Something went wrong. Please try again.' });

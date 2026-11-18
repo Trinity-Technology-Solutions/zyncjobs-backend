@@ -589,67 +589,68 @@ router.post('/login', loginLimiter, async (req, res) => {
     // Email verification check
     if (emailVerificationGuard(user, res)) return;
     
-    // Check password - add validation
-    if (!user.password) {
-      console.log('❌ No password stored for user');
-      return res.status(400).json({ error: 'Account has no password. Please reset your password.' });
-    }
-
-    // ── Lockout check ───────────────────────────────────────────────────
-    if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
-      const minutesRemaining = Math.ceil((new Date(user.accountLockedUntil) - Date.now()) / 60000);
-      const LOCKOUT_MINS = parseInt(process.env.LOCKOUT_DURATION_MINUTES) || 15;
-      console.warn(`🔒 Locked account login attempt: ${email}`);
-      return res.status(423).json({
-        error: `Account is temporarily locked due to too many failed login attempts. Please try again in ${minutesRemaining} minute(s) or reset your password.`,
-        locked: true,
-        lockedUntil: user.accountLockedUntil,
-        lockoutMinutes: LOCKOUT_MINS,
-        remainingAttempts: 0
-      });
-    }
-    // ────────────────────────────────────────────────────────────
-    
-    const isPasswordValid = await bcrypt.compare(password.trim(), user.password)
-      || await bcrypt.compare(password, user.password);
-    console.log('🔐 Password comparison result:', isPasswordValid);
-    
-    if (!isPasswordValid) {
-      console.log('❌ Invalid password for:', email);
-      const attempts = (user.failedLoginAttempts || 0) + 1;
-      const LIMIT = parseInt(process.env.LOGIN_ATTEMPT_LIMIT) || 5;
-      const LOCKOUT_MINS = parseInt(process.env.LOCKOUT_DURATION_MINUTES) || 15;
-      const updateData = { failedLoginAttempts: attempts, lastFailedLogin: new Date() };
-      if (attempts >= LIMIT) {
-        updateData.accountLockedUntil = new Date(Date.now() + LOCKOUT_MINS * 60000);
-        await user.update(updateData);
-        console.warn(`🚨 Account locked after ${LIMIT} failed attempts: ${email}`);
-        logAdminAction(req, 'account_locked', email, `Locked after ${LIMIT} failed attempts`).catch(() => {});
-        return res.status(423).json({
-          error: `Account locked after ${LIMIT} failed login attempts. Please try again in ${LOCKOUT_MINS} minutes or reset your password.`,
-          locked: true,
-          lockedUntil: updateData.accountLockedUntil,
-          lockoutMinutes: LOCKOUT_MINS,
-          remainingAttempts: 0
-        });
+    const attemptLimit = parseInt(process.env.LOGIN_ATTEMPT_LIMIT, 10) || 5;
+    const lockoutMinutes = parseInt(process.env.LOCKOUT_DURATION_MINUTES, 10) || 15;
+    const passwordCheck = await User.sequelize.transaction(async transaction => {
+      await user.reload({ transaction, lock: transaction.LOCK.UPDATE });
+      if (!user.password) {
+        return { status: 400, body: { error: 'Account has no password. Please reset your password.' } };
       }
-      await user.update(updateData);
-      const attemptsRemaining = LIMIT - attempts;
-      return res.status(401).json({
-        error: `Invalid password. ${attemptsRemaining} attempt(s) remaining before account lockout.`,
-        suggestReset: attempts >= 3,
-        attemptsRemaining
+
+      const lockoutResponse = (lockedUntil, newlyLocked = false) => ({
+        status: 423,
+        newlyLocked,
+        body: {
+          error: 'Too many failed sign-in attempts. Wait for the lockout to end or reset your password.',
+          locked: true,
+          lockedUntil,
+          lockoutMinutes,
+          remainingSeconds: Math.max(0, Math.ceil((lockedUntil.getTime() - Date.now()) / 1000)),
+          remainingAttempts: 0,
+        },
       });
-    }
+      const lockedUntil = user.accountLockedUntil ? new Date(user.accountLockedUntil) : null;
+      if (lockedUntil && lockedUntil.getTime() > Date.now()) return lockoutResponse(lockedUntil);
 
-    console.log('✅ Password valid for:', email);
+      const isPasswordValid = await bcrypt.compare(password.trim(), user.password)
+        || (password !== password.trim() && await bcrypt.compare(password, user.password));
+      if (isPasswordValid) {
+        await user.update({
+          failedLoginAttempts: 0,
+          accountLockedUntil: null,
+          lastSuccessfulLogin: new Date(),
+        }, { transaction });
+        return null;
+      }
 
-    // Reset lockout state on successful login
-    await user.update({
-      failedLoginAttempts: 0,
-      accountLockedUntil: null,
-      lastSuccessfulLogin: new Date()
+      const attempts = (lockedUntil ? 0 : user.failedLoginAttempts || 0) + 1;
+      const now = new Date();
+      const nextLockout = attempts >= attemptLimit
+        ? new Date(now.getTime() + lockoutMinutes * 60_000)
+        : null;
+      await user.update({
+        failedLoginAttempts: attempts,
+        lastFailedLogin: now,
+        accountLockedUntil: nextLockout,
+      }, { transaction });
+      if (nextLockout) return lockoutResponse(nextLockout, true);
+
+      const attemptsRemaining = attemptLimit - attempts;
+      return {
+        status: 401,
+        body: {
+          error: `Invalid password. ${attemptsRemaining} attempt(s) remaining before account lockout.`,
+          suggestReset: attempts >= 3,
+          attemptsRemaining,
+        },
+      };
     });
+    if (passwordCheck) {
+      if (passwordCheck.newlyLocked) {
+        logAdminAction(req, 'account_locked', user.email, `Locked after ${attemptLimit} failed attempts`).catch(() => {});
+      }
+      return res.status(passwordCheck.status).json(passwordCheck.body);
+    }
 
     // ── Password expiry check ─────────────────────────────────────────────────
     const isAdmin = ['admin', 'super_admin'].includes(user.role);
