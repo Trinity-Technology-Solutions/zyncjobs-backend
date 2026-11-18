@@ -5,54 +5,26 @@ import path from 'path';
 import { sequelize } from '../config/postgresql.js';
 import User from '../models/User.js';
 
-const DEFAULT_ADMIN_EMAILS = [
-  'admin@zyncjobs.com',
-  'antony@trinitetech.com'
-];
-
-const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@1234';
+const DEFAULT_ADMIN_EMAIL = 'admin@zyncjobs.com';
 
 export const ensureDefaultSuperAdmin = async () => {
-  const results = [];
+  const email = DEFAULT_ADMIN_EMAIL;
+  const existing = await User.findOne({
+    where: { email: { [Op.iLike]: email } },
+    attributes: ['id'],
+  });
+  if (existing) return [{ email, action: 'unchanged', id: existing.id }];
 
-  for (const email of DEFAULT_ADMIN_EMAILS) {
-    const normalizedEmail = email.toLowerCase().trim();
+  const password = process.env.DEFAULT_ADMIN_PASSWORD;
+  if (!password) {
+    throw new Error('Set DEFAULT_ADMIN_PASSWORD to provision the default admin for the first time.');
+  }
 
-    const existing = await User.findOne({
-      where: { email: { [Op.iLike]: normalizedEmail } }
-    });
-
-    if (existing) {
-      const payload = {
-        role: 'super_admin',
-        isActive: true,
-        status: 'active',
-        emailVerified: true,
-        lastPasswordChange: new Date(),
-        passwordExpiryDays: 90,
-        mustChangePassword: false,
-        passwordHistory: []
-      };
-
-      if (existing.role !== 'super_admin' || !existing.isActive || existing.status !== 'active') {
-        await existing.update(payload);
-      }
-
-      const hashed = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
-      if (existing.password !== hashed) {
-        await existing.update({ password: hashed, ...payload });
-      }
-
-      results.push({ email: normalizedEmail, action: 'updated' });
-      console.log(`✅ Default admin ensured: ${normalizedEmail}`);
-      continue;
-    }
-
-    const hashedPassword = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
-    const user = await User.create({
-      name: normalizedEmail.includes('trinitetech') ? 'Antony' : 'Zyncjobs Admin',
-      email: normalizedEmail,
-      password: hashedPassword,
+  const [user, created] = await User.findOrCreate({
+    where: { email },
+    defaults: {
+      name: 'Zyncjobs Admin',
+      password: await bcrypt.hash(password, 10),
       role: 'super_admin',
       isActive: true,
       status: 'active',
@@ -60,17 +32,13 @@ export const ensureDefaultSuperAdmin = async () => {
       lastPasswordChange: new Date(),
       passwordExpiryDays: 90,
       mustChangePassword: false,
-      passwordHistory: []
-    });
-
-    results.push({ email: normalizedEmail, action: 'created', id: user.id });
-    console.log(`✅ Default admin created: ${normalizedEmail}`);
-  }
-
-  return results;
+      passwordHistory: [],
+    },
+  });
+  return [{ email, action: created ? 'created' : 'unchanged', id: user.id }];
 };
 
-const createAdmin = async () => {
+export const createAdmin = async () => {
   try {
     await sequelize.authenticate();
     const result = await ensureDefaultSuperAdmin();

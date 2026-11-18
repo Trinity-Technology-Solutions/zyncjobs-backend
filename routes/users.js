@@ -516,6 +516,18 @@ router.post('/login', loginLimiter, async (req, res) => {
       where: { email: { [Op.iLike]: email.trim() } }
     });
     
+    const isAdminPortal = req.body.portal === 'admin';
+    const adminRoles = ['admin', 'super_admin', 'manager', 'recruiter'];
+    const canUseAdminPortal = account => account && (
+      adminRoles.includes(account.role)
+      || account.extraRoles?.includes('recruiter')
+      || account.permissions?.includes('recruiter_portal_access')
+    );
+    const adminAccountNotFound = { error: 'Admin or recruiter account not found.' };
+    if (isAdminPortal && !canUseAdminPortal(user)) {
+      return res.status(404).json(adminAccountNotFound);
+    }
+
     // Check if user exists
     if (!user) {
       console.log('❌ User not found:', email);
@@ -593,6 +605,9 @@ router.post('/login', loginLimiter, async (req, res) => {
     const lockoutMinutes = parseInt(process.env.LOCKOUT_DURATION_MINUTES, 10) || 15;
     const passwordCheck = await User.sequelize.transaction(async transaction => {
       await user.reload({ transaction, lock: transaction.LOCK.UPDATE });
+      if (isAdminPortal && !canUseAdminPortal(user)) {
+        return { status: 404, body: adminAccountNotFound };
+      }
       if (!user.password) {
         return { status: 400, body: { error: 'Account has no password. Please reset your password.' } };
       }

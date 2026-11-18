@@ -146,7 +146,7 @@ export const requireRole = (allowedRoles) => {
 export const requireSuperAdmin = (req, res, next) => {
   const userRole = req.user?.role;
   const userEmail = req.user?.email;
-  const SUPER_ADMIN_EMAILS = ['admin@zyncjobs.com', 'antony@trinitetech.com', 'muthees@trinitetech.com'];
+  const SUPER_ADMIN_EMAILS = ['admin@zyncjobs.com', 'muthees@trinitetech.com'];
 
   if (userRole !== 'super_admin' && !SUPER_ADMIN_EMAILS.includes(userEmail)) {
     return res.status(403).json({ error: 'Super admin access required' });
