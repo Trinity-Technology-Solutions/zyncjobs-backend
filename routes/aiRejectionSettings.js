@@ -5,11 +5,9 @@ import Application from '../models/Application.js';
 import Job from '../models/Job.js';
 import Profile from '../models/Profile.js';
 import Resume from '../models/Resume.js';
-import { sendApplicationRejectionEmail } from '../services/emailService.js';
 import aiClient from '../services/aiClient.js';
 import User from '../models/User.js';
 import TeamMember from '../models/TeamMember.js';
-import NotificationService from '../services/notificationService.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -96,23 +94,28 @@ async function getCandidateData(application) {
     resumeParsed = resume?.parsedData || null;
   }
 
-  const skills = normalizeSkillList(profile?.skills).length
-    ? normalizeSkillList(profile?.skills)
-    : normalizeSkillList(application.skills).length
-      ? normalizeSkillList(application.skills)
-      : normalizeSkillList(application.resumeSkills).length
-        ? normalizeSkillList(application.resumeSkills)
-        : normalizeSkillList(resumeParsed?.skills);
+  const skills = normalizeSkillList([
+    ...normalizeSkillList(profile?.skills),
+    ...normalizeSkillList(application.skills),
+    ...normalizeSkillList(application.resumeSkills),
+    ...normalizeSkillList(resumeParsed?.skills),
+  ]);
   const rawYearsExp = profile?.yearsExperience ?? application.yearsExperience ?? application.experience ?? resumeParsed?.yearsExperience;
   const yearsExp = parseFloat(rawYearsExp) || 0;
   const education = profile?.education || application.education || resumeParsed?.education || '';
   const location = profile?.location || application.location || resumeParsed?.location || '';
+
+  const employment = [profile?.employment, resumeParsed?.employment, resumeParsed?.experience]
+    .filter(value => Array.isArray(value) || (value && typeof value === "object") || typeof value === "string")
+    .map(value => typeof value === "string" ? value : JSON.stringify(value))
+    .join('\n');
 
   // Build a plain-text resume so the AI scorer always receives real candidate data
   const resumeText = [
     profile?.profileSummary ? `Summary: ${profile.profileSummary}` : '',
     skills.length ? `Skills: ${skills.join(', ')}` : '',
     yearsExp ? `Experience: ${yearsExp} years` : '',
+    employment ? `Employment history: ${employment}` : '',
     education ? `Education: ${education}` : '',
     location ? `Location: ${location}` : '',
   ].filter(Boolean).join('\n');
@@ -275,66 +278,41 @@ export const runAutoRejection = async (application, job, dryRun = false) => {
       String(candidate.location).toLowerCase().includes(String(requiredLocation).toLowerCase()) ||
       String(requiredLocation).toLowerCase().includes(String(candidate.location).toLowerCase())
     );
-    const shouldReject =
-      (rejectReasons.skillsMismatch && hasSkillData && skillsScore < settings.minSkillsMatch) ||
-      (rejectReasons.insufficientExperience && candidate.hasExperienceData && experienceScore < settings.minExperienceMatch) ||
-      (hasSkillData && candidate.hasExperienceData && overallScore < settings.minOverallScore) ||
-      (rejectReasons.educationGap && hasEducationData && !educationMatches) ||
-      (rejectReasons.locationMismatch && hasLocationData && !locationMatches);
-
-    const scoreBreakdown = { skillsScore, experienceScore, overallScore, reasons: aiReasons, feedback: aiFeedback };
-
-    if (!dryRun) {
-      const oldStatus = application.status;
-      const update = {
-        aiSuggestion: shouldReject ? 'reject' : null,
-        aiScore: overallScore,
-        aiAnalysis: scoreBreakdown,
-        employerConfirmedRejection: false
-      };
-      if (shouldReject && oldStatus !== 'rejected') {
-        update.status = 'rejected';
-        update.timeline = [
-          ...(Array.isArray(application.timeline) ? application.timeline : []),
-          {
-            status: 'rejected',
-            date: new Date().toISOString(),
-            note: `Automatically rejected by AI screening (score: ${overallScore}).`,
-            updatedBy: 'AI Auto-Rejection'
-          }
-        ];
+    const reviewReasons = [];
+    if (rejectReasons.skillsMismatch) {
+      if (!hasSkillData) reviewReasons.push('Required skills could not be verified.');
+      else if (skillsScore < settings.minSkillsMatch) {
+        reviewReasons.push(`Skills score ${skillsScore}% is below the ${settings.minSkillsMatch}% threshold.`);
       }
-      await application.update({
-        ...update
-      });
-
-      if (shouldReject && oldStatus !== 'rejected') {
-        try {
-          await NotificationService.createApplicationStatusNotification(application, 'rejected');
-        } catch (notificationError) {
-          console.error('AI rejection notification failed:', notificationError.message);
-        }
-        if (settings.sendFeedback && application.candidateEmail) {
-          try {
-            await sendApplicationRejectionEmail(
-              application.candidateEmail,
-              application.candidateName,
-              job.jobTitle || job.title || 'the position',
-              job.company || 'the company',
-              aiFeedback || null,
-              aiReasons,
-              employerEmail,
-              job.company || 'ZyncJobs employer'
-            );
-          } catch (emailError) {
-            console.error('AI rejection email failed:', emailError.message);
-          }
-        }
+    }
+    if (rejectReasons.insufficientExperience) {
+      if (!candidate.hasExperienceData) reviewReasons.push('Years of experience could not be verified.');
+      else if (experienceScore < settings.minExperienceMatch) {
+        reviewReasons.push(`Experience score ${experienceScore}% is below the ${settings.minExperienceMatch}% threshold.`);
       }
-      console.log(`AI application evaluation complete | appId=${application.id} | score=${overallScore} | rejected=${shouldReject}`);
+    }
+    if (hasSkillData && candidate.hasExperienceData && overallScore < settings.minOverallScore) {
+      reviewReasons.push(`Overall score ${overallScore}% is below the ${settings.minOverallScore}% threshold.`);
+    }
+    if (rejectReasons.educationGap && requiredEducation && !educationMatches) {
+      reviewReasons.push('The listed education requirement could not be verified.');
+    }
+    if (rejectReasons.locationMismatch && requiredLocation && !remoteJob && !locationMatches) {
+      reviewReasons.push('The listed location requirement could not be verified.');
     }
 
-    return { rejected: shouldReject, scores: scoreBreakdown, dryRun };
+    const needsReview = reviewReasons.length > 0;
+    const scoreBreakdown = { skillsScore, experienceScore, overallScore, reasons: aiReasons, feedback: aiFeedback, reviewReasons };
+
+    if (!dryRun) {
+      await application.update({
+        aiSuggestion: needsReview ? 'review' : null,
+        aiScore: overallScore,
+        aiAnalysis: scoreBreakdown,
+      });
+    }
+
+    return { rejected: false, needsReview, scores: scoreBreakdown, dryRun };
   } catch (err) {
     console.error('runAutoRejection error:', err.message);
     return { rejected: false, error: err.message };
@@ -386,19 +364,19 @@ router.post('/:jobId?', async (req, res) => {
     if (settings) await settings.update(values);
     else settings = await AiRejectionSetting.create(values);
 
-    let autoRejectedCount = 0;
+    let flaggedForReviewCount = 0;
     if (autoReject) {
       const jobs = jobId ? await Job.findAll({ where: { id: jobId } }) : await findEmployerJobs(employerEmail);
       for (const j of jobs) {
         const pending = await Application.findAll({ where: { jobId: j.id, status: 'pending' } });
         for (const app of pending) {
           const result = await runAutoRejection(app, j);
-          if (result.rejected) autoRejectedCount++;
+          if (result.needsReview) flaggedForReviewCount++;
         }
       }
     }
 
-    res.json({ message: 'Settings saved', settings, autoRejectedCount });
+    res.json({ message: 'Settings saved', settings, flaggedForReviewCount, autoRejectedCount: 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -427,7 +405,8 @@ router.post('/preview/:applicationId', async (req, res) => {
       scores: { skillsScore, experienceScore, overallScore },
       aiReasons: aiResult?.reasons || [],
       aiFeedback: aiResult?.feedback || '',
-      wouldReject: aiResult?.shouldReject ?? (overallScore < 70)
+      needsReview: aiResult?.shouldReject ?? (overallScore < 70),
+      wouldReject: false
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -438,7 +417,7 @@ router.post('/preview/:applicationId', async (req, res) => {
 router.post('/bulk-reject/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const { employerEmail, dryRun = false } = req.body;
+    const { dryRun = false } = req.body;
 
     const job = await Job.findByPk(jobId);
     if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -451,8 +430,8 @@ router.post('/bulk-reject/:jobId', async (req, res) => {
       results.push({ applicationId: app.id, email: app.candidateEmail, ...result });
     }
 
-    const rejectedCount = results.filter(r => r.rejected).length;
-    res.json({ total: pending.length, rejected: rejectedCount, dryRun, results });
+    const flaggedForReviewCount = results.filter(result => result.needsReview).length;
+    res.json({ total: pending.length, rejected: 0, flaggedForReviewCount, dryRun, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
