@@ -81,6 +81,66 @@ export function resumeEvidence(value, source, kind) {
   const escaped = normalized(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+');
   return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(normalized(source));
 }
+
+const employmentHeading = /^(?:work experience|professional experience|experience|employment(?: history)?|work history|career history)$/i;
+const projectsHeading = /^(?:(?:(?:key|selected|personal|academic|technical|professional) )?projects?|project experience|project work)$/i;
+const otherHeading = /^(?:(?:technical |core |soft )?skills|education(?: details)?|certifications?|languages|internships?|achievements|awards|publications|summary|professional summary|contact information|references)$/i;
+const bullet = /^\s*[•*–—-]\s/;
+const normalizeSectionText = value => value.normalize('NFKC').toLowerCase()
+  .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const containsSectionIdentity = (source, value) => Boolean(value && ` ${source} `.includes(` ${value} `));
+
+function verifyEmploymentSections(data, lines) {
+  const work = [];
+  const projectLines = [];
+  let section = null;
+  let hasEmploymentHeading = false;
+  for (const line of lines) {
+    const heading = line.trim().replace(/[:\s]+$/, '');
+    if (employmentHeading.test(heading)) {
+      hasEmploymentHeading = true;
+      section = 'employment';
+    } else if (projectsHeading.test(heading)) {
+      section = 'projects';
+    } else if (otherHeading.test(heading)) {
+      section = null;
+    } else if (section === 'employment') {
+      work.push(line);
+    } else if (section === 'projects') {
+      projectLines.push(line);
+    }
+  }
+  const workText = normalizeSectionText(work.filter(line => !bullet.test(line)).join(' '));
+  if (!workText && !projectLines.length) return;
+  const warnings = new Set(Array.isArray(data.parserWarnings) ? data.parserWarnings : []);
+  data.workExperiences = data.workExperiences.filter(entry => {
+    const identity = normalizeSectionText(entry.company || entry.jobTitle || entry.title || entry.role || '');
+    if (!identity || containsSectionIdentity(workText, identity)) return true;
+
+    const project = projectLines
+      .filter(line => !bullet.test(line))
+      .map(line => line.trim().replace(/\s+(?:current|present)$/i, ''))
+      .find(line => {
+        const title = normalizeSectionText(line);
+        return title === identity || (title.startsWith(identity + ' ') && /\s[-–—:]\s|:\s/.test(line));
+      });
+    if (project && (hasEmploymentHeading || !lines.some(line => !projectLines.includes(line) && containsSectionIdentity(normalizeSectionText(line), identity)))) {
+      const name = cleanResumeField(project, 'label');
+      const existing = data.projects.find(item => [identity, normalizeSectionText(project)].includes(normalizeSectionText(item.name || '')));
+      if (name && existing) existing.name = name;
+      else if (name) data.projects.push({ name, descriptions: [], description: '' });
+      warnings.add('A project was kept in Projects instead of Employment.');
+      return false;
+    }
+    if (hasEmploymentHeading && workText) {
+      warnings.add('An employment entry could not be verified from the Work Experience section.');
+      return false;
+    }
+    return true;
+  });
+  if (warnings.size) data.parserWarnings = [...warnings];
+}
+
 export function validateResumeFields(input, source) {
   const data = input && typeof input === 'object' && !Array.isArray(input) ? { ...input } : {};
   const sourceText = normalizeSourceText(source);
@@ -138,6 +198,7 @@ export function validateResumeFields(input, source) {
     if (item.noExpiry === true && /no expiry|does not expire|lifetime/i.test(sourceText)) result.noExpiry = true;
     return result;
   }).filter(item => Object.entries(item).some(([key, value]) => !['description', 'descriptions'].includes(key) && typeof value === 'string' && value)) : [];
+  verifyEmploymentSections(data, sourceText.split(/\r?\n|\f/));
   data.title = pick('jobTitle', [data.title, data.jobTitle, data.currentRole, data.current_role, data.profession, ...data.workExperiences.map(item => item.jobTitle || item.title || item.role), ...data.internships.map(item => item.jobTitle || item.title || item.role)]);
   data.jobTitle = data.title;
   for (const key of ['skills', 'tools', 'softSkills', 'languages']) data[key] = Array.isArray(data[key]) ? [...new Set(data[key].map(value => pick(key === 'skills' ? 'skill' : 'label', [value])).filter(Boolean))] : [];

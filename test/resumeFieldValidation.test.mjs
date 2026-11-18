@@ -80,3 +80,26 @@ test('recovers a flattened uppercase PDF header name without accepting a section
   assert.equal(parsed.email, 'shreesherinerachel7@gmail.com');
   assert.equal(parsed.phone, '8754437435');
 });
+
+
+test('keeps current projects out of employment and preserves the real employer', () => {
+  const text = [
+    'WORK EXPERIENCE',
+    'Associate Software Engineer',
+    'Trinity Technology Solutions | Chennai, India',
+    '\u2022 Worked on ZyncJobs.',
+    'KEY PROJECTS',
+    'ZyncJobs \u2013 AI-Powered Job Portal Current',
+    '\u2022 Built the job portal.',
+  ].join('\n');
+  const workExperiences = [
+    { company: 'ZyncJobs', jobTitle: 'Associate Software Engineer' },
+    { company: 'Trinity Technology Solutions', jobTitle: 'Associate Software Engineer' },
+  ];
+  const result = validateResumeFields({ workExperiences, projects: [{ name: 'ZyncJobs', descriptions: ['Built the job portal.'] }] }, text);
+  assert.deepEqual(result.workExperiences.map(item => item.company), ['Trinity Technology Solutions']);
+  assert.equal(result.projects.length, 1);
+  assert.equal(result.projects[0].name, 'ZyncJobs \u2013 AI-Powered Job Portal');
+  assert.deepEqual(result.projects[0].descriptions, ['Built the job portal.']);
+  assert.equal(result.parserWarnings.length, 1);
+});
