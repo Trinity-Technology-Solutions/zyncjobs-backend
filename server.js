@@ -841,14 +841,15 @@ app.post('/api/generate-content', async (req, res) => {
 
 // Job Post Text Parser - extracts structured fields from pasted job description
 app.post('/api/parse-job-post', async (req, res) => {
+  const text = req.body?.text;
+  let preExtract = {};
   try {
-    const { text } = req.body;
-    if (!text || text.length < 30) {
+    if (typeof text !== 'string' || text.trim().length < 30) {
       return res.status(400).json({ error: 'Please provide valid job post text' });
     }
 
     // Pre-extract company and location with regex before sending to AI
-    const preExtract = preExtractJobFields(text);
+    preExtract = preExtractJobFields(text);
 
     // Pre-extract job title from first non-empty line (skip metadata lines)
     const stripMd = (s) => s.replace(/^#+\s*/, '').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/^\*\s+/, '').trim();
@@ -899,8 +900,10 @@ app.post('/api/parse-job-post', async (req, res) => {
         salaryMin: parsed.salaryMin || 0,
         salaryMax: parsed.salaryMax || 0,
         currency: parsed.currency || 'INR',
+        payRate: ['per year', 'per month', 'per hour'].includes(parsed.payRate) ? parsed.payRate : '',
+        payType: ['Exact amount', 'Range', 'Starting amount', 'Maximum amount'].includes(parsed.payType) ? parsed.payType : '',
         jobCategory: parsed.jobCategory || 'Information Technology',
-        description: parsed.description || text,
+        description: text,
         responsibilities: Array.isArray(parsed.responsibilities) ? parsed.responsibilities : [],
         requirements: Array.isArray(parsed.requirements) ? parsed.requirements : [],
         educationLevel: parsed.educationLevel || '',
@@ -1021,7 +1024,7 @@ function sanitizeCompany(aiCompany, preExtracted) {
   const isInvalid = (val) => {
     if (!val || val.trim().length < 2) return true;
     const lower = val.toLowerCase().trim();
-    if (invalidPhrases.some(p => lower.includes(p))) return true;
+    if (invalidPhrases.some(phrase => phrase.length <= 3 ? lower === phrase : lower.includes(phrase))) return true;
     // Check if it's a known tool/technology
     if (knownTools.some(t => lower === t || lower.includes(t + ',') || lower.startsWith(t + ' '))) return true;
     // If it contains a comma and both parts are tools, it's a skills list
@@ -1067,7 +1070,7 @@ function sanitizeLocation(aiLocation, preExtracted) {
   const isInvalid = (val) => {
     if (!val || val.trim().length < 2) return true;
     const lower = val.toLowerCase().trim();
-    if (invalidWords.some(w => lower === w || lower.includes(w))) return true;
+    if (invalidWords.includes(lower)) return true;
     // If it's just "India" alone, it's too vague
     if (lower === 'india') return true;
     return false;
